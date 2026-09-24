@@ -1,0 +1,194 @@
+"""Settings dialog. Edits a *copy* of :class:`AppSettings`; the caller persists it."""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QStandardItemModel
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE, ProviderKind
+from pcbrouter.compute.manager import ComputeManager
+from pcbrouter.settings.settings import AppSettings, ComputeBackendChoice, Theme
+from pcbrouter.ui.dialogs import compute_info_text
+
+
+def _banner(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setProperty("role", "banner")
+    return label
+
+
+class SettingsDialog(QDialog):
+    def __init__(
+        self, settings: AppSettings, compute: ComputeManager | None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(520)
+        self._settings = settings.model_copy(deep=True)
+
+        tabs = QTabWidget()
+        tabs.addTab(self._general_tab(), "General")
+        tabs.addTab(self._viewer_tab(), "Viewer")
+        tabs.addTab(self._compute_tab(), "Compute")
+        tabs.addTab(self._ai_tab(), "AI Providers")
+        tabs.addTab(self._routing_tab(), "Routing")
+        tabs.addTab(self._gpu_tab(compute), "GPU")
+        self.tabs = tabs
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(tabs)
+        layout.addWidget(buttons)
+
+    # ------------------------------------------------------------------ tabs
+    def _general_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        self.theme_combo = QComboBox()
+        for t in Theme:
+            self.theme_combo.addItem(t.value.capitalize(), t)
+        self.theme_combo.setCurrentIndex(list(Theme).index(self._settings.theme))
+        self.theme_combo.setToolTip("Widget theme. The board canvas always uses a dark workspace.")
+        form.addRow("Theme:", self.theme_combo)
+        self.clear_recent = QPushButton(
+            f"Clear recent boards ({len(self._settings.recent_boards)})"
+        )
+        self.clear_recent.setEnabled(bool(self._settings.recent_boards))
+        self.clear_recent.clicked.connect(self._on_clear_recent)
+        form.addRow("Recent boards:", self.clear_recent)
+        last_dir = QLabel(self._settings.last_open_directory or "not set")
+        last_dir.setProperty("role", "muted")
+        form.addRow("Last directory:", last_dir)
+        return w
+
+    def _viewer_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        self.grid_visible = QCheckBox("Show grid")
+        self.grid_visible.setChecked(self._settings.viewer.grid_visible)
+        form.addRow(self.grid_visible)
+        self.grid_spacing = QDoubleSpinBox()
+        self.grid_spacing.setRange(0.01, 100.0)
+        self.grid_spacing.setDecimals(3)
+        self.grid_spacing.setSingleStep(0.1)
+        self.grid_spacing.setSuffix(" mm")
+        self.grid_spacing.setValue(self._settings.viewer.grid_spacing_mm)
+        self.grid_spacing.setToolTip(
+            "Base grid pitch. The canvas coarsens it automatically when "
+            "zoomed out so lines stay legible."
+        )
+        form.addRow("Grid spacing:", self.grid_spacing)
+        self.show_labels = QCheckBox("Show reference labels")
+        self.show_labels.setChecked(self._settings.viewer.show_reference_labels)
+        form.addRow(self.show_labels)
+        self.show_bodies = QCheckBox("Show footprint bodies")
+        self.show_bodies.setChecked(self._settings.viewer.show_footprint_bodies)
+        form.addRow(self.show_bodies)
+        return w
+
+    def _compute_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItem("CPU", ComputeBackendChoice.CPU)
+        self.backend_combo.addItem(
+            f"GPU (CUDA) — {STAGE_UNAVAILABLE_MESSAGE}", ComputeBackendChoice.GPU
+        )
+        # Disable the GPU entry: selectable only once a GPU backend exists.
+        model = self.backend_combo.model()
+        if isinstance(model, QStandardItemModel) and model.item(1) is not None:
+            model.item(1).setEnabled(False)
+        self.backend_combo.setCurrentIndex(0)
+        form.addRow("Default backend:", self.backend_combo)
+        form.addRow(
+            _banner(
+                "Stage 1 always uses the CPU. The compute backend is not used for "
+                "any heavy work yet — routing arrives in a later stage."
+            )
+        )
+        return w
+
+    def _ai_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(
+            _banner(
+                f"AI providers — {STAGE_UNAVAILABLE_MESSAGE}.\n\n"
+                "Planned providers: " + ", ".join(k.display_name for k in ProviderKind) + ".\n\n"
+                "Security rules already in force: API keys will be stored in the OS keyring, never "
+                "in settings or project files; board files are never sent to a provider "
+                "automatically; AI output is only accepted as validated structured commands and is "
+                "never executed as code."
+            )
+        )
+        for kind in ProviderKind:
+            box = QCheckBox(f"Enable {kind.display_name}")
+            box.setEnabled(False)
+            box.setToolTip(STAGE_UNAVAILABLE_MESSAGE)
+            layout.addWidget(box)
+        layout.addStretch(1)
+        return w
+
+    def _routing_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(
+            _banner(
+                f"Routing — {STAGE_UNAVAILABLE_MESSAGE}.\n\nStage 1 performs no autorouting "
+                "and never "
+                "modifies boards. Router settings (grid, costs, layer preferences, rip-up) will "
+                "appear here when the router is implemented."
+            )
+        )
+        layout.addStretch(1)
+        return w
+
+    def _gpu_tab(self, compute: ComputeManager | None) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(
+            _banner(
+                f"GPU acceleration — {STAGE_UNAVAILABLE_MESSAGE}. "
+                "Detection results are shown for information only."
+            )
+        )
+        info = QLabel(compute_info_text(compute) if compute else "Compute information unavailable")
+        info.setWordWrap(True)
+        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(info)
+        layout.addStretch(1)
+        return w
+
+    # ------------------------------------------------------------------ result
+    def _on_clear_recent(self) -> None:
+        self._settings.recent_boards = []
+        self.clear_recent.setText("Clear recent boards (0)")
+        self.clear_recent.setEnabled(False)
+
+    def result_settings(self) -> AppSettings:
+        s = self._settings
+        s.theme = self.theme_combo.currentData()
+        s.viewer.grid_visible = self.grid_visible.isChecked()
+        s.viewer.grid_spacing_mm = self.grid_spacing.value()
+        s.viewer.show_reference_labels = self.show_labels.isChecked()
+        s.viewer.show_footprint_bodies = self.show_bodies.isChecked()
+        s.default_compute_backend = self.backend_combo.currentData()
+        return s
