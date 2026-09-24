@@ -84,7 +84,9 @@ local HTTP server. To smoke-test with your keys: configure a profile, press
   not yet persisted as a project constraint file.
 * Token counts are estimates (≈4 characters/token) unless `tiktoken` is installed.
 * OpenAI's model list includes non-chat models (the API gives no capability data).
-* Not yet run on real Windows.
+* Windows: the full test suite and an install → run → uninstall smoke test of the
+  installer pass on Windows Server 2025 (GitHub Actions). Not yet tried by a person on a
+  Windows 11 desktop.
 
 ## Stage 3 prerequisites
 
@@ -129,4 +131,4 @@ local HTTP server. To smoke-test with your keys: configure a profile, press
 | 27 | Verify API keys are not in settings files | PASS | file searched for the fake key |
 | 28 | Run the complete test suite | PASS | 392 passed |
 | — | Real-provider manual smoke test (item 71) | NOT RUN | no credentials |
-| — | Windows 11 | NOT RUN | Linux/offscreen only |
+| — | Windows 11 | PARTIAL | test suite + installer smoke test pass on Windows Server 2025 (CI); no manual Windows 11 desktop run |

@@ -79,8 +79,8 @@ Details: [docs/stage2.md](docs/stage2.md) · [docs/ai_architecture.md](docs/ai_a
 
 ## Supported platforms
 
-- **Windows 11** and **modern Linux** (x86-64). macOS is untested. Stage 2 has only been
-  run on Linux so far.
+- **Windows 11** and **modern Linux** (x86-64). macOS is untested. Every push runs the
+  test suite and an installer smoke test on Windows (GitHub Actions, Windows Server 2025).
 - **Python 3.12+**.
 - KiCad does **not** need to be installed. CUDA, the `openai`/`anthropic` SDKs and
   `keyring` are all optional; the test suite proves the app runs with all of them
