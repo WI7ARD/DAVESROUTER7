@@ -19,9 +19,10 @@ from pcbrouter.domain.units import Nm
 
 class ProposalSource(Enum):
     MANUAL_TEST = "manual_test"
-    FUTURE_CPU_ROUTER = "future_cpu_router"
-    FUTURE_GPU_ROUTER = "future_gpu_router"
-    FUTURE_USER_EDIT = "future_user_edit"
+    CPU_ROUTER = "cpu_router"
+    GPU_ROUTER = "gpu_router"
+    OPTIMIZER = "optimizer"
+    USER_EDIT = "user_edit"
 
 
 @dataclass(frozen=True, slots=True)

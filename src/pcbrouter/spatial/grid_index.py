@@ -105,6 +105,15 @@ class GridIndex(SpatialIndex):
     def __contains__(self, object_id: object) -> bool:
         return object_id in self._boxes
 
+    def copy(self) -> GridIndex:
+        other = GridIndex(self.cell_size)
+        other._cells = {k: list(v) for k, v in self._cells.items()}
+        other._boxes = dict(self._boxes)
+        other._order = dict(self._order)
+        other._large = list(self._large)
+        other._counter = self._counter
+        return other
+
     @property
     def occupied_cells(self) -> int:
         return len(self._cells)

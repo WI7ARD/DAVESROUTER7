@@ -183,8 +183,12 @@ def build_occupancy(
     width: Nm,
     cell: Nm,
     bounds: BoundingBox | None = None,
+    item: ItemType = ItemType.TRACK,
 ) -> OccupancyMap:
-    """Rasterise one layer for a candidate track of ``net`` and ``width``."""
+    """Rasterise one layer for a candidate track of ``net`` and ``width``.
+
+    With ``item=ItemType.VIA`` the map is for a via centre of diameter ``width``
+    (keepouts forbidding vias, via clearances)."""
     t0 = time.perf_counter()
     if not geo.is_copper_layer(layer):
         raise GeometryError(f"{layer} is not a copper layer", f"{layer} is not a copper layer.")
@@ -204,7 +208,7 @@ def build_occupancy(
         for loop in geo.region.loops:
             inside ^= polygon_inside(xs, ys, loop)
         cells[~inside] = CellState.OUTSIDE_BOARD
-        edge_req = resolver.resolve_edge_clearance(net, ItemType.TRACK, layer)
+        edge_req = resolver.resolve_edge_clearance(net, item, layer)
         if edge_req.value is None:
             complete = False
             notes.append("copper-to-edge clearance unknown: edge band = track half-width only")
@@ -219,11 +223,12 @@ def build_occupancy(
 
     # Keepouts forbidding tracks.
     for k in geo.keepouts.values():
-        if layer in k.layers and k.rules.tracks:
+        forbidden = k.rules.vias if item is ItemType.VIA else k.rules.tracks
+        if layer in k.layers and forbidden:
             raster.mark(k.shape, r_track, CellState.KEEPOUT)
 
     # Mechanical holes (and foreign holes on layers without their copper).
-    hole_req = resolver.resolve_hole_clearance(net, ItemType.TRACK, layer)
+    hole_req = resolver.resolve_hole_clearance(net, item, layer)
     for h in geo.holes.values():
         owner = geo.copper.get(h.owner_uid) if h.owner_uid else None
         if owner is not None and (owner.net == net or layer in owner.layers):
@@ -234,20 +239,20 @@ def build_occupancy(
 
     # Copper.
     unknown_pairs = 0
-    for item in geo.copper_near(layer, spec.bounds):
-        if net is not None and item.net == net:
-            for s in item.shapes:
+    for obj in geo.copper_near(layer, spec.bounds):
+        if net is not None and obj.net == net:
+            for s in obj.shapes:
                 raster.mark(s, r_track, CellState.SAME_NET)
             continue
-        if item.kind is ItemKind.ZONE_FILL:
+        if obj.kind is ItemKind.ZONE_FILL:
             continue  # refillable: consistent with the collision engine's default
         req = resolver.resolve_clearance(
-            net, item.net, ItemType.TRACK, item_type_of(item.kind), layer,
-            None, item.local_clearance, None, item.label,
+            net, obj.net, item, item_type_of(obj.kind), layer,
+            None, obj.local_clearance, None, obj.label,
         )  # fmt: skip
         if req.value is None:
             unknown_pairs += 1
-        for s in item.shapes:
+        for s in obj.shapes:
             raster.mark(s, r_track + (req.value or 0), CellState.FOREIGN_NET)
     if unknown_pairs:
         complete = False

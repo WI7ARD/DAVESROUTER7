@@ -31,7 +31,9 @@ from pcbrouter.domain.board import Board, OutlineSegment, OutlineShape
 from pcbrouter.domain.footprint import Footprint
 from pcbrouter.domain.geometry import BoundingBox, Point
 from pcbrouter.domain.pad import Pad, PadShape, PadType, PrimitiveKind
+from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm
+from pcbrouter.domain.via import Via
 from pcbrouter.domain.zone import ZoneFillState
 from pcbrouter.geometry.board import (
     BoardGeometry,
@@ -262,6 +264,60 @@ def _pad_label(pad: Pad) -> str:
     return f"{pad.footprint_ref} pad {pad.number}" if pad.number else f"{pad.footprint_ref} pad"
 
 
+def track_item(track: Track) -> CopperItem:
+    """Geometry of one track (also used for incremental working-board updates)."""
+    uid = f"track:{track.id}"
+    r = track.width // 2
+    if track.mid is not None:
+        shapes = arc_capsules(track.start, track.mid, track.end, r)
+        acc = shapes[0].accuracy
+        note = shapes[0].note
+    else:
+        shapes = [capsule(track.start, track.end, r)]
+        acc, note = ShapeAccuracy.EXACT, None
+    return CopperItem(
+        uid=uid,
+        kind=ItemKind.TRACK,
+        source_id=track.id,
+        net=track.net_name,
+        layers=frozenset((track.layer,)),
+        shapes=tuple(shapes),
+        bounds=_bounds_of(shapes),
+        label=f"track on {track.layer}",
+        locked=track.locked,
+        width=track.width,
+        accuracy=acc,
+        note=note,
+    )
+
+
+def via_items(via: Via, copper_layers: tuple[str, ...]) -> tuple[CopperItem, HoleItem | None]:
+    """Geometry of one via: its copper and its drilled hole."""
+    uid = f"via:{via.id}"
+    order = list(copper_layers)
+    layers = frozenset(layer for layer in copper_layers if via.spans_layer(layer, order))
+    shape = circle(via.position, via.diameter // 2)
+    item = CopperItem(
+        uid=uid,
+        kind=ItemKind.VIA,
+        source_id=via.id,
+        net=via.net_name,
+        layers=layers,
+        shapes=(shape,),
+        bounds=shape.bounds,
+        label=f"{via.via_type.value} via",
+        locked=via.locked,
+        diameter=via.diameter,
+        drill=via.drill,
+    )
+    hole = None
+    if via.drill:
+        hid = f"hole:{via.id}"
+        hs = circle(via.position, via.drill // 2)
+        hole = HoleItem(hid, hs, hs.bounds, True, via.net_name, uid, "via hole")
+    return item, hole
+
+
 def build_board_geometry(board: Board) -> BoardGeometry:
     """Extract and index all geometry of ``board``. Deterministic for a given board."""
     t0 = time.perf_counter()
@@ -328,53 +384,14 @@ def build_board_geometry(board: Board) -> BoardGeometry:
         if track.layer not in copper_layers:
             unsupported.append(f"track {track.id} on non-copper layer {track.layer} ignored")
             continue
-        uid = f"track:{track.id}"
-        r = track.width // 2
-        if track.mid is not None:
-            shapes = arc_capsules(track.start, track.mid, track.end, r)
-            acc = shapes[0].accuracy
-            note = shapes[0].note
-        else:
-            shapes = [capsule(track.start, track.end, r)]
-            acc, note = ShapeAccuracy.EXACT, None
-        copper[uid] = CopperItem(
-            uid=uid,
-            kind=ItemKind.TRACK,
-            source_id=track.id,
-            net=track.net_name,
-            layers=frozenset((track.layer,)),
-            shapes=tuple(shapes),
-            bounds=_bounds_of(shapes),
-            label=f"track on {track.layer}",
-            locked=track.locked,
-            width=track.width,
-            accuracy=acc,
-            note=note,
-        )
+        item = track_item(track)
+        copper[item.uid] = item
 
     for via in board.vias:
-        uid = f"via:{via.id}"
-        layers = frozenset(
-            layer for layer in copper_layers if via.spans_layer(layer, list(copper_layers))
-        )
-        shape = circle(via.position, via.diameter // 2)
-        copper[uid] = CopperItem(
-            uid=uid,
-            kind=ItemKind.VIA,
-            source_id=via.id,
-            net=via.net_name,
-            layers=layers,
-            shapes=(shape,),
-            bounds=shape.bounds,
-            label=f"{via.via_type.value} via",
-            locked=via.locked,
-            diameter=via.diameter,
-            drill=via.drill,
-        )
-        if via.drill:
-            hid = f"hole:{via.id}"
-            hs = circle(via.position, via.drill // 2)
-            holes[hid] = HoleItem(hid, hs, hs.bounds, True, via.net_name, uid, "via hole")
+        item, via_hole = via_items(via, copper_layers)
+        copper[item.uid] = item
+        if via_hole is not None:
+            holes[via_hole.uid] = via_hole
 
     for zone in board.zones:
         if zone.is_keepout:

@@ -392,10 +392,12 @@ def test_placeholders_say_available_in_a_later_stage(
     monkeypatch.setattr(
         QMessageBox, "information", lambda _p, title, text, *a: messages.append(f"{title}\n{text}")
     )
-    for act in (window.act_route_net, window.act_route_board):
+    # Stage 4 made "Route Selected Net" real; board routing is still a placeholder.
+    assert "later stage" not in window.act_route_net.text()
+    for act in (window.act_route_board,):
         assert "Available in a later stage" in act.text()
         act.trigger()
-    assert len(messages) == 2
+    assert len(messages) == 1
     # Stage 2 activated AI configuration: it is no longer a placeholder.
     assert "later stage" not in window.act_ai.text()
     assert all("Available in a later stage" in m and "not modified" in m for m in messages)
@@ -481,8 +483,8 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
 
 def test_about_and_compute_info_text(window: MainWindow) -> None:
     about = dialogs.about_text()
-    assert __version__ in about and "does not perform autorouting" in about
-    assert "not KiCad DRC" in about and "never modifies the board file" in about
+    assert __version__ in about and "source board file is never modified" in about
+    assert "not KiCad DRC" in about and "working copy" in about
     info = dialogs.compute_info_text(window.compute)
     assert "Active compute backend: CPU" in info
     assert "Threads:" in info and "GPU candidate" in info and "CUDA: Not configured yet" in info

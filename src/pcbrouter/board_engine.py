@@ -15,6 +15,7 @@ from functools import cached_property
 from typing import Any
 
 from pcbrouter.domain.board import Board
+from pcbrouter.domain.geometry import BoundingBox
 from pcbrouter.domain.units import Nm
 from pcbrouter.drc import DRCResult, run_geometry_check
 from pcbrouter.geometry import GEOMETRY_ENGINE_VERSION
@@ -26,6 +27,7 @@ from pcbrouter.routing.connectivity import BoardConnectivity, analyse_connectivi
 from pcbrouter.routing.escape import PinEscape, analyse_pin_escape
 from pcbrouter.routing.occupancy import OccupancyMap, build_occupancy
 from pcbrouter.routing.validator import RouteValidator
+from pcbrouter.rules.model import ItemType
 from pcbrouter.rules.overrides import RuleOverrides
 from pcbrouter.rules.resolver import RuleResolver
 from pcbrouter.rules.ruleset import RULE_ENGINE_VERSION, RuleSet, build_ruleset
@@ -100,12 +102,22 @@ class BoardEngine:
         self.last_drc = result
         return result
 
-    def occupancy(self, layer: str, net: str | None, width: Nm, cell: Nm) -> OccupancyMap:
-        key = (*self.cache_key, layer, net, width, cell)
+    def occupancy(
+        self,
+        layer: str,
+        net: str | None,
+        width: Nm,
+        cell: Nm,
+        bounds: BoundingBox | None = None,
+        item: ItemType = ItemType.TRACK,
+    ) -> OccupancyMap:
+        key = (*self.cache_key, layer, net, width, cell, bounds, item)
         with self._lock:
             cached = self._occupancy.get(key)
             if cached is None:
-                cached = build_occupancy(self.geometry, self.resolver, layer, net, width, cell)
+                cached = build_occupancy(
+                    self.geometry, self.resolver, layer, net, width, cell, bounds, item
+                )
                 if len(self._occupancy) > 16:
                     self._occupancy.pop(next(iter(self._occupancy)))
                 self._occupancy[key] = cached

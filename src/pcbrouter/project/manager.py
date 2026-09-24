@@ -28,6 +28,7 @@ from pcbrouter.project.workspace import Workspace, workspace_for
 
 if TYPE_CHECKING:
     from pcbrouter.board_engine import BoardEngine
+    from pcbrouter.routing.working_board import WorkingBoard
     from pcbrouter.rules.overrides import RuleOverrides
 
 log = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class ProjectManager:
         self._workspace_base = workspace_base
         self._session: ProjectSession | None = None
         self.snapshots: SnapshotStore = snapshot_store or MetadataSnapshotStore()
-        self._engine: BoardEngine | None = None
+        self._working: WorkingBoard | None = None
         self._ai_overrides: RuleOverrides | None = None
         #: Conservative rule handling (Stage 3). ON by default; see docs/rules_engine.md.
         self.conservative_rules = True
@@ -94,7 +95,7 @@ class ProjectManager:
         result = load_board(path)
         if self._session is not None:
             self.close_board()
-        self._engine = None
+        self._working = None
         self._ai_overrides = None
         workspace = workspace_for(result.path, self._workspace_base)
         self._session = ProjectSession(
@@ -111,22 +112,29 @@ class ProjectManager:
         )  # fmt: skip
         return self._session
 
-    # ------------------------------------------------------------ Stage 3 engine
+    # ------------------------------------------------------------ Stage 3/4 engine
     @property
-    def engine(self) -> BoardEngine | None:
-        """The deterministic geometry/rule engine for the open board (lazy)."""
+    def working(self) -> WorkingBoard | None:
+        """The in-memory working board (Stage 4): routed copper lives here only."""
         if self._session is None:
             return None
-        if self._engine is None:
-            from pcbrouter.board_engine import BoardEngine, EngineConfig
+        if self._working is None:
+            from pcbrouter.board_engine import EngineConfig
+            from pcbrouter.routing.working_board import WorkingBoard
 
-            self._engine = BoardEngine(
+            self._working = WorkingBoard(
                 self._session.board,
                 self._session.project_rules,
                 self.effective_overrides(),
                 EngineConfig(conservative=self.conservative_rules),
             )
-        return self._engine
+        return self._working
+
+    @property
+    def engine(self) -> BoardEngine | None:
+        """The deterministic geometry/rule engine for the *working* board (lazy)."""
+        working = self.working
+        return working.engine if working is not None else None
 
     def manual_overrides(self) -> RuleOverrides:
         from pcbrouter.rules.overrides import RuleOverrides, load_overrides
@@ -155,16 +163,15 @@ class ProjectManager:
     def set_conservative_rules(self, enabled: bool) -> None:
         if enabled != self.conservative_rules:
             self.conservative_rules = enabled
-            if self._engine is not None:
-                from pcbrouter.board_engine import EngineConfig
-
-                self._engine = self._engine.with_overrides(
-                    self.effective_overrides(), EngineConfig(conservative=enabled)
-                )
+            self._refresh_engine_rules()
 
     def _refresh_engine_rules(self) -> None:
-        if self._engine is not None:
-            self._engine = self._engine.with_overrides(self.effective_overrides())
+        if self._working is not None:
+            from pcbrouter.board_engine import EngineConfig
+
+            self._working.set_rules(
+                self.effective_overrides(), EngineConfig(conservative=self.conservative_rules)
+            )
 
     def verify_source_unchanged(self) -> bool | None:
         if self._session is None:
@@ -185,6 +192,6 @@ class ProjectManager:
         else:
             log.info("project.close source=%s unchanged=%s", report.source_path, unchanged)
         self._session = None
-        self._engine = None
+        self._working = None
         self._ai_overrides = None
         return report

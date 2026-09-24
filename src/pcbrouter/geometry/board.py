@@ -13,7 +13,8 @@ source file's UUIDs, so they stay stable across reloads of the same file.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from pcbrouter.domain.board import Board
@@ -191,6 +192,57 @@ class BoardGeometry:
         i, j = self.copper_layers.index(a), self.copper_layers.index(b)
         lo, hi = min(i, j), max(i, j)
         return list(self.copper_layers[lo : hi + 1])
+
+    # ------------------------------------------------------------ incremental updates
+    def copy(self) -> BoardGeometry:
+        """Independent geometry (own dicts and indexes; shapes are immutable and shared)."""
+        return replace(
+            self,
+            copper=dict(self.copper),
+            holes=dict(self.holes),
+            keepouts=dict(self.keepouts),
+            edges=dict(self.edges),
+            copper_index=self.copper_index.copy(),
+            hole_index=self.hole_index.copy(),
+            keepout_index=self.keepout_index.copy(),
+            edge_index=self.edge_index.copy(),
+            notes=list(self.notes),
+            unsupported=list(self.unsupported),
+            unfilled_zones=list(self.unfilled_zones),
+            by_net={k: list(v) for k, v in self.by_net.items()},
+        )
+
+    def apply_changes(
+        self,
+        board: Board,
+        add_copper: Iterable[CopperItem] = (),
+        add_holes: Iterable[HoleItem] = (),
+        remove_uids: Iterable[str] = (),
+    ) -> None:
+        """Working-board update (Stage 4+): add/remove copper and holes in place and
+        re-point to ``board``. Only the owner of this geometry (the working board)
+        may call this, on the GUI/routing thread, while no reader is using it."""
+        for uid in remove_uids:
+            item = self.copper.pop(uid, None)
+            if item is not None:
+                self.copper_index.remove(uid, item.layers)
+                members = self.by_net.get(item.net)
+                if members is not None and uid in members:
+                    members.remove(uid)
+            hole = self.holes.pop(uid, None)
+            if hole is not None and uid in self.hole_index:
+                self.hole_index.remove(uid)
+        for item in add_copper:
+            if item.uid in self.copper:
+                raise ValueError(f"duplicate geometry id {item.uid}")
+            self.copper[item.uid] = item
+            self.copper_index.insert(item.uid, item.bounds, item.layers)
+            self.by_net.setdefault(item.net, []).append(item.uid)
+        for h in add_holes:
+            self.holes[h.uid] = h
+            self.hole_index.insert(h.uid, h.bounds)
+        self.board = board
+        self.fingerprint = board.fingerprint
 
     # ------------------------------------------------------------ queries
     def copper_near(self, layer: str, box: BoundingBox) -> list[CopperItem]:

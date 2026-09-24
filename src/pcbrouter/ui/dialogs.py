@@ -31,7 +31,7 @@ def show_error(
 def stage_unavailable_text(feature: str, planned_stage: str) -> str:
     return (
         f"{feature}\n\n{STAGE_UNAVAILABLE_MESSAGE}.\n\n"
-        f"This build is Stage {STAGE}: a read-only board inspector. {feature} is planned for "
+        f"This build is Stage {STAGE} of 10. {feature} is planned for "
         f"{planned_stage}. No action was taken and the board was not modified."
     )
 
@@ -50,9 +50,10 @@ def about_text() -> str:
         f"<p>Version <b>{__version__}</b> (Stage {STAGE} of 10)</p>"
         "<p>Read-only KiCad board inspector with a deterministic geometry and "
         "design-rule engine — the foundation for AI-assisted PCB autorouting.</p>"
-        "<p><b>Stage 3 does not perform autorouting and never modifies the board file.</b> "
-        "The Internal Geometry Check is the router's own check, not KiCad DRC. AI API "
-        "calls happen only when you send a request.</p>"
+        "<p><b>The source board file is never modified.</b> Routing changes an in-memory "
+        "working copy; every route is validated by the deterministic geometry engine and "
+        "must be accepted by you. The Internal Geometry Check is the router's own check, "
+        "not KiCad DRC. AI API calls happen only when you send a request.</p>"
         f"<p>Python {platform.python_version()} · Qt {qVersion()} · PySide6 {pyside_version}"
         f"<br>{platform.platform()}</p>"
     )

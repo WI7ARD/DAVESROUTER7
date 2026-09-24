@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-ROUTING_STATUS = "Routing: Unavailable until Stage 4"
+ROUTING_STATUS = "Routing: Ready (CPU)"
 _CANVAS_KIND = {GeoKind.PAD: CanvasKind.PAD, GeoKind.TRACK: CanvasKind.TRACK,
                 GeoKind.VIA: CanvasKind.VIA}  # fmt: skip
 _ENVELOPE_KINDS = {CanvasKind.PAD: "pad", CanvasKind.TRACK: "track", CanvasKind.VIA: "via"}
@@ -166,7 +166,9 @@ class GeometryController(QObject):
         self.lbl_drc = QLabel("Internal DRC: —")
         self.lbl_routing = QLabel(ROUTING_STATUS)
         self.lbl_drc.setToolTip(f"{CHECK_NAME} (the router's own check; not KiCad DRC)")
-        self.lbl_routing.setToolTip("Autorouting arrives in Stage 4")
+        self.lbl_routing.setToolTip(
+            "Deterministic router; candidates are previewed before any commit"
+        )
 
     def install(self, view: QMenu, tools: QMenu, help_menu: QMenu, toolbar: QToolBar) -> None:
         """Add menus, toolbar tools, docks and status fields to the main window."""
@@ -291,6 +293,7 @@ class GeometryController(QObject):
             geo.build_seconds * 1e3, secs * 1e3,
         )  # fmt: skip
         self.lbl_geometry.setText("Geometry: Ready")
+        self.lbl_routing.setText(ROUTING_STATUS)
         self.lbl_geometry.setToolTip(
             f"{len(geo.copper)} copper objects, {len(geo.holes)} holes, {len(geo.keepouts)} "
             f"keepout areas · {geo.hole_index.kind} index · board region {geo.region.status.value}"
@@ -315,13 +318,20 @@ class GeometryController(QObject):
         self.rules_panel.set_engine(engine)
         self._refresh_actions()
         self.w.refresh_statistics()
-        if previous_drc is None or previous_drc.rules_digest != rs.digest:
+        if (
+            previous_drc is None
+            or previous_drc.rules_digest != rs.digest
+            or previous_drc.board_fingerprint != engine.board.fingerprint
+        ):
             self._set_drc_label(None, board=True)
             self.drc_panel.set_result(None)
             self.overlays.clear("drc")
         if self.w.settings.geometry.check_on_open and engine.last_drc is None:
             self.run_geometry_check()
         self._refresh_debug_overlays()
+
+    def routing_status(self) -> str:
+        return ROUTING_STATUS if self.engine is not None else "Routing: —"
 
     def _job_failed(self, message: str, detail: str) -> None:
         self.last_error = message

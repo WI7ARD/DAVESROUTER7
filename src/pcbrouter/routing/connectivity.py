@@ -67,6 +67,8 @@ class NetConnectivity:
     via_count: int = 0
     #: Some track/via/zone copper touches at least one pad group.
     attached_copper: bool = False
+    #: All copper (pads, tracks, vias, fills) of each group, parallel to ``groups``.
+    group_members: list[list[str]] = field(default_factory=list)
 
     @property
     def pad_count(self) -> int:
@@ -181,15 +183,19 @@ def _net_connectivity(geo: BoardGeometry, net: str, uids: list[str]) -> NetConne
     comps: dict[str, list[str]] = {}
     for uid in uids:
         comps.setdefault(uf.find(uid), []).append(uid)
-    groups: list[list[str]] = []
+    pairs: list[tuple[list[str], list[str]]] = []
     islands: list[list[str]] = []
     attached = False
     for members in comps.values():
         pad_members = sorted(u for u in members if geo.copper[u].kind is ItemKind.PAD)
-        (groups if pad_members else islands).append(pad_members or sorted(members))
+        if pad_members:
+            pairs.append((pad_members, sorted(members)))
+        else:
+            islands.append(sorted(members))
         if pad_members and len(pad_members) < len(members):
             attached = True
-    groups.sort()
+    pairs.sort()
+    groups = [p for p, _ in pairs]
     islands.sort()
     info = NetConnectivity(
         net=net,
@@ -204,6 +210,7 @@ def _net_connectivity(geo: BoardGeometry, net: str, uids: list[str]) -> NetConne
         ),
         via_count=sum(1 for i in items if i.kind is ItemKind.VIA),
         attached_copper=attached,
+        group_members=[m for _, m in pairs],
     )
     info.airwires = _airwires(geo, net, groups)
     return info
@@ -246,3 +253,8 @@ def analyse_connectivity(geo: BoardGeometry) -> BoardConnectivity:
         nets[net] = _net_connectivity(geo, net, sorted(uids))
     # Nets declared with pads but no copper at all still appear (with their pads).
     return BoardConnectivity(nets, time.perf_counter() - t0)
+
+
+def net_connectivity(geo: BoardGeometry, net: str) -> NetConnectivity:
+    """Connectivity of one net only (cheap; used by the router between commits)."""
+    return _net_connectivity(geo, net, sorted(geo.by_net.get(net, [])))

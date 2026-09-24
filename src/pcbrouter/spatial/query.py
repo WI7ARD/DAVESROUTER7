@@ -43,6 +43,11 @@ class LayeredIndex:
         idx = self._indexes.get(layer)
         return idx.query_radius(point, radius) if idx is not None else []
 
+    def copy(self) -> LayeredIndex:
+        other = LayeredIndex((), lambda: self._indexes[next(iter(self._indexes))])
+        other._indexes = {layer: idx.copy() for layer, idx in self._indexes.items()}
+        return other
+
     def entry_count(self) -> int:
         """Total entries across layers (multi-layer objects counted per layer)."""
         return sum(len(idx) for idx in self._indexes.values())

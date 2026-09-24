@@ -47,6 +47,10 @@ class SpatialIndex(ABC):
     def bounds_of(self, object_id: str) -> BoundingBox: ...
 
     @abstractmethod
+    def copy(self) -> SpatialIndex:
+        """Independent copy (for working-board geometry)."""
+
+    @abstractmethod
     def __len__(self) -> int: ...
 
     @abstractmethod
@@ -76,6 +80,11 @@ class LinearIndex(SpatialIndex):
 
     def bounds_of(self, object_id: str) -> BoundingBox:
         return self._boxes[object_id]
+
+    def copy(self) -> LinearIndex:
+        other = LinearIndex()
+        other._boxes = dict(self._boxes)
+        return other
 
     def __len__(self) -> int:
         return len(self._boxes)

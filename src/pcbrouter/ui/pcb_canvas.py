@@ -189,6 +189,7 @@ class PcbCanvas(QGraphicsView):
         self._space_down = False
         self._pan_last = QPointF()
         self._hover_key: tuple[ItemKind, str] | None = None
+        self._generated: set[str] = set()
 
     # ================================================================ public API
     @property
@@ -287,6 +288,58 @@ class PcbCanvas(QGraphicsView):
         self._hover_overlay = self._make_overlay(theme.HOVER_COLOR, 1.0)
         self._scene.setSceneRect(QRectF(-100, -100, 200, 200))
         self.viewport().update()
+
+    def sync_board(self, board: Board, generated: frozenset[str] = frozenset()) -> tuple[int, int]:
+        """Update the scene to ``board`` incrementally (working-board commits/undo):
+        only tracks and vias may differ from the displayed board. Keeps zoom, layer
+        visibility and net filters. ``generated`` ids get the working-copper style.
+        Returns (added, removed) object counts."""
+        old = self._board
+        if old is None or old.components is not board.components:
+            self.set_board(board)
+            return (0, 0)
+        new_ids = {t.id for t in board.tracks} | {v.id for v in board.vias}
+        old_ids = {t.id for t in old.tracks} | {v.id for v in old.vias}
+        removed = old_ids - new_ids
+        for obj_id in removed:
+            for kind in (ItemKind.TRACK, ItemKind.VIA):
+                for rec in self._by_id.pop((kind, obj_id), []):
+                    self._scene.removeItem(rec.item)
+                    self._records.remove(rec)
+                    self._by_item.pop(id(rec.item), None)
+                    if rec.net is not None and rec in self._by_net.get(rec.net, []):
+                        self._by_net[rec.net].remove(rec)
+        order = list(board.copper_layer_names)
+        added = 0
+        for t in board.tracks:
+            if t.id not in old_ids:
+                self._build_track(t)
+                added += 1
+        for v in board.vias:
+            if v.id not in old_ids:
+                self._build_via(v, order)
+                added += 1
+        self._board = board
+        self.set_generated(generated)
+        self._apply_z()
+        self._apply_visibility()
+        if self._highlight_net is not None:
+            self.highlight_net(self._highlight_net)
+        self.viewport().update()
+        return added, len(removed)
+
+    def set_generated(self, ids: frozenset[str]) -> None:
+        """Mark working-board (router-generated) copper: dashed outline overlay so
+        it is distinguishable without relying on colour alone."""
+        self._generated = set(ids)
+        for rec in self._records:
+            if rec.kind is ItemKind.TRACK and isinstance(rec.item, QGraphicsPathItem):
+                pen = rec.item.pen()
+                pen.setStyle(Qt.PenStyle.DashLine if rec.obj_id in ids else Qt.PenStyle.SolidLine)
+                rec.item.setPen(pen)
+
+    def is_generated(self, obj_id: str) -> bool:
+        return obj_id in self._generated
 
     def zoom_to_fit(self) -> None:
         rect = self._content_rect()

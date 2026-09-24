@@ -48,13 +48,16 @@ from pcbrouter.ui.log_panel import LogPanel
 from pcbrouter.ui.nets_panel import NetsPanel
 from pcbrouter.ui.pcb_canvas import ItemKind, PcbCanvas
 from pcbrouter.ui.project_panel import ProjectPanel
+from pcbrouter.ui.routing_controller import RoutingController
 from pcbrouter.ui.settings_dialog import SettingsDialog
 from pcbrouter.ui.theme import apply_theme
 
 log = logging.getLogger(__name__)
 
 BOARD_FILE_FILTER = "KiCad PCB (*.kicad_pcb);;All files (*)"
-_PANELS = ("project", "layers", "inspector", "nets", "log", "ai", "ai_history", "drc", "rules")
+_PANELS = (
+    "project", "layers", "inspector", "nets", "log", "ai", "ai_history", "drc", "rules", "route",
+)  # fmt: skip
 AI_SETTINGS_TAB = 3
 
 
@@ -130,6 +133,16 @@ class MainWindow(QMainWindow):
         # Stage 3: geometry + rule engine UI (docks, tools, overlays, status fields).
         self.engine_ui = GeometryController(self)
         self.engine_ui.install(self.menu_view, self.menu_tools, self.menu_help, self.toolbar_main)
+        # Stage 4: routing (route, preview, accept/reject, undo via the history stack).
+        self.routing_ui = RoutingController(self)
+        self.routing_ui.install()
+        self.act_route_net = self.routing_ui.act_route_net
+        self.menu_router.addAction(self.act_route_net)
+        self.menu_router.addAction(self.act_route_board)
+        self.menu_router.addSeparator()
+        self.menu_router.addAction(self.routing_ui.act_reset)
+        self.menu_view.addAction(self.docks["route"].toggleViewAction())
+        self.toolbar_main.addAction(self.act_route_net)
         self._connect_signals()
         self._apply_viewer_settings()
         self._restore_window_state()
@@ -224,13 +237,6 @@ class MainWindow(QMainWindow):
             "Undo the last AI proposal decision (never touches geometry)",
         )
         self.act_redo = self._action("&Redo", self.redo, "Ctrl+Shift+Z", "Redo")
-        self.act_route_net = self._action(
-            "Route &Selected Net (Available in a later stage)",
-            lambda: dialogs.show_stage_unavailable(
-                self, "Route Selected Net", "Stage 4 (CPU autorouter)"
-            ),
-            tip="Available in a later stage",
-        )
         self.act_route_board = self._action(
             "Route &Board (Available in a later stage)",
             lambda: dialogs.show_stage_unavailable(
@@ -287,8 +293,7 @@ class MainWindow(QMainWindow):
         ai.addAction(self.act_ai_usage)
         ai.addAction(self.act_ai_export)
         router = mb.addMenu("&Router")
-        router.addAction(self.act_route_net)
-        router.addAction(self.act_route_board)
+        self.menu_router = router
         help_menu = mb.addMenu("&Help")
         help_menu.addAction(self.act_about)
         self.menu_help = help_menu
@@ -304,8 +309,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_grid)
         tb.addSeparator()
         stage = QLabel(
-            f"  Stage {STAGE} · read-only board · deterministic geometry + rule checks · "
-            "AI plans on request, never edits · no routing  "
+            f"  Stage {STAGE} · source file read-only · routing on a working copy · "
+            "every route validated and accepted by you  "
         )
         stage.setProperty("role", "muted")
         tb.addWidget(stage)
@@ -424,6 +429,7 @@ class MainWindow(QMainWindow):
         )
         self.project_panel.set_session(session, self.canvas.render_stats if board else None)
         self.engine_ui.on_board_changed()
+        self.routing_ui.on_board_changed()
         self.refresh_statistics()
         self._apply_viewer_settings()
         has = board is not None
@@ -592,6 +598,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.ai_controller.cancel()
+        self.routing_ui.shutdown()
         self.engine_ui.shutdown()  # finish background work, close tool dialogs
         self.save_settings()
         if self.bus.context.project.is_open:
