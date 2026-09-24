@@ -63,3 +63,13 @@ def reset_app_logger() -> Iterator[None]:
         handler.close()
     logger.propagate = True
     logger.setLevel(logging.NOTSET)
+
+
+@pytest.fixture
+def can_board(load_fixture: Callable[[str], LoadResult]):  # type: ignore[no-untyped-def]
+    """Board with CAN_H, CAN_L, VBAT, GND, UART_TX, a locked U2 and an adversarial U99."""
+    return load_fixture("can_node.kicad_pcb").board
+
+
+# Shared fixtures from test support modules.
+from tests.support.keyrings import memory_keyring, no_secure_keyring  # noqa: E402, F401

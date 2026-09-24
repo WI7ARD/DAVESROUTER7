@@ -1,49 +1,54 @@
-"""AI integration boundary.
+"""AI engineering layer (Stage 2).
 
-Stage 1 contains interfaces and the validated command schema only — no provider
-implementations and no network calls. The LLM never edits board geometry: its
-output must become a validated :data:`~pcbrouter.ai.command_schema.PCBCommand`
-that the deterministic router executes.
+Natural language is compiled into *validated* structured PCB commands::
+
+    prompt -> BoardContextBuilder -> PromptBuilder -> AIProvider (OpenAI / Anthropic /
+    compatible) -> command_parser (schema) -> command_validator (semantics vs. board)
+    -> CommandProposal -> user approval -> history
+
+The model is an engineering planner, never the router: it cannot edit geometry,
+files or code. Provider SDKs are optional and imported only inside adapters.
 """
 
 from __future__ import annotations
 
-from pcbrouter.ai.command_schema import (
-    MODIFYING_OPERATIONS,
+from pcbrouter.ai.command_parser import (
     CommandValidationError,
-    PCBCommand,
+    parse_command_payload,
+    parse_planner_response,
+)
+from pcbrouter.ai.command_schema import (
+    AICommand,
+    Operation,
+    OperationCategory,
+    PlannerResponse,
     RoutingConstraints,
-    command_json_schema,
-    parse_command,
-    validate_against_board,
 )
-from pcbrouter.ai.provider import (
-    STAGE_UNAVAILABLE_MESSAGE,
-    AIProvider,
-    AIProviderError,
-    AIRequest,
-    AIResponse,
-    BoardContext,
-    ContextPolicy,
-    ProviderConfig,
-    ProviderKind,
-)
+from pcbrouter.ai.command_validator import SemanticValidator, ValidationReport, ValidationStatus
+from pcbrouter.ai.exceptions import AIProviderError
+from pcbrouter.ai.profiles import ProviderKind, ProviderProfile
+from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE, AIProvider
+from pcbrouter.ai.requests import AIMode, AIRequest
+from pcbrouter.ai.responses import AIResponse
 
 __all__ = [
-    "MODIFYING_OPERATIONS",
     "STAGE_UNAVAILABLE_MESSAGE",
+    "AICommand",
+    "AIMode",
     "AIProvider",
     "AIProviderError",
     "AIRequest",
     "AIResponse",
-    "BoardContext",
     "CommandValidationError",
-    "ContextPolicy",
-    "PCBCommand",
-    "ProviderConfig",
+    "Operation",
+    "OperationCategory",
+    "PlannerResponse",
     "ProviderKind",
+    "ProviderProfile",
     "RoutingConstraints",
-    "command_json_schema",
-    "parse_command",
-    "validate_against_board",
+    "SemanticValidator",
+    "ValidationReport",
+    "ValidationStatus",
+    "parse_command_payload",
+    "parse_planner_response",
 ]

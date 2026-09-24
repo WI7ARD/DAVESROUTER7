@@ -13,14 +13,17 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE, ProviderKind
+from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE
 from pcbrouter.compute.manager import ComputeManager
 from pcbrouter.settings.settings import AppSettings, ComputeBackendChoice, Theme
+from pcbrouter.ui.ai_controller import AIRequestController
+from pcbrouter.ui.ai_provider_settings import ProviderSettingsWidget
 from pcbrouter.ui.dialogs import compute_info_text
 
 
@@ -33,12 +36,17 @@ def _banner(text: str) -> QLabel:
 
 class SettingsDialog(QDialog):
     def __init__(
-        self, settings: AppSettings, compute: ComputeManager | None, parent: QWidget | None = None
+        self,
+        settings: AppSettings,
+        compute: ComputeManager | None,
+        parent: QWidget | None = None,
+        ai_controller: AIRequestController | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(620)
         self._settings = settings.model_copy(deep=True)
+        self._ai_controller = ai_controller
 
         tabs = QTabWidget()
         tabs.addTab(self._general_tab(), "General")
@@ -120,39 +128,29 @@ class SettingsDialog(QDialog):
         form.addRow("Default backend:", self.backend_combo)
         form.addRow(
             _banner(
-                "Stage 1 always uses the CPU. The compute backend is not used for "
+                "This version always uses the CPU. The compute backend is not used for "
                 "any heavy work yet — routing arrives in a later stage."
             )
         )
         return w
 
     def _ai_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.addWidget(
-            _banner(
-                f"AI providers — {STAGE_UNAVAILABLE_MESSAGE}.\n\n"
-                "Planned providers: " + ", ".join(k.display_name for k in ProviderKind) + ".\n\n"
-                "Security rules already in force: API keys will be stored in the OS keyring, never "
-                "in settings or project files; board files are never sent to a provider "
-                "automatically; AI output is only accepted as validated structured commands and is "
-                "never executed as code."
-            )
-        )
-        for kind in ProviderKind:
-            box = QCheckBox(f"Enable {kind.display_name}")
-            box.setEnabled(False)
-            box.setToolTip(STAGE_UNAVAILABLE_MESSAGE)
-            layout.addWidget(box)
-        layout.addStretch(1)
-        return w
+        self.ai_widget = ProviderSettingsWidget(self._settings.ai, self._ai_controller)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.ai_widget)
+        return scroll
+
+    def done(self, result: int) -> None:  # accept or reject
+        self.ai_widget.cleanup_keys(accepted=result == QDialog.DialogCode.Accepted)
+        super().done(result)
 
     def _routing_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.addWidget(
             _banner(
-                f"Routing — {STAGE_UNAVAILABLE_MESSAGE}.\n\nStage 1 performs no autorouting "
+                f"Routing — {STAGE_UNAVAILABLE_MESSAGE}.\n\nThis version performs no autorouting "
                 "and never "
                 "modifies boards. Router settings (grid, costs, layer preferences, rip-up) will "
                 "appear here when the router is implemented."
@@ -191,4 +189,5 @@ class SettingsDialog(QDialog):
         s.viewer.show_reference_labels = self.show_labels.isChecked()
         s.viewer.show_footprint_bodies = self.show_bodies.isChecked()
         s.default_compute_backend = self.backend_combo.currentData()
+        self.ai_widget.apply_preferences()
         return s

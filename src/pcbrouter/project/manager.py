@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pcbrouter.domain.board import Board
@@ -35,6 +36,8 @@ class ProjectSession:
     load_result: LoadResult
     workspace: Workspace
     opened_at: float
+    #: Unique per open; lets AI responses be matched to the board they were made for.
+    session_id: str = field(default_factory=lambda: f"board-{uuid.uuid4().hex[:12]}")
 
     @property
     def board(self) -> Board:

@@ -3,55 +3,88 @@
 A desktop PCB engineering application for **KiCad** boards, built toward
 deterministic, AI-assisted autorouting.
 
-**Current version: `0.1.0-stage1` — Stage 1 of 10: Foundation + KiCad Board Inspector.**
+**Current version: `0.2.0-stage2` — Stage 2 of 10: AI Provider Layer +
+Prompt-to-Constraint Compiler.**
 
-> **Stage 1 does not perform autorouting or AI API calls.**
-> It is a read-only inspector. It never modifies your `.kicad_pcb` files.
+> **The AI model is a planner, not the router.** In Stage 2 it can analyse a board and
+> propose structured commands. Every proposal is validated locally against the board and
+> needs your approval. **Nothing is routed, no geometry changes, and your `.kicad_pcb`
+> files are never modified.**
 
 ---
 
-## What Stage 1 does
+## What works today
 
-- Loads `.kicad_pcb` files (KiCad 5 → 9 formats; newer files load best-effort with a warning)
-  **read-only**, verifying the file's SHA-256 is unchanged when the board is closed.
-- Translates the board into an internal domain model (integer nanometres) and shows:
-  board outline, footprints, pads (SMD/THT/NPTH, rotated), straight and arc tracks,
-  through/blind/micro vias, on any number of copper layers.
-- 2D viewer: pan (middle mouse or Space + drag), wheel zoom, zoom-to-fit, adaptive grid,
-  cursor coordinates, hover tooltips, click-to-select.
-- **Inspector** for components, pads, tracks, vias and nets. Values the file does not state
-  are shown as *unknown*, never invented.
-- **Nets panel**: searchable table (pads, tracks, vias, routed length), highlight, hide,
-  isolate, show all.
-- **Layers panel**: per-layer visibility, active layer, footprint/label overlays.
-- **Project panel**: file facts, statistics, parse timing, load notes (anything skipped or
-  not displayed is reported), component list.
-- CPU information and GPU detection (NVIDIA/CUDA, other vendors, missing libraries).
-- Persistent settings (theme, grid, recent boards, window layout, panels).
-- Structured logging to console + rotating file, with secret redaction.
-- A headless CLI that uses the same command bus as the GUI:
-  `pcbrouter board.kicad_pcb --inspect`.
+### Stage 1: read-only board inspector
+
+- Loads `.kicad_pcb` files **read-only** (KiCad 5 → 9 formats; newer files load
+  best-effort with a warning). The file's SHA-256 is checked on close to confirm it is
+  unchanged.
+- Converts the board into an internal domain model (integer nanometres) and shows it:
+  - board outline, footprints and pads (SMD/THT/NPTH, rotated);
+  - straight and arc tracks;
+  - through, blind and micro vias, on any number of copper layers.
+- **2D viewer**: pan, zoom, zoom-to-fit, adaptive grid, cursor coordinates, hover
+  tooltips, click-to-select.
+- **Panels**: Inspector, Nets, Layers and Project. Values the file does not state are
+  shown as *unknown*, never invented.
+- **Other**: CPU/GPU detection, persistent settings, and structured logging with secret
+  redaction.
+- **Headless CLI** that uses the same command bus as the GUI.
+
+### Stage 2: AI planner
+
+- **Providers**: OpenAI (Responses API), Anthropic (Messages API) and any
+  **OpenAI-compatible** endpoint (LM Studio, Ollama, vLLM, …), all behind one interface.
+- **Credentials**: API keys go in the **OS credential store** (Windows Credential Manager,
+  macOS Keychain, Linux Secret Service). If no secure store exists, the key is held in
+  memory for the current session only. Keys are never written as plaintext.
+- **Settings ▸ AI Providers** covers:
+  - multiple profiles and a default profile;
+  - model list refresh, or a manual model ID;
+  - a connection test;
+  - context level, limits, timeout, retries, anonymisation and privacy options.
+- **AI Engineering panel** (`Ctrl+I`):
+  - four modes: *Analyze*, *Plan*, *Command*, *Explain*;
+  - a context preview that shows exactly what would be sent;
+  - Send and Cancel;
+  - a proposal preview with the validation checklist and claim labels: **BOARD FACT**,
+    **AI OBSERVATION**, **DRC RESULT**, **USER CONSTRAINT**;
+  - Approve, Reject and Edit Constraints on each proposal.
+- **Local validation of every AI command**:
+  - Referenced nets, components and layers must exist. Unknown names get *suggestions*,
+    never silent substitution.
+  - Locks, consistency rules and board minimums are checked.
+  - Proposals are tied to a board fingerprint, so a response for a different board state
+    is marked stale.
+- **AI History panel**, undo/redo of approve and reject decisions (`Ctrl+Z` /
+  `Ctrl+Shift+Z`), session usage, and JSON export of an AI session.
+- **Works offline**: the app runs fully without any AI configured or installed.
+
+Details: [docs/stage2.md](docs/stage2.md) · [docs/ai_architecture.md](docs/ai_architecture.md)
+· [docs/security.md](docs/security.md).
 
 ## What is NOT implemented (by design, yet)
 
 | Feature | Status |
 |---|---|
-| Autorouting (net / board), rip-up & reroute, optimisation | Later stage — menu items say "Available in a later stage" |
-| OpenAI / Anthropic / OpenAI-compatible / local LLM calls | Later stage — interfaces and command schema only |
-| Saving / exporting KiCad files, undo/redo of edits | Stage 9 — `Ctrl+S` is intentionally unmapped |
-| GPU acceleration | Later stage — detection only |
-| Zones, text, dimensions, silkscreen graphics | Parsed/counted and reported as "not displayed" |
-| Design rules from `.kicad_pro` / `.kicad_dru` | Later stage — only rules stated in the board file are read |
-
-See [docs/stage1.md](docs/stage1.md) for exact limitations and
-[docs/roadmap.md](docs/roadmap.md) for the plan.
+| Routing of any kind; approved routing proposals wait with "Waiting for routing engine support" | Stages 4–5 |
+| Board rules from `.kicad_pro` / `.kicad_dru`, connectivity/ratsnest, DRC | Stage 3. The **DRC RESULT** label exists, but no DRC engine produces it yet |
+| Differential pairs, length matching and impedance, enforced | Stage 6. Recorded as intent and flagged as unverifiable |
+| Multi-step AI agent with board-query tools | Stage 7 |
+| GPU acceleration | Stage 8 (detection only) |
+| Saving or exporting KiCad files | Stage 9. `Ctrl+S` is intentionally unmapped |
+| Zones, text, dimensions, silkscreen graphics | Parsed and counted, reported as "not displayed" |
+| Tested with real OpenAI/Anthropic accounts | **Not yet**. See [docs/stage2.md](docs/stage2.md#real-provider-tests) |
 
 ## Supported platforms
 
-- **Windows 11** and **modern Linux** (x86-64). macOS is untested.
+- **Windows 11** and **modern Linux** (x86-64). macOS is untested. Stage 2 has only been
+  run on Linux so far.
 - **Python 3.12+**.
-- KiCad does **not** need to be installed. CUDA, OpenAI and Anthropic packages are **not**
-  needed (the test suite proves the app runs with all of them blocked).
+- KiCad does **not** need to be installed. CUDA, the `openai`/`anthropic` SDKs and
+  `keyring` are all optional; the test suite proves the app runs with all of them
+  blocked.
 
 ## Setup
 
@@ -61,11 +94,18 @@ cd ai-pcb-router
 python3.12 -m venv .venv
 # Linux:   source .venv/bin/activate
 # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"      # app + AI SDKs + keyring + test tools
+# or, for a user install:
+pip install -e ".[ai]"       # app + OpenAI/Anthropic SDKs + keyring
+pip install -e .             # app only (inspector; AI shows "not installed")
 ```
 
-On minimal Linux installs Qt needs a few system libraries, e.g. on Ubuntu/Debian:
+Individual extras also exist: `.[openai]` and `.[anthropic]`.
+
+Minimal Linux installs need a few system libraries for Qt. On Ubuntu/Debian:
 `sudo apt install libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3`.
+Secure key storage on Linux needs a Secret Service provider, such as GNOME Keyring or
+KWallet.
 
 ## Run
 
@@ -79,8 +119,20 @@ pcbrouter board.kicad_pcb --check-command '{"operation":"route_net","target":"GN
 pcbrouter --version
 ```
 
-Try it on the bundled fixtures, e.g. `pcbrouter tests/fixtures/boards/four_layer.kicad_pcb`.
+Try it on the bundled fixtures, e.g. `pcbrouter tests/fixtures/boards/can_node.kicad_pcb`.
 For a large synthetic board: `python tools/generate_synthetic_board.py big.kicad_pcb 60 60`.
+
+### Using the AI planner
+
+1. Open **AI ▸ Configure AI Providers…** (Settings ▸ AI Providers).
+2. Add a profile (OpenAI, Anthropic or OpenAI-compatible). Enter the model ID, or press
+   **Refresh Models**.
+3. Paste your API key, press **Save Key**, then press **Test Connection**. The connection
+   test sends no board data.
+4. Open a board, press `Ctrl+I`, and ask something like *"Analyze this board."* or
+   *"Route CAN first and minimize vias."*
+5. The first request per board shows what will be sent. Review the proposal and its
+   validation result, then **Approve**, **Reject** or **Edit Constraints**.
 
 ### Keyboard shortcuts
 
@@ -88,6 +140,8 @@ For a large synthetic board: `python tools/generate_synthetic_board.py big.kicad
 |---|---|
 | `Ctrl+O` | Open PCB |
 | `Ctrl+W` | Close PCB |
+| `Ctrl+I` | Show AI Engineering panel |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo an AI proposal decision |
 | `F` | Zoom to fit |
 | `G` | Toggle grid |
 | `Ctrl+,` | Settings |
@@ -100,9 +154,10 @@ For a large synthetic board: `python tools/generate_synthetic_board.py big.kicad
 
 | What | Linux | Windows |
 |---|---|---|
-| Settings | `~/.config/ai-pcb-router/settings.json` | `%APPDATA%\AI PCB Router\settings.json` |
+| Settings (no secrets) | `~/.config/ai-pcb-router/settings.json` | `%APPDATA%\AI PCB Router\settings.json` |
+| API keys | OS keyring, service `ai-pcb-router` | Windows Credential Manager |
 | Logs | `~/.local/state/ai-pcb-router/logs/` | `%LOCALAPPDATA%\AI PCB Router\logs\` |
-| Future workspaces | `~/.local/share/ai-pcb-router/workspaces/` | `%LOCALAPPDATA%\AI PCB Router\workspaces\` |
+| Workspaces / optional AI history | `~/.local/share/ai-pcb-router/workspaces/` | `%LOCALAPPDATA%\AI PCB Router\workspaces\` |
 
 Override with `PCBROUTER_CONFIG_DIR`, `PCBROUTER_DATA_DIR`, `PCBROUTER_LOG_DIR`.
 Nothing is ever written next to your KiCad project.
@@ -116,55 +171,74 @@ ruff check src tests tools
 mypy                   # strict mode, configured in pyproject.toml
 ```
 
+Automated tests never call a real AI provider. Provider adapters are exercised through
+the official SDKs against a mock transport and a local HTTP server, with obviously fake
+keys.
+
 ## Architecture (short version)
 
 ```
- GUI (PySide6)   CLI   (future: AI pipeline, scripting API)
-        \         |         /
-         +--> CommandBus --+        read-only policy, logging, timing, history
-                  |
-     ProjectManager / HistoryManager / ComputeManager
-                  |
-          Domain model (immutable, integer nm)   <--   KiCad adapter (read-only)
+ GUI (PySide6)            CLI
+      |    \               |
+      |   AI panel ──> AIService ──> AIProvider (OpenAI / Anthropic / compatible)
+      |       |            │  context builder → prompt → JSON → parser → validator
+      |       v            v
+      +--> CommandBus  <── proposals (approve / reject / edit)    read-only policy,
+                |                                                  logging, history
+   ProjectManager / HistoryManager / ComputeManager
+                |
+        Domain model (immutable, integer nm)   <--   KiCad adapter (read-only)
 ```
 
-- The **domain model** (`pcbrouter.domain`) is ours; no KiCad or third-party objects leak
+- The **domain model** (`pcbrouter.domain`) is ours. No KiCad or third-party objects get
   past the adapter (`pcbrouter.kicad`).
-- **The LLM must never directly modify board geometry.** Future AI output is only accepted as
-  a strictly validated structured command (`pcbrouter.ai.command_schema`) that the
-  deterministic router executes.
+- **The LLM never modifies board geometry.** Its output is accepted only as a strictly
+  validated structured command (`pcbrouter.ai.command_schema`). The command is previewed
+  and approved by you. From Stage 4, the deterministic router will execute approved
+  commands.
 
-Full details: [docs/architecture.md](docs/architecture.md).
+Full details: [docs/architecture.md](docs/architecture.md) and
+[docs/ai_architecture.md](docs/ai_architecture.md).
 
-## Security rules (in force from Stage 1)
+## Security summary
 
-- Never store plaintext API keys in project or settings files (future: OS keyring only).
-- Never embed API keys into PCB files.
-- Never send PCB files to an AI provider automatically.
-- Network operations require deliberate provider configuration.
-- Prompts will carry summarised/selected engineering context unless the user explicitly
-  authorises more.
-- Never execute code returned by an AI model.
-- Never log secrets (enforced additionally by a redaction filter on every log handler).
+- API keys are stored only in the OS credential store, or in memory for the current
+  session. They are never stored in settings, projects, KiCad files, logs, history or
+  exports.
+- Nothing is sent to a provider until you configure one and press **Send**. The KiCad file
+  itself is never uploaded, only a bounded summary that you can preview. Net names, part
+  references and values can be anonymised.
+- Text on the board, such as a component value saying "ignore previous instructions", is
+  treated as quoted data, never as instructions.
+- Model output is parsed as JSON only. It is never executed as code, and the model has no
+  file, shell or network access.
+- Logs redact key-shaped strings. Full prompts are logged only if you enable the debug
+  option.
+
+Full model and audit: [docs/security.md](docs/security.md).
 
 ## Roadmap
 
-1. **Foundation + KiCad board inspector** ← *you are here*
-2. Board model completion (zones, keepouts, net classes, project rules, connectivity/ratsnest)
-3. Rule resolution + DRC engine
-4. CPU router core: single net, multi-layer, vias; route proposals with preview
-5. AI provider integration → validated structured commands
-6. Board-level routing, net ordering, rip-up & reroute, optimisation
-7. Advanced constraints: differential pairs, length matching, critical nets
+1. Foundation + KiCad board inspector — *done*
+2. **AI provider layer + prompt-to-constraint compiler** ← *you are here*
+3. Board rules, connectivity and DRC
+4. CPU router core: single net, multi-layer, vias; executes approved `route_net`
+5. Board-level routing, net ordering, rip-up & reroute, optimisation
+6. Advanced constraints: differential pairs, length matching, critical nets
+7. AI agent loop with deterministic board-query tools
 8. GPU acceleration backend
-9. Safe KiCad writing: save/export, snapshots, before/after diff, accept/reject, undo/redo
+9. Safe KiCad writing: save/export, snapshots, before/after diff, undo/redo
 10. Productisation: installers, performance, plugin/scripting API
+
+See [docs/roadmap.md](docs/roadmap.md).
 
 ## Screenshots
 
-![Stage 1 inspector showing a four-layer test board](docs/images/stage1-inspector.png)
+![Stage 2 AI Engineering panel with a validated proposal](docs/images/stage2-ai-proposal.png)
 
-*More screenshots will be added as features land.*
+![Stage 2 AI provider settings](docs/images/stage2-provider-settings.png)
+
+![Stage 1 inspector showing a four-layer test board](docs/images/stage1-inspector.png)
 
 ## License
 

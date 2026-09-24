@@ -186,6 +186,13 @@ class Board:
         return self.index.layers_by_name.get(name)
 
     @cached_property
+    def fingerprint(self) -> str:
+        """SHA-256 of the domain state (see :mod:`pcbrouter.domain.fingerprint`)."""
+        from pcbrouter.domain.fingerprint import board_fingerprint
+
+        return board_fingerprint(self)
+
+    @cached_property
     def index(self) -> BoardIndex:
         return BoardIndex(self)
 

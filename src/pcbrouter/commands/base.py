@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    from pcbrouter.ai.service import AIService
     from pcbrouter.compute.manager import ComputeManager
     from pcbrouter.history.history import HistoryManager
     from pcbrouter.project.manager import ProjectManager
@@ -43,6 +44,7 @@ class CommandContext:
     project: ProjectManager
     history: HistoryManager
     compute: ComputeManager | None = None
+    ai: AIService | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 

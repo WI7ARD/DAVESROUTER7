@@ -11,8 +11,9 @@ Robustness rules:
   (never deleted) and defaults are used; the problem is logged.
 * Writes are atomic (temp file + ``os.replace``) so a crash cannot truncate the file.
 
-SECURITY: settings must never contain API keys or other secrets. Future provider
-credentials go through the OS keyring and are referenced here only by name.
+SECURITY: settings must never contain API keys or other secrets. Provider
+credentials live in the OS keyring and are referenced here only by name
+(``ProviderProfile.credential_ref``).
 """
 
 from __future__ import annotations
@@ -28,12 +29,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from pcbrouter.ai.context_builder import ContextLevel
+from pcbrouter.ai.profiles import ProviderProfile
+from pcbrouter.ai.requests import AIMode
 from pcbrouter.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
 
 SETTINGS_FILENAME = "settings.json"
-SETTINGS_SCHEMA_VERSION = 1
+SETTINGS_SCHEMA_VERSION = 2
 MAX_RECENT_BOARDS = 10
 
 
@@ -58,11 +62,53 @@ class ViewerSettings(_Model):
     show_footprint_bodies: bool = True
 
 
-class AIProviderSettings(_Model):
-    """Placeholder section. Inactive in Stage 1. Holds no secrets, ever."""
+class AnonymizationSettings(_Model):
+    net_names: bool = False
+    component_values: bool = False
+    references: bool = False
+    board_filename: bool = False
 
-    enabled: Literal[False] = False
-    note: str = "AI providers are available in a later stage."
+
+class AISettings(_Model):
+    """AI provider profiles and engineering-assistant preferences.
+
+    SECURITY: holds no secrets. Each profile stores only ``credential_ref``, the name
+    of its OS-keyring entry.
+    """
+
+    profiles: list[ProviderProfile] = Field(default_factory=list)
+    default_profile_id: str | None = None
+    default_mode: AIMode = AIMode.ANALYZE
+    context_level: ContextLevel = ContextLevel.STANDARD
+    max_context_chars: int = Field(default=60_000, ge=2_000, le=400_000)
+    max_context_nets: int = Field(default=200, ge=0, le=5_000)
+    max_context_components: int = Field(default=150, ge=0, le=5_000)
+    max_conversation_turns: int = Field(default=6, ge=0, le=50)
+    request_timeout_s: float = Field(default=90.0, ge=5.0, le=600.0)
+    max_retries: int = Field(default=2, ge=0, le=5)
+    max_output_tokens: int = Field(default=8192, ge=256, le=64_000)
+    show_privacy_preview: bool = True
+    anonymization: AnonymizationSettings = Field(default_factory=AnonymizationSettings)
+    save_conversation_history: bool = False
+    #: Log full prompts/context at DEBUG level. Off unless the user explicitly enables it.
+    debug_log_prompts: bool = False
+
+    @field_validator("profiles")
+    @classmethod
+    def _unique_profiles(cls, value: list[ProviderProfile]) -> list[ProviderProfile]:
+        ids = [p.profile_id for p in value]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate provider profile ids")
+        return value
+
+    def profile(self, profile_id: str | None) -> ProviderProfile | None:
+        return next((p for p in self.profiles if p.profile_id == profile_id), None)
+
+    @property
+    def default_profile(self) -> ProviderProfile | None:
+        return self.profile(self.default_profile_id) or (
+            self.profiles[0] if self.profiles else None
+        )
 
 
 class RoutingSettings(_Model):
@@ -93,7 +139,7 @@ class AppSettings(_Model):
     default_compute_backend: ComputeBackendChoice = ComputeBackendChoice.CPU
     viewer: ViewerSettings = Field(default_factory=ViewerSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
-    ai: AIProviderSettings = Field(default_factory=AIProviderSettings)
+    ai: AISettings = Field(default_factory=AISettings)
     routing: RoutingSettings = Field(default_factory=RoutingSettings)
     gpu: GPUSettings = Field(default_factory=GPUSettings)
 
@@ -115,6 +161,15 @@ class AppSettings(_Model):
         self.recent_boards = [p for p in self.recent_boards if p != text]
 
 
+def _migrate(raw: dict[str, object]) -> dict[str, object]:
+    """Upgrade older settings files. v1 (Stage 1) had an inert AI placeholder section."""
+    version = raw.get("schema_version", 1)
+    if isinstance(version, int) and version < 2:
+        raw = {k: v for k, v in raw.items() if k != "ai"}
+    raw["schema_version"] = SETTINGS_SCHEMA_VERSION
+    return raw
+
+
 class SettingsStore:
     """Loads and saves :class:`AppSettings` at a fixed path."""
 
@@ -131,7 +186,7 @@ class SettingsStore:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError("top-level JSON value is not an object")
-            settings = AppSettings.model_validate(raw)
+            settings = AppSettings.model_validate(_migrate(raw))
         except (OSError, ValueError, ValidationError) as exc:
             self.last_load_problem = f"{type(exc).__name__}: {exc}"
             backup = self._quarantine()

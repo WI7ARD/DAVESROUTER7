@@ -1,266 +1,314 @@
-"""Structured PCB command schema — the *only* thing an LLM is allowed to produce.
+"""Structured PCB command schema (v2) — the only output an LLM may produce.
 
-Pipeline (future stages)::
+Pipeline::
 
-    LLM text --parse_command()--> PCBCommand   (syntactic validation, this module)
-             --validate_against_board()-->     (semantic validation vs. the Board)
-             --> CommandBus --> deterministic planner/router --> DRC --> preview
-             --> user accepts --> KiCad writer
+    model text --command_parser--> PlannerResponse / AICommand  (syntax, this schema)
+               --command_validator--> ValidationReport          (semantics vs. board)
+               --> CommandProposal --> user approval --> history
+               --> (Stage 4+) deterministic router
 
-The models are deliberately strict:
+Design rules:
 
-* ``extra="forbid"`` everywhere: unknown keys are errors, not silently ignored;
-* every numeric value is bounded;
-* lengths use explicit ``*_mm`` names (humans and LLMs think in mm) and are
-  converted to internal nanometres only via :func:`pcbrouter.domain.units.mm_to_internal`;
-* nothing in a command can express raw geometry edits. Commands describe *intent
-  and constraints*; the deterministic router decides the copper.
+* ``extra="forbid"`` everywhere: unknown keys (e.g. ``"execute_shell"``) are errors.
+* Every number is bounded; every list is length-limited; strings reject control chars.
+* Lengths are explicit ``*_mm`` floats (humans and LLMs think in millimetres) and are
+  converted to integer nanometres only via :mod:`pcbrouter.domain.units`.
+* Optional fields default to ``None`` = *not specified by the model*. Safe defaults
+  are applied by the ``effective_*`` properties, never by the model.
+* No field can carry coordinates for copper, KiCad text or code. Commands express
+  intent and constraints; the deterministic router (Stage 4+) decides the copper.
+
+Stage 1's compact form (``{"operation": "route_net", "target": "GND"}``) is still
+accepted by :func:`pcbrouter.ai.command_parser.parse_command_payload`, which converts it
+to this schema.
 """
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
-from typing import Annotated, Any, Literal, Self
+from enum import StrEnum
+from typing import Annotated, Literal, Self
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    TypeAdapter,
-    ValidationError,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from pcbrouter.domain.board import Board
+SCHEMA_VERSION = 2
+MAX_COMMANDS_PER_RESPONSE = 10
 
-SCHEMA_VERSION = 1
-MAX_COMMAND_JSON_BYTES = 100_000
+_TEXT = r"^[^\x00-\x08\x0b-\x1f\x7f]*$"  # printable text (newline/tab allowed)
+_NAME = r"^[^\x00-\x1f\x7f]+$"  # single-line identifier
 
-NetName = Annotated[
-    str, StringConstraints(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f\x7f]+$")
-]
-CopperLayerName = Annotated[str, StringConstraints(pattern=r"^(F|B|In[1-9][0-9]?)\.Cu$")]
-Reference = Annotated[
-    str, StringConstraints(min_length=1, max_length=64, pattern=r"^[^\s\x00-\x1f\x7f]+$")
-]
-ObjectId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
-Priority = Literal["low", "normal", "high", "critical"]
+EntityName = Annotated[str, StringConstraints(min_length=1, max_length=255, pattern=_NAME)]
+LayerName = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=_NAME)]
+ShortText = Annotated[str, StringConstraints(max_length=600, pattern=_TEXT)]
+LongText = Annotated[str, StringConstraints(max_length=4000, pattern=_TEXT)]
 
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
 
-def _unique(values: list[str], field_name: str) -> None:
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} contains duplicates")
+# ======================================================================= enums
+class Operation(StrEnum):
+    ANALYZE_BOARD = "analyze_board"
+    ANALYZE_NET = "analyze_net"
+    ANALYZE_COMPONENT = "analyze_component"
+    ROUTE_NET = "route_net"
+    ROUTE_GROUP = "route_group"
+    ROUTE_BOARD = "route_board"
+    OPTIMIZE_NET = "optimize_net"
+    REDUCE_VIAS = "reduce_vias"
+    SET_NET_CONSTRAINT = "set_net_constraint"
+    SET_ROUTING_PRIORITY = "set_routing_priority"
+    LOCK_COMPONENT = "lock_component"
+    LOCK_NET = "lock_net"
+    LOCK_TRACK = "lock_track"
+    PROTECT_AREA = "protect_area"
+    EXPLAIN_ROUTE = "explain_route"
+
+    @property
+    def label(self) -> str:
+        return self.value.replace("_", " ").title()
+
+    @property
+    def category(self) -> OperationCategory:
+        return _CATEGORY[self]
 
 
-class RoutingConstraints(_Strict):
-    max_vias: int | None = Field(default=None, ge=0, le=64)
-    preferred_layers: list[CopperLayerName] = Field(default_factory=list, max_length=32)
-    avoid_layers: list[CopperLayerName] = Field(default_factory=list, max_length=32)
-    move_components: bool = False
-    preserve_existing_routes: bool = True
-    track_width_mm: float | None = Field(default=None, gt=0.0, le=20.0)
-    clearance_mm: float | None = Field(default=None, gt=0.0, le=20.0)
-    max_length_mm: float | None = Field(default=None, gt=0.0, le=10_000.0)
-    priority: Priority = "normal"
+class OperationCategory(StrEnum):
+    READ_ONLY = "read_only"  # analysis/explanation; completes on approval
+    CONSTRAINT = "constraint"  # changes the planning constraint set, not geometry
+    ROUTING = "routing"  # would change copper: needs the Stage 4+ router
+
+
+_CATEGORY = {
+    Operation.ANALYZE_BOARD: OperationCategory.READ_ONLY,
+    Operation.ANALYZE_NET: OperationCategory.READ_ONLY,
+    Operation.ANALYZE_COMPONENT: OperationCategory.READ_ONLY,
+    Operation.EXPLAIN_ROUTE: OperationCategory.READ_ONLY,
+    Operation.SET_NET_CONSTRAINT: OperationCategory.CONSTRAINT,
+    Operation.SET_ROUTING_PRIORITY: OperationCategory.CONSTRAINT,
+    Operation.LOCK_COMPONENT: OperationCategory.CONSTRAINT,
+    Operation.LOCK_NET: OperationCategory.CONSTRAINT,
+    Operation.LOCK_TRACK: OperationCategory.CONSTRAINT,
+    Operation.PROTECT_AREA: OperationCategory.CONSTRAINT,
+    Operation.ROUTE_NET: OperationCategory.ROUTING,
+    Operation.ROUTE_GROUP: OperationCategory.ROUTING,
+    Operation.ROUTE_BOARD: OperationCategory.ROUTING,
+    Operation.OPTIMIZE_NET: OperationCategory.ROUTING,
+    Operation.REDUCE_VIAS: OperationCategory.ROUTING,
+}
+
+Priority = Literal["low", "normal", "high", "critical"]
+Criticality = Literal["low", "normal", "high", "safety_critical"]
+ViaType = Literal["through", "blind_buried", "micro"]
+Shielding = Literal["none", "prefer_ground_reference", "prefer_guard_traces"]
+Confidence = Literal["low", "medium", "high"]
+
+
+# ======================================================================= targets
+class NetTarget(_Strict):
+    type: Literal["net"]
+    name: EntityName
+
+
+class NetGroupTarget(_Strict):
+    type: Literal["net_group"]
+    names: list[EntityName] = Field(min_length=2, max_length=64)
 
     @model_validator(mode="after")
-    def _check_layers(self) -> Self:
-        _unique(self.preferred_layers, "preferred_layers")
-        _unique(self.avoid_layers, "avoid_layers")
-        overlap = set(self.preferred_layers) & set(self.avoid_layers)
-        if overlap:
-            raise ValueError(f"layers both preferred and avoided: {sorted(overlap)}")
+    def _unique(self) -> Self:
+        if len(set(self.names)) != len(self.names):
+            raise ValueError("net_group contains duplicate net names")
         return self
 
 
-class AreaMM(_Strict):
-    """Axis-aligned rectangle in board millimetres."""
+class ComponentTarget(_Strict):
+    type: Literal["component"]
+    reference: EntityName
 
+
+class AreaTarget(_Strict):
+    """Axis-aligned rectangle in board millimetres (KiCad coordinates, Y down)."""
+
+    type: Literal["area"]
     x_min_mm: float = Field(ge=-10_000, le=10_000)
     y_min_mm: float = Field(ge=-10_000, le=10_000)
     x_max_mm: float = Field(ge=-10_000, le=10_000)
     y_max_mm: float = Field(ge=-10_000, le=10_000)
+    layers: list[LayerName] | None = Field(default=None, max_length=32)  # None = all copper
 
     @model_validator(mode="after")
-    def _check_order(self) -> Self:
+    def _ordered(self) -> Self:
         if self.x_min_mm >= self.x_max_mm or self.y_min_mm >= self.y_max_mm:
             raise ValueError("area min must be strictly less than max on both axes")
         return self
 
 
-class AnalyzeBoard(_Strict):
-    operation: Literal["analyze_board"]
-    focus: Literal["overview", "nets", "components", "routing_status"] = "overview"
+class BoardTarget(_Strict):
+    type: Literal["board"]
 
 
-class RouteNet(_Strict):
-    operation: Literal["route_net"]
-    target: NetName
-    constraints: RoutingConstraints = Field(default_factory=RoutingConstraints)
-
-
-class RouteGroup(_Strict):
-    operation: Literal["route_group"]
-    targets: list[NetName] = Field(min_length=1, max_length=512)
-    constraints: RoutingConstraints = Field(default_factory=RoutingConstraints)
-
-    @model_validator(mode="after")
-    def _check_targets(self) -> Self:
-        _unique(self.targets, "targets")
-        return self
-
-
-class RouteBoard(_Strict):
-    operation: Literal["route_board"]
-    exclude_nets: list[NetName] = Field(default_factory=list, max_length=4096)
-    constraints: RoutingConstraints = Field(default_factory=RoutingConstraints)
-
-
-class SetConstraint(_Strict):
-    operation: Literal["set_constraint"]
-    target: NetName
-    constraints: RoutingConstraints
-
-
-class LockComponent(_Strict):
-    operation: Literal["lock_component"]
-    reference: Reference
-
-
-class LockTrack(_Strict):
-    operation: Literal["lock_track"]
-    net: NetName | None = None
-    track_ids: list[ObjectId] = Field(default_factory=list, max_length=10_000)
-
-    @model_validator(mode="after")
-    def _check_target(self) -> Self:
-        if self.net is None and not self.track_ids:
-            raise ValueError("lock_track needs 'net' or at least one entry in 'track_ids'")
-        return self
-
-
-class ProtectArea(_Strict):
-    operation: Literal["protect_area"]
-    area: AreaMM
-    layers: list[CopperLayerName] = Field(default_factory=list, max_length=32)  # [] = all
-    reason: str = Field(default="", max_length=500)
-
-
-class OptimizeRoute(_Strict):
-    operation: Literal["optimize_route"]
-    target: NetName | None = None  # None = every routed net
-    goals: list[Literal["length", "vias", "corners"]] = Field(min_length=1, max_length=3)
-
-
-class ReduceVias(_Strict):
-    operation: Literal["reduce_vias"]
-    target: NetName | None = None
-    max_vias_per_net: int | None = Field(default=None, ge=0, le=64)
-
-
-PCBCommand = Annotated[
-    AnalyzeBoard
-    | RouteNet
-    | RouteGroup
-    | RouteBoard
-    | SetConstraint
-    | LockComponent
-    | LockTrack
-    | ProtectArea
-    | OptimizeRoute
-    | ReduceVias,
-    Field(discriminator="operation"),
+Target = Annotated[
+    NetTarget | NetGroupTarget | ComponentTarget | AreaTarget | BoardTarget,
+    Field(discriminator="type"),
 ]
 
-_ADAPTER: TypeAdapter[PCBCommand] = TypeAdapter(PCBCommand)
 
-#: Operations that would change board copper/placement if executed.
-MODIFYING_OPERATIONS = frozenset(
-    {"route_net", "route_group", "route_board", "optimize_route", "reduce_vias"}
-)
-
-
-class CommandValidationError(ValueError):
-    """The input is not a valid PCB command. ``errors`` holds readable reasons."""
-
-    def __init__(self, errors: list[str]):
-        super().__init__("; ".join(errors))
-        self.errors = errors
-
-
-def parse_command(data: str | bytes | Mapping[str, Any]) -> PCBCommand:
-    """Parse and validate one command from JSON text or a mapping."""
-    if isinstance(data, str | bytes):
-        if len(data) > MAX_COMMAND_JSON_BYTES:
-            raise CommandValidationError(["command JSON is too large"])
-        try:
-            obj = json.loads(data)
-        except json.JSONDecodeError as exc:
-            raise CommandValidationError([f"not valid JSON: {exc.msg}"]) from exc
-    else:
-        obj = dict(data)
-    if not isinstance(obj, dict):
-        raise CommandValidationError(["command must be a JSON object"])
-    try:
-        return _ADAPTER.validate_python(obj)
-    except ValidationError as exc:
-        raise CommandValidationError(
-            [f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['msg']}" for e in exc.errors()]
-        ) from exc
+def target_key(
+    target: NetTarget | NetGroupTarget | ComponentTarget | AreaTarget | BoardTarget,
+) -> str:
+    match target:
+        case NetTarget(name=n):
+            return f"net:{n}"
+        case NetGroupTarget(names=ns):
+            return "net_group:" + ",".join(sorted(ns))
+        case ComponentTarget(reference=r):
+            return f"component:{r}"
+        case AreaTarget():
+            return f"area:{target.x_min_mm},{target.y_min_mm},{target.x_max_mm},{target.y_max_mm}"
+        case BoardTarget():
+            return "board"
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
-def command_json_schema() -> dict[str, Any]:
-    """JSON Schema for all commands (future: sent to providers for structured output)."""
-    return _ADAPTER.json_schema()
+# ======================================================================= constraints
+class EntityRef(_Strict):
+    kind: Literal["net", "component"]
+    name: EntityName
 
 
-def validate_against_board(command: PCBCommand, board: Board) -> list[str]:
-    """Semantic checks against a loaded board. Returns problems (empty = OK)."""
-    problems: list[str] = []
-    nets = board.index.nets_by_name
-    copper = set(board.copper_layer_names)
+class DifferentialPairSpec(_Strict):
+    positive_net: EntityName
+    negative_net: EntityName
 
-    def check_net(name: str | None) -> None:
-        if name is not None and name not in nets:
-            problems.append(f"unknown net {name!r}")
+    @model_validator(mode="after")
+    def _distinct(self) -> Self:
+        if self.positive_net == self.negative_net:
+            raise ValueError("differential pair nets must be different")
+        return self
 
-    def check_layers(layers: list[str]) -> None:
-        for layer in layers:
-            if layer not in copper:
-                problems.append(f"layer {layer!r} is not a copper layer of this board")
 
-    constraints: RoutingConstraints | None = getattr(command, "constraints", None)
-    if constraints is not None:
-        check_layers(constraints.preferred_layers)
-        check_layers(constraints.avoid_layers)
+def _nonneg(le: float) -> float | None:
+    result: float | None = Field(default=None, gt=0.0, le=le)
+    return result
 
-    match command:
-        case RouteNet(target=t) | SetConstraint(target=t):
-            check_net(t)
-        case RouteGroup(targets=ts):
-            for t in ts:
-                check_net(t)
-        case RouteBoard(exclude_nets=ex):
-            for t in ex:
-                check_net(t)
-        case OptimizeRoute(target=t) | ReduceVias(target=t):
-            check_net(t)
-        case LockComponent(reference=ref):
-            if ref not in board.index.components_by_ref:
-                problems.append(f"unknown component {ref!r}")
-        case LockTrack(net=n, track_ids=ids):
-            check_net(n)
-            for tid in ids:
-                if tid not in board.index.tracks_by_id:
-                    problems.append(f"unknown track id {tid!r}")
-        case ProtectArea(layers=layers):
-            check_layers(layers)
-        case AnalyzeBoard():
-            pass  # read-only analysis: nothing to cross-check against the board
-    return problems
+
+class RoutingConstraints(_Strict):
+    """Explicit, typed routing constraints. ``None`` = not specified."""
+
+    preferred_layers: list[LayerName] | None = Field(default=None, max_length=32)
+    forbidden_layers: list[LayerName] | None = Field(default=None, max_length=32)
+
+    min_trace_width_mm: float | None = _nonneg(20.0)
+    preferred_trace_width_mm: float | None = _nonneg(20.0)
+    max_trace_width_mm: float | None = _nonneg(20.0)
+    min_clearance_mm: float | None = _nonneg(20.0)
+
+    max_vias: int | None = Field(default=None, ge=0, le=256)
+    minimize_vias: bool | None = None
+    preferred_via_type: ViaType | None = None
+
+    preserve_existing_routes: bool | None = None
+    allow_ripup: bool | None = None
+    allow_component_movement: bool | None = None
+
+    priority: Priority | None = None
+    criticality: Criticality | None = None
+
+    max_length_mm: float | None = _nonneg(10_000.0)
+    target_length_mm: float | None = _nonneg(10_000.0)
+    length_tolerance_mm: float | None = Field(default=None, ge=0.0, le=1_000.0)
+
+    avoid_nets: list[EntityName] | None = Field(default=None, max_length=256)
+    avoid_net_classes: list[EntityName] | None = Field(default=None, max_length=64)
+    keep_near: list[EntityRef] | None = Field(default=None, max_length=64)
+    keep_away_from: list[EntityRef] | None = Field(default=None, max_length=64)
+
+    differential_pair: DifferentialPairSpec | None = None
+    pair_gap_mm: float | None = _nonneg(20.0)
+    pair_skew_tolerance_mm: float | None = Field(default=None, ge=0.0, le=100.0)
+    impedance_target_ohm: float | None = Field(default=None, gt=0.0, le=1_000.0)
+    shielding_preference: Shielding | None = None
+
+    #: Informational only; never interpreted as an instruction by the application.
+    additional_notes: ShortText | None = None
+
+    @model_validator(mode="after")
+    def _lists_unique(self) -> Self:
+        for name in ("preferred_layers", "forbidden_layers", "avoid_nets", "avoid_net_classes"):
+            values = getattr(self, name)
+            if values is not None and len(set(values)) != len(values):
+                raise ValueError(f"{name} contains duplicates")
+        return self
+
+    # -- safe defaults (applied by the application, never assumed from the model)
+    @property
+    def effective_preserve_existing_routes(self) -> bool:
+        return self.preserve_existing_routes is not False
+
+    @property
+    def effective_allow_ripup(self) -> bool:
+        return self.allow_ripup is True
+
+    @property
+    def effective_allow_component_movement(self) -> bool:
+        return self.allow_component_movement is True
+
+    def specified_fields(self) -> dict[str, object]:
+        return self.model_dump(exclude_none=True)
+
+    def is_empty(self) -> bool:
+        return not self.specified_fields()
+
+
+# ======================================================================= commands
+class AICommand(_Strict):
+    """One structured intent proposed by the planner (the command envelope)."""
+
+    operation: Operation
+    targets: list[Target] = Field(default_factory=list, max_length=64)
+    constraints: RoutingConstraints | None = None
+    #: A brief engineering justification — not hidden chain-of-thought.
+    reasoning_summary: ShortText | None = None
+    warnings: list[ShortText] | None = Field(default=None, max_length=20)
+    confidence: Confidence | None = None
+    requires_user_confirmation: bool | None = None
+
+    @model_validator(mode="after")
+    def _unique_targets(self) -> Self:
+        keys = [target_key(t) for t in self.targets]
+        if len(set(keys)) != len(keys):
+            raise ValueError("targets contain duplicates")
+        return self
+
+    @property
+    def effective_constraints(self) -> RoutingConstraints:
+        return self.constraints or RoutingConstraints()
+
+
+class AnalysisPriority(_Strict):
+    item: ShortText
+    rationale: ShortText | None = None
+
+
+class AIAnalysis(_Strict):
+    """ANALYZE/EXPLAIN output. These are AI *observations*, not verified facts."""
+
+    summary: LongText
+    observations: list[ShortText] | None = Field(default=None, max_length=30)
+    potential_issues: list[ShortText] | None = Field(default=None, max_length=30)
+    recommended_priorities: list[AnalysisPriority] | None = Field(default=None, max_length=30)
+    unknowns: list[ShortText] | None = Field(default=None, max_length=30)
+    warnings: list[ShortText] | None = Field(default=None, max_length=30)
+
+
+class PlannerResponse(_Strict):
+    """Top-level JSON object every model response must be."""
+
+    schema_version: Literal[2]
+    mode: Literal["analyze", "plan", "command", "explain"]
+    message: LongText
+    analysis: AIAnalysis | None = None
+    plan_steps: list[ShortText] | None = Field(default=None, max_length=30)
+    commands: list[AICommand] | None = Field(default=None, max_length=MAX_COMMANDS_PER_RESPONSE)
+    clarification_needed: ShortText | None = None
+    unsupported_request: ShortText | None = None

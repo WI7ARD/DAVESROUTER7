@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-pcb-router"
-# PEP 440 cannot express "0.1.0-stage1"; "+stage1" is the equivalent local
+# PEP 440 cannot express "0.2.0-stage2"; "+stage2" is the equivalent local
 # version label. The user-facing version string lives in pcbrouter.__version__.
-version = "0.1.0+stage1"
+version = "0.2.0+stage2"
 description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,7 +28,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Provider SDKs are optional: the app runs (and inspects boards) without them, and the
+# AI settings explain how to install a missing one. Lower bounds = versions tested.
+openai = ["openai>=3.19", "keyring>=25"]  # OpenAI and OpenAI-compatible endpoints
+anthropic = ["anthropic>=1.8", "keyring>=25"]
+ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25"]
 dev = [
+    "ai-pcb-router[ai]",
     "pytest>=8",
     "pytest-qt>=4.4",
     "black>=24",
@@ -74,7 +80,7 @@ ignore = [
     "N802", # Qt overrides such as mousePressEvent must keep Qt's camelCase names
 ]
 # Deliberate typography in user-facing strings (dimensions "30 × 20 mm", dashes).
-allowed-confusables = ["×", "–"]
+allowed-confusables = ["×", "–", "‹", "ℹ"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
@@ -98,8 +104,10 @@ disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]
-# pytest-qt's QtBot methods are unannotated.
+# pytest-qt's QtBot methods are unannotated. Assertions after state transitions trip
+# mypy's literal narrowing (comparison-overlap false positives).
 disallow_untyped_calls = false
+disable_error_code = ["comparison-overlap"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

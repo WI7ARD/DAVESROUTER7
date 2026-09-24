@@ -23,7 +23,9 @@ def test_defaults() -> None:
     assert s.viewer.grid_spacing_mm == 1.0
     assert s.default_compute_backend is ComputeBackendChoice.CPU
     assert s.recent_boards == []
-    assert s.ai.enabled is False and s.routing.enabled is False and s.gpu.enabled is False
+    assert s.ai.profiles == [] and s.ai.default_profile is None
+    assert s.ai.show_privacy_preview is True and s.ai.debug_log_prompts is False
+    assert s.routing.enabled is False and s.gpu.enabled is False
 
 
 def test_missing_file_gives_defaults(tmp_path: Path) -> None:
@@ -59,7 +61,8 @@ def test_default_location_uses_config_dir() -> None:
         "[1, 2, 3]",
         json.dumps({"viewer": {"grid_spacing_mm": -5}}),
         json.dumps({"theme": "neon"}),
-        json.dumps({"ai": {"enabled": True}}),  # future sections cannot be switched on
+        json.dumps({"schema_version": 2, "ai": {"request_timeout_s": -1}}),
+        json.dumps({"routing": {"enabled": True}}),  # future sections cannot be switched on
     ],
 )
 def test_corrupt_file_is_quarantined(tmp_path: Path, content: str) -> None:
@@ -97,23 +100,39 @@ def test_validation_on_assignment() -> None:
         s.viewer.grid_spacing_mm = 0
 
 
-def _field_names(schema: object) -> set[str]:
-    names: set[str] = set()
-    if isinstance(schema, dict):
-        props = schema.get("properties")
-        if isinstance(props, dict):
-            names.update(k.lower() for k in props)
-        for value in schema.values():
-            names |= _field_names(value)
-    elif isinstance(schema, list):
-        for value in schema:
-            names |= _field_names(value)
-    return names
+def _fields(schema: object) -> dict[str, set[str]]:
+    """Every property name in the schema -> the JSON types it may hold."""
+    found: dict[str, set[str]] = {}
+
+    def types(prop: object) -> set[str]:
+        if not isinstance(prop, dict):
+            return set()
+        out = {prop["type"]} if isinstance(prop.get("type"), str) else set()
+        for sub in prop.get("anyOf", []):
+            out |= types(sub)
+        return out or {"object"}
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            props = node.get("properties")
+            if isinstance(props, dict):
+                for name, prop in props.items():
+                    found.setdefault(name.lower(), set()).update(types(prop))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(schema)
+    return found
 
 
 def test_settings_schema_has_no_secret_fields() -> None:
-    names = _field_names(AppSettings.model_json_schema())
-    assert "grid_spacing_mm" in names  # sanity: the walk sees nested sections
-    for name in names:
-        for forbidden in ("key", "password", "secret", "token", "credential"):
-            assert forbidden not in name, name
+    fields = _fields(AppSettings.model_json_schema())
+    assert "grid_spacing_mm" in fields  # sanity: the walk sees nested sections
+    assert "credential_ref" in fields  # profiles store a keyring *reference* only
+    secretish = ("key", "token", "secret", "password", "authorization", "bearer")
+    for name, kinds in fields.items():
+        if "string" in kinds and name != "credential_ref":
+            assert not any(word in name for word in secretish), name

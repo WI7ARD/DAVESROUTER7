@@ -391,10 +391,12 @@ def test_placeholders_say_available_in_a_later_stage(
     monkeypatch.setattr(
         QMessageBox, "information", lambda _p, title, text, *a: messages.append(f"{title}\n{text}")
     )
-    for act in (window.act_route_net, window.act_route_board, window.act_ai):
+    for act in (window.act_route_net, window.act_route_board):
         assert "Available in a later stage" in act.text()
         act.trigger()
-    assert len(messages) == 3
+    assert len(messages) == 2
+    # Stage 2 activated AI configuration: it is no longer a placeholder.
+    assert "later stage" not in window.act_ai.text()
     assert all("Available in a later stage" in m and "not modified" in m for m in messages)
 
 
@@ -471,12 +473,9 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
     assert window.settings.viewer.grid_spacing_mm == 1.0  # original untouched until accepted
     model = dlg.backend_combo.model()
     assert not model.item(1).isEnabled()  # type: ignore[attr-defined]
-    from PySide6.QtWidgets import QCheckBox
-
-    ai_tab = dlg.tabs.widget(3)
-    assert ai_tab is not None
-    ai_boxes = ai_tab.findChildren(QCheckBox)
-    assert ai_boxes and not any(b.isEnabled() for b in ai_boxes)
+    # Stage 2: the AI tab hosts the real provider configuration.
+    assert dlg.ai_widget.list.count() == 0
+    assert "Add a provider profile" in dlg.ai_widget.kind_label.text()
 
 
 def test_about_and_compute_info_text(window: MainWindow) -> None:

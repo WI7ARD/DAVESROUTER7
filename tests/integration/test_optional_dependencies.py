@@ -136,3 +136,33 @@ def test_gui_entry_point_starts_and_exits_cleanly(
         assert needle in log, needle
     settings = json.loads((tmp_path / "config" / "settings.json").read_text(encoding="utf-8"))
     assert settings["recent_boards"] == [str(board.resolve())]
+
+
+def test_ai_layer_without_sdks_or_keyring(tmp_path: Path) -> None:
+    """With openai/anthropic/keyring missing, AI reports it clearly and nothing crashes."""
+    proc = run_python(
+        """
+        import asyncio, sys
+        from pcbrouter.ai.service import AIService
+        from pcbrouter.ai.profiles import ProviderKind, ProviderProfile
+        from pcbrouter.ai.models import ConnectionStatus
+        svc = AIService()
+        assert not svc.credentials.secure_available
+        assert "not installed" in svc.credentials.describe_secure_backend()
+        for kind in ProviderKind:
+            assert not svc.registry.package_available(kind), kind
+        p = ProviderProfile(profile_id="openai-x", name="OpenAI", kind=ProviderKind.OPENAI,
+                            model_id="m")
+        svc.credentials.save(p.credential_ref, "sk-test-FAKE-000000000000", session_only=True)
+        r = asyncio.run(svc.provider(p).test_connection())
+        assert r.status is ConnectionStatus.PACKAGE_MISSING, r
+        assert 'pip install "ai-pcb-router[openai]"' in r.message, r.message
+        assert svc.status_of(p).status is ConnectionStatus.PACKAGE_MISSING
+        leaked = [m for m in sys.modules if m.split(".")[0] in BLOCKED]
+        assert not leaked, leaked
+        print("ok")
+        """,
+        tmp_path,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"

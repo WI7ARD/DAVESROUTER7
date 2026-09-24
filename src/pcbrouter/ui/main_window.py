@@ -8,7 +8,9 @@ parses files or touches routing internals directly.
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, Qt
@@ -25,6 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from pcbrouter import APP_NAME, STAGE, __version__
+from pcbrouter.ai.service import AIService, runtime_config_from_settings
+from pcbrouter.ai.session import AISession
 from pcbrouter.commands import CloseBoardCommand, CommandBus, OpenBoardCommand
 from pcbrouter.compute.detection import GpuDetectionResult
 from pcbrouter.compute.manager import ComputeManager
@@ -32,6 +36,10 @@ from pcbrouter.kicad.adapter import WarningSeverity
 from pcbrouter.project.manager import ProjectSession
 from pcbrouter.settings.settings import AppSettings, SettingsStore
 from pcbrouter.ui import dialogs
+from pcbrouter.ui.ai_controller import AIRequestController
+from pcbrouter.ui.ai_dialogs import UsageDialog
+from pcbrouter.ui.ai_history_panel import AIHistoryPanel
+from pcbrouter.ui.ai_panel import AIEngineeringPanel
 from pcbrouter.ui.inspector_panel import InspectorPanel
 from pcbrouter.ui.layers_panel import LayersPanel
 from pcbrouter.ui.log_panel import LogPanel
@@ -44,7 +52,8 @@ from pcbrouter.ui.theme import apply_theme
 log = logging.getLogger(__name__)
 
 BOARD_FILE_FILTER = "KiCad PCB (*.kicad_pcb);;All files (*)"
-_PANELS = ("project", "layers", "inspector", "nets", "log")
+_PANELS = ("project", "layers", "inspector", "nets", "log", "ai", "ai_history")
+AI_SETTINGS_TAB = 3
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +83,16 @@ class MainWindow(QMainWindow):
         self.nets_panel = NetsPanel()
         self.log_panel = log_panel or LogPanel()
 
+        # AI engineering layer (no network activity until the user explicitly asks).
+        ai = bus.context.ai
+        self.ai_service = ai if ai is not None else AIService()
+        if bus.context.ai is None:
+            bus.context.ai = self.ai_service
+        self.ai_controller = AIRequestController(self.ai_service, self)
+        self._selected: tuple[ItemKind, str] | None = None
+        self.ai_panel = AIEngineeringPanel(self.ai_controller, bus, settings, self._ai_selection)
+        self.ai_history = AIHistoryPanel(self.ai_service, bus.context.history)
+
         self.docks: dict[str, QDockWidget] = {}
         self._add_dock(
             "project", "Project", self.project_panel, Qt.DockWidgetArea.LeftDockWidgetArea
@@ -84,6 +103,19 @@ class MainWindow(QMainWindow):
         )
         self._add_dock("nets", "Nets", self.nets_panel, Qt.DockWidgetArea.RightDockWidgetArea)
         self._add_dock("log", "Log", self.log_panel, Qt.DockWidgetArea.BottomDockWidgetArea)
+        self._add_dock("ai", "AI Engineering", self.ai_panel, Qt.DockWidgetArea.RightDockWidgetArea)
+        self._add_dock(
+            "ai_history", "AI History", self.ai_history, Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        # Right column: Inspector/Nets tabbed on top, AI Engineering below with more height.
+        self.tabifyDockWidget(self.docks["inspector"], self.docks["nets"])
+        self.splitDockWidget(self.docks["inspector"], self.docks["ai"], Qt.Orientation.Vertical)
+        self.resizeDocks(
+            [self.docks["inspector"], self.docks["ai"]], [330, 600], Qt.Orientation.Vertical
+        )
+        self.tabifyDockWidget(self.docks["log"], self.docks["ai_history"])
+        self.docks["inspector"].raise_()
+        self.docks["log"].raise_()
         self.resizeDocks(
             [self.docks["project"], self.docks["inspector"]], [300, 360], Qt.Orientation.Horizontal
         )
@@ -164,12 +196,29 @@ class MainWindow(QMainWindow):
             tip="CPU/GPU detection results",
         )
         self.act_ai = self._action(
-            "Configure &AI Providers… (Available in a later stage)",
-            lambda: dialogs.show_stage_unavailable(
-                self, "Configure AI Providers", "Stage 5 (AI provider integration)"
-            ),
-            tip="Available in a later stage",
+            "Configure &AI Providers…",
+            self.open_ai_settings,
+            tip="OpenAI, Anthropic and "
+            "OpenAI-compatible provider profiles, API keys and AI preferences",
         )
+        self.act_ai_panel = self._action(
+            "AI &Engineering Panel", self.show_ai_panel, "Ctrl+I", "Open the AI Engineering panel"
+        )
+        self.act_ai_usage = self._action(
+            "AI &Usage…", self.show_ai_usage, tip="Requests and token usage in this session"
+        )
+        self.act_ai_export = self._action(
+            "&Export AI Session…",
+            self.export_ai_session,
+            tip="Save prompts, analyses, proposals and decisions " "as JSON (no credentials)",
+        )
+        self.act_undo = self._action(
+            "&Undo",
+            self.undo,
+            "Ctrl+Z",
+            "Undo the last AI proposal decision (never touches geometry)",
+        )
+        self.act_redo = self._action("&Redo", self.redo, "Ctrl+Shift+Z", "Redo")
         self.act_route_net = self._action(
             "Route &Selected Net (Available in a later stage)",
             lambda: dialogs.show_stage_unavailable(
@@ -180,7 +229,7 @@ class MainWindow(QMainWindow):
         self.act_route_board = self._action(
             "Route &Board (Available in a later stage)",
             lambda: dialogs.show_stage_unavailable(
-                self, "Route Board", "Stage 6 (board-level routing)"
+                self, "Route Board", "Stage 5 (board-level routing)"
             ),
             tip="Available in a later stage",
         )
@@ -199,6 +248,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_exit)
         self._rebuild_recent_menu()
 
+        edit = mb.addMenu("&Edit")
+        edit.addAction(self.act_undo)
+        edit.addAction(self.act_redo)
+
         view = mb.addMenu("&View")
         view.addAction(self.act_fit)
         view.addAction(self.act_zoom_in)
@@ -211,6 +264,8 @@ class MainWindow(QMainWindow):
             ("log", "L&ogs"),
             ("project", "&Project"),
             ("inspector", "&Inspector"),
+            ("ai", "&AI Engineering"),
+            ("ai_history", "AI &History"),
         ):
             act = self.docks[key].toggleViewAction()
             act.setText(title)
@@ -219,7 +274,11 @@ class MainWindow(QMainWindow):
         tools = mb.addMenu("&Tools")
         tools.addAction(self.act_compute)
         ai = mb.addMenu("&AI")
+        ai.addAction(self.act_ai_panel)
         ai.addAction(self.act_ai)
+        ai.addSeparator()
+        ai.addAction(self.act_ai_usage)
+        ai.addAction(self.act_ai_export)
         router = mb.addMenu("&Router")
         router.addAction(self.act_route_net)
         router.addAction(self.act_route_board)
@@ -236,7 +295,9 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_fit)
         tb.addAction(self.act_grid)
         tb.addSeparator()
-        stage = QLabel(f"  Stage {STAGE} · read-only inspector — no routing, no AI calls  ")
+        stage = QLabel(
+            f"  Stage {STAGE} · read-only board · AI plans on request, never edits · no routing  "
+        )
         stage.setProperty("role", "muted")
         tb.addWidget(stage)
         self.addToolBar(tb)
@@ -249,11 +310,14 @@ class MainWindow(QMainWindow):
         self.lbl_layer = QLabel("Layer —")
         self.lbl_backend = QLabel("")
         self.lbl_counts = QLabel("")
+        self.lbl_ai = QLabel("AI: not configured")
+        self.lbl_ai.setToolTip("Last known AI provider status (no background pinging)")
         self.lbl_cursor.setMinimumWidth(170)
         self.lbl_board.setToolTip("Open board (read-only)")
         self.lbl_cursor.setToolTip("Cursor position in board millimetres (KiCad coordinates)")
         self.lbl_zoom.setToolTip("Screen pixels per board millimetre")
         for w in (
+            self.lbl_ai,
             self.lbl_board,
             self.lbl_counts,
             self.lbl_layer,
@@ -287,6 +351,13 @@ class MainWindow(QMainWindow):
 
         self.project_panel.componentActivated.connect(self._on_component_activated)
 
+        self.ai_panel.configureRequested.connect(self.open_ai_settings)
+        self.ai_panel.historyChanged.connect(self.ai_history.refresh)
+        self.ai_panel.historyChanged.connect(self._update_undo_actions)
+        self.ai_panel.statusIndicatorChanged.connect(self._on_ai_indicator)
+        self.ai_history.proposalActivated.connect(self.ai_panel.select_proposal)
+        self.ai_controller.modelsListed.connect(self.ai_panel.on_models_listed)
+
     # ================================================================ board lifecycle
     def open_board_dialog(self) -> None:
         start = self.settings.last_open_directory or str(Path.home())
@@ -312,6 +383,7 @@ class MainWindow(QMainWindow):
         self.settings.last_open_directory = str(session.source_path.parent)
         self._rebuild_recent_menu()
         self._refresh_board_state()
+        self._start_ai_session()
         notes = session.load_result.warnings
         n_warn = sum(1 for w in notes if w.severity is WarningSeverity.WARNING)
         suffix = f" — {n_warn} warning(s), see Project ▸ Load notes" if n_warn else ""
@@ -322,6 +394,7 @@ class MainWindow(QMainWindow):
         if not self.bus.context.project.is_open:
             self.statusBar().showMessage("No board is open.", 4000)
             return
+        self._end_ai_session()
         result = self.bus.dispatch(CloseBoardCommand())
         self._refresh_board_state()
         self.statusBar().showMessage(result.message, 8000)
@@ -386,13 +459,24 @@ class MainWindow(QMainWindow):
         self.open_board(Path(path))
 
     # ================================================================ settings
-    def open_settings(self) -> None:
-        dlg = SettingsDialog(self.settings, self.compute, self)
-        if dlg.exec() != SettingsDialog.DialogCode.Accepted:
+    def open_settings(self, tab: int | None = None) -> None:
+        dlg = SettingsDialog(self.settings, self.compute, self, ai_controller=self.ai_controller)
+        if tab is not None:
+            dlg.tabs.setCurrentIndex(tab)
+        if not self.run_settings_dialog(dlg):
+            self.ai_panel.refresh_profiles()
             return
         new = dlg.result_settings()
         new.window = self.settings.window
+        old_config = runtime_config_from_settings(self.settings.ai)
         self.settings = new
+        self.ai_panel.settings = new
+        self.ai_panel.refresh_profiles()
+        if runtime_config_from_settings(new.ai) != old_config and self.ai_service.session:
+            self._start_ai_session()
+            self.statusBar().showMessage(
+                "AI preferences changed: the AI conversation for this " "board was restarted.", 8000
+            )
         app = QApplication.instance()
         if isinstance(app, QApplication):
             apply_theme(app, new.theme)
@@ -452,6 +536,7 @@ class MainWindow(QMainWindow):
         self.lbl_layer.setText(f"Layer {layer}")
 
     def _on_object_selected(self, kind: ItemKind, obj_id: str) -> None:
+        self._selected = (kind, obj_id)
         board = self.canvas.board
         if board is not None:
             self.inspector.show_object(board, kind, obj_id)
@@ -488,7 +573,144 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self.ai_controller.cancel()
         self.save_settings()
         if self.bus.context.project.is_open:
+            self._end_ai_session()
             self.bus.dispatch(CloseBoardCommand())
         event.accept()
+
+    # ================================================================ AI
+    def run_settings_dialog(self, dlg: SettingsDialog) -> bool:
+        """Separate method so tests can drive the dialog."""
+        return dlg.exec() == SettingsDialog.DialogCode.Accepted
+
+    def open_ai_settings(self) -> None:
+        self.open_settings(tab=AI_SETTINGS_TAB)
+
+    def show_ai_panel(self) -> None:
+        dock = self.docks["ai"]
+        dock.show()
+        dock.raise_()
+        self.ai_panel.prompt.setFocus()
+
+    def _start_ai_session(self) -> None:
+        self.ai_controller.cancel()
+        project = self.bus.context.project.session
+        if project is None:
+            return
+        self.ai_service.start_session(project.board, project.session_id,
+                                      runtime_config_from_settings(self.settings.ai),
+                                      history=self.bus.context.history)  # fmt: skip
+        self._refresh_ai()
+
+    def _end_ai_session(self) -> None:
+        self.ai_controller.cancel()
+        session = self.ai_service.session
+        project = self.bus.context.project.session
+        if (
+            session is not None
+            and project is not None
+            and session.interactions
+            and self.settings.ai.save_conversation_history
+        ):
+            self._autosave_ai_session(session, project)
+        self.ai_service.end_session("board closed")
+        self._refresh_ai()
+
+    def _autosave_ai_session(self, session: AISession, project: ProjectSession) -> None:
+        folder = project.workspace.root / "ai_sessions"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{session.session_id}.json"
+            target.write_text(json.dumps(session.export(project.name), indent=2), encoding="utf-8")
+            log.info("ai.session.saved path=%s", target)
+        except OSError as exc:
+            log.warning("ai.session.save_failed error=%s", exc)
+
+    def _refresh_ai(self) -> None:
+        self.ai_panel.refresh_board()
+        self.ai_panel.refresh_status()
+        self.ai_history.refresh()
+        self._update_undo_actions()
+
+    def _ai_selection(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        board = self.canvas.board
+        if board is None or self._selected is None:
+            return (), ()
+        kind, obj_id = self._selected
+        idx = board.index
+        if kind is ItemKind.NET:
+            return (obj_id,), ()
+        if kind is ItemKind.COMPONENT and obj_id in idx.components_by_id:
+            return (), (idx.components_by_id[obj_id].reference,)
+        if kind is ItemKind.PAD and obj_id in idx.pads_by_id:
+            pad = idx.pads_by_id[obj_id]
+            return ((pad.net_name,) if pad.net_name else ()), (pad.footprint_ref,)
+        if kind is ItemKind.TRACK and obj_id in idx.tracks_by_id:
+            net = idx.tracks_by_id[obj_id].net_name
+            return ((net,) if net else ()), ()
+        if kind is ItemKind.VIA and obj_id in idx.vias_by_id:
+            net = idx.vias_by_id[obj_id].net_name
+            return ((net,) if net else ()), ()
+        return (), ()
+
+    def _on_ai_indicator(self, text: str, color: str) -> None:
+        self.lbl_ai.setText(f"<span style='color:{color}'>●</span> {text}")
+
+    def show_ai_usage(self) -> None:
+        UsageDialog(self.ai_service.usage, self).exec()
+
+    def export_ai_session(self) -> None:
+        session = self.ai_service.session
+        project = self.bus.context.project.session
+        if session is None or project is None:
+            self.statusBar().showMessage("Open a board first.", 4000)
+            return
+        start = str(Path(self.settings.last_open_directory or Path.home())
+                    / f"{project.source_path.stem}-ai-session.json")  # fmt: skip
+        path, _ = QFileDialog.getSaveFileName(self, "Export AI session", start, "JSON (*.json)")
+        if path:
+            self.write_ai_export(Path(path))
+
+    def write_ai_export(self, path: Path) -> bool:
+        session = self.ai_service.session
+        project = self.bus.context.project.session
+        if session is None or project is None:
+            return False
+        if path.suffix.lower() == ".kicad_pcb":  # never write where a board lives by that name
+            dialogs.show_error(self, "Export refused", "Choose a .json file name.")
+            return False
+        try:
+            path.write_text(json.dumps(session.export(project.name), indent=2), encoding="utf-8")
+        except OSError as exc:
+            dialogs.show_error(self, "Export failed", f"Could not write {path}.", str(exc))
+            return False
+        self.statusBar().showMessage(f"AI session exported to {path}", 6000)
+        return True
+
+    def undo(self) -> None:
+        entry = self.bus.context.history.undo()
+        self.statusBar().showMessage(
+            f"Undone: {entry.label}" if entry else "Nothing to undo.", 4000
+        )
+        self._after_history_change()
+
+    def redo(self) -> None:
+        entry = self.bus.context.history.redo()
+        self.statusBar().showMessage(
+            f"Redone: {entry.label}" if entry else "Nothing to redo.", 4000
+        )
+        self._after_history_change()
+
+    def _after_history_change(self) -> None:
+        self.ai_panel.refresh_board()
+        self.ai_history.refresh()
+        self._update_undo_actions()
+
+    def _update_undo_actions(self) -> None:
+        h = self.bus.context.history
+        self.act_undo.setEnabled(h.can_undo)
+        self.act_redo.setEnabled(h.can_redo)
+        self.act_undo.setText(f"&Undo {h.undo_label}" if h.undo_label else "&Undo")
+        self.act_redo.setText(f"&Redo {h.redo_label}" if h.redo_label else "&Redo")

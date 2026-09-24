@@ -1,7 +1,8 @@
 # Architecture
 
-This document describes the Stage 1 architecture and the boundaries that later stages
-must respect. The overriding principle:
+This document describes the architecture as of Stage 2 and the boundaries that later
+stages must respect. The AI subsystem has its own document:
+[ai_architecture.md](ai_architecture.md). The overriding principle:
 
 > **The LLM MUST NOT directly modify board geometry.**
 > AI output is data to be validated, never an instruction to be executed.
@@ -13,6 +14,7 @@ must respect. The overriding principle:
 |  PRESENTATION                                                                     |
 |   ui/ (PySide6)                          app/cli.py (headless)                    |
 |   MainWindow, PcbCanvas, panels          --inspect, --check-command               |
+|   AI panel / history / provider settings (Qt bridge: ui/ai_controller.py)         |
 +--------------------------------+--------------------------------------------------+
                                  | commands only (never parsers or router internals)
                                  v
@@ -23,6 +25,7 @@ must respect. The overriding principle:
 |        +--> project/ProjectManager   (open board, SHA-256, workspace paths)       |
 |        +--> history/HistoryManager   (undo/redo, snapshots, proposals: groundwork)|
 |        +--> compute/ComputeManager   (CPU backend now, GPU placeholder)           |
+|        +--> ai/AIService             (providers, credentials, runner, AI sessions)|
 +--------------------------------+--------------------------------------------------+
                                  |
                                  v
@@ -35,15 +38,18 @@ must respect. The overriding principle:
 +--------------------------------+--------------------------------------------------+
 |  ADAPTERS                                                                         |
 |   kicad/  parser.py (S-expr) -> adapter.py (semantics) -> loader.py (read-only)   |
-|   ai/     provider.py (interface only)  command_schema.py (strict Pydantic)       |
+|   ai/     providers (OpenAI, Anthropic, compatible), context builder, anonymiser,|
+|           command schema v2, parser, semantic validator, proposals              |
 |   settings/, app_logging/, utils/paths.py                                         |
 +-----------------------------------------------------------------------------------+
 
-Future AI flow (Stage 5+):
+AI flow. Stage 2 implements everything up to "approved"; the rest is Stages 3–9:
 
- User prompt --> AIProvider --> raw text --> parse_command() --> validate_against_board()
-      --> CommandBus --> deterministic planner --> CPU/GPU router --> geometry check
-      --> DRC --> RouteProposal preview/diff --> user ACCEPT --> KiCad writer (Stage 9)
+ User prompt --> BoardContextBuilder --> PromptBuilder --> AIProvider --> JSON text
+      --> command_parser --> SemanticValidator --> CommandProposal preview
+      --> user APPROVE / REJECT / EDIT (CommandBus, HistoryManager)
+      ...... Stage 4+: deterministic router --> geometry check --> DRC
+      --> RouteProposal preview/diff --> user ACCEPT --> KiCad writer (Stage 9)
 ```
 
 Dependency rule: arrows point downwards only. `domain` imports nothing from the rest of the
@@ -108,23 +114,33 @@ they come from the GUI, the CLI, or (later) the AI pipeline or a scripting API. 
 - logs name, duration and outcome of every command; notifies subscribers.
 
 Stage 1 commands: `OpenBoardCommand`, `CloseBoardCommand`, `BoardSummaryCommand`,
-`ValidateAICommand` (parses and validates an AI-style command without executing it).
+`ValidateAICommand` (parses and validates an AI-style command without executing it; since
+Stage 2 it uses the v2 parser and the `SemanticValidator`).
 
-## 6. AI provider abstraction (`pcbrouter.ai`)
+Stage 2 commands (`commands/ai_commands.py`): `ApproveProposalCommand`,
+`RejectProposalCommand`, `EditProposalCommand`. None of them sets `modifies_board`.
+They change AI-session state only: proposal status and session locks. Each decision is
+recorded as an undoable `DecisionAction` in `HistoryManager`. `CommandContext.ai` gives
+commands access to the `AIService`.
 
-- `AIProvider` interface (`kind`, `config`, `is_configured()`, `complete()`); no
-  implementations and no network code in Stage 1. Planned adapters: OpenAI, Anthropic,
-  OpenAI-compatible endpoints, local models.
-- `ProviderConfig` holds a `credential_ref` (name of an OS-keyring entry), never a key.
-- `BoardContext` + `ContextPolicy` define what may be sent: summary by default, selection
-  on request, full board only with explicit per-request consent.
-- `command_schema.py`: a discriminated union of strict Pydantic models (`extra="forbid"`,
-  bounded numbers, validated layer names, no free-form geometry): `analyze_board`,
-  `route_net`, `route_group`, `route_board`, `set_constraint`, `lock_component`,
-  `lock_track`, `protect_area`, `optimize_route`, `reduce_vias`.
-  `parse_command()` does syntactic validation; `validate_against_board()` checks nets,
-  layers, references and track ids against the loaded board. `command_json_schema()`
-  exports the schema for provider structured-output features.
+## 6. AI subsystem (`pcbrouter.ai`)
+
+Full description: [ai_architecture.md](ai_architecture.md). In short:
+
+- **Providers**: `AIProvider` ABC with three adapters: OpenAI Responses API, Anthropic
+  Messages API, and OpenAI-compatible Chat Completions. The SDKs are optional and
+  imported lazily. `ProviderRegistry` maps a `ProviderProfile` to an adapter.
+- **Credentials**: `CredentialService` uses the OS keyring, with a session-only in-memory
+  fallback. Profiles hold only a `credential_ref`.
+- **Runtime**: `AsyncRunner` runs requests on a private asyncio loop thread with true
+  cancellation, bounded retries and an overall deadline. `AIService` is the app-level
+  facade. `AIRequestController` bridges results back to the Qt GUI thread.
+- **Compiler**: `BoardFactService` → `BoardContextBuilder` (levels, limits, escaping,
+  anonymiser) → `PromptBuilder` (static system prompt + delimited data) → provider →
+  `command_parser` (JSON only) → `SemanticValidator` → `CommandProposal`.
+- **Session**: `AISession` holds, per open board, the conversation, proposals, locks and
+  interaction records. It checks every response against the request id, session id and
+  board fingerprint.
 
 ### Why the LLM never edits geometry
 
@@ -161,7 +177,9 @@ never an in-place mutation. DRC runs on the proposal before it is shown.
 ## 9. History system (`pcbrouter.history`)
 
 - `HistoryManager`: undo/redo stacks of `UndoableAction`s with a depth limit and listeners.
-  Stage 1 exercises it with metadata-only actions (no board edits exist yet).
+  Stage 1 exercised it with metadata-only actions. Stage 2 records AI proposal decisions
+  as `DecisionAction`s, which also apply or revert session locks. There are still no
+  board edits.
 - Future strategy: actions wrap small *change sets* relative to an immutable board rather
   than full board copies; snapshots are written only as restore points before saves.
 - `SnapshotStore` / `MetadataSnapshotStore` (metadata only, writes nothing) and
@@ -171,8 +189,11 @@ never an in-place mutation. DRC runs on the proposal before it is shown.
 
 JSON via Pydantic (`extra="ignore"`, validated on assignment). Missing file → defaults;
 invalid file → moved aside as `settings.json.corrupt-<timestamp>` and defaults used;
-writes are atomic (temp file + `os.replace`). Future sections (`ai`, `routing`, `gpu`) exist
-but are pinned to `enabled = false`. The schema contains no secret fields (tested).
+writes are atomic (temp file + `os.replace`). Schema version 2 (Stage 2) replaces the inert
+`ai` placeholder with `AISettings`: provider profiles, default profile, mode, context
+level, limits, timeout, retries, privacy and anonymisation options. Migration from v1
+drops the old placeholder. `routing` and `gpu` are still pinned to `enabled = false`. The
+schema contains no secret fields (tested; the settings file is searched for a fake key).
 
 ## 11. Logging (`pcbrouter.app_logging`)
 
@@ -196,6 +217,8 @@ masks API-key-shaped strings and `key=value` credentials.
 
 ## 13. Security rules
 
+Implemented and audited in Stage 2; see [security.md](security.md).
+
 1. Never store plaintext API keys in project files or settings (OS keyring only).
 2. Never embed API keys into PCB files.
 3. Never send PCB files to an AI provider automatically.
@@ -218,3 +241,16 @@ masks API-key-shaped strings and `key=value` credentials.
 | — | `ui/theme.py`, `ui/dialogs.py` | Shared colours/stylesheet and small dialogs. |
 | — | `utils/paths.py` | Platform-aware directories with env overrides. |
 | — | `tools/generate_synthetic_board.py` | Large synthetic boards for performance checks. |
+
+## 15. Stage 2 structural changes
+
+| Change | Reason |
+|---|---|
+| `ai/command_schema.py` replaced by the v2 envelope; Stage 1's compact form converted by `command_parser.convert_legacy_command` | The brief requires typed targets and constraints; `--check-command` keeps working |
+| `ai/provider.py` rewritten; `ProviderKind` moved to `ai/profiles.py`; the unused `LOCAL` kind dropped | Local servers use the OpenAI-compatible adapter |
+| `ai/wire_schema.py` separate from the Pydantic models | Providers' strict modes need a restricted JSON Schema; Pydantic stays the authority |
+| `ai/_sdk_common.py` | Shared lazy import, error mapping and schema fallback for the three adapters |
+| `domain/fingerprint.py`, `Board.fingerprint` | Ties AI responses to a board state (staleness) |
+| `ProjectSession.session_id` | Distinguishes two openings of the same file |
+| `ui/ai_*.py` modules | Panel, dialogs, rendering, provider settings and the Qt bridge kept out of `main_window.py` |
+| AI dock placed full-height on the right | The proposal preview needs vertical space |

@@ -6,12 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pcbrouter.ai.command_schema import (
-    MODIFYING_OPERATIONS,
-    CommandValidationError,
-    parse_command,
-    validate_against_board,
-)
+from pcbrouter.ai.command_parser import CommandValidationError, parse_command_payload
+from pcbrouter.ai.command_schema import OperationCategory
+from pcbrouter.ai.command_validator import SemanticValidator
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
 from pcbrouter.domain.board import Board
 from pcbrouter.domain.units import internal_to_mm
@@ -96,9 +93,8 @@ class BoardSummaryCommand(BaseCommand):
 class ValidateAICommand(BaseCommand):
     """Parse + validate a structured command (as an LLM would emit) WITHOUT executing it.
 
-    This is the Stage 1 slice of the AI pipeline: it proves that untrusted command
-    JSON is checked syntactically and against the loaded board before anything
-    could ever reach the router.
+    Runs the same schema parser and semantic validator as the AI Engineering panel,
+    so the CLI (``--check-command``) and the GUI apply identical rules.
     """
 
     payload: str
@@ -106,19 +102,25 @@ class ValidateAICommand(BaseCommand):
 
     def execute(self, ctx: CommandContext) -> CommandResult:
         try:
-            command = parse_command(self.payload)
+            command = parse_command_payload(self.payload)
         except CommandValidationError as exc:
             return CommandResult.fail("Invalid command: " + "; ".join(exc.errors))
         board = ctx.project.board
+        warnings = ""
         if board is not None:
-            problems = validate_against_board(command, board)
-            if problems:
-                return CommandResult.fail(
-                    "Command does not match the board: " + "; ".join(problems)
+            report = SemanticValidator(board).validate(command)
+            if not report.is_valid:
+                message = "Command does not match the board: " + "; ".join(
+                    i.text() for i in report.errors
                 )
+                return CommandResult(False, message, report)
+            if report.warnings:
+                warnings = " Warnings: " + "; ".join(i.text() for i in report.warnings)
         note = (
-            " It would modify the board; execution is available in a later stage."
-            if command.operation in MODIFYING_OPERATIONS
+            " It would modify the board; execution is available in a later stage (Stage 4)."
+            if command.operation.category is OperationCategory.ROUTING
             else ""
         )
-        return CommandResult.ok(f"Valid '{command.operation}' command.{note}", command)
+        return CommandResult.ok(
+            f"Valid '{command.operation.value}' command.{note}{warnings}", command
+        )

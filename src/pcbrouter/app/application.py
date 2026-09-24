@@ -18,6 +18,7 @@ from pathlib import Path
 from types import TracebackType
 
 from pcbrouter import APP_NAME, APP_SLUG, __version__
+from pcbrouter.ai.service import AIService
 from pcbrouter.app_logging import log_startup_banner, setup_logging
 from pcbrouter.commands import CloseBoardCommand, CommandBus, CommandContext
 from pcbrouter.compute.backend import BackendKind
@@ -37,9 +38,12 @@ class Services:
     compute: ComputeManager
     project: ProjectManager
     history: HistoryManager
+    ai: AIService
 
 
-def build_services(settings: AppSettings, *, detect_gpu_now: bool) -> Services:
+def build_services(
+    settings: AppSettings, *, detect_gpu_now: bool, ai_service: AIService | None = None
+) -> Services:
     """Create the Qt-free core. With ``detect_gpu_now=False`` GPU detection is left
     pending so the GUI can run it in the background."""
     compute = ComputeManager(
@@ -52,10 +56,13 @@ def build_services(settings: AppSettings, *, detect_gpu_now: bool) -> Services:
     compute.select(preferred)
     project = ProjectManager()
     history = HistoryManager()
+    # No network, thread or SDK import happens here: the AI runner starts lazily on
+    # the first explicit AI action, and SDKs are imported only inside adapters.
+    ai = ai_service if ai_service is not None else AIService()
     bus = CommandBus(
-        CommandContext(project=project, history=history, compute=compute), read_only=True
+        CommandContext(project=project, history=history, compute=compute, ai=ai), read_only=True
     )
-    return Services(bus=bus, compute=compute, project=project, history=history)
+    return Services(bus=bus, compute=compute, project=project, history=history, ai=ai)
 
 
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -211,6 +218,7 @@ def run_gui(args: argparse.Namespace, log_file: Path | None) -> int:
     if services.project.is_open:
         services.bus.dispatch(CloseBoardCommand())
     remove_handler(log_panel.handler)
+    services.ai.shutdown()
     services.compute.shutdown()
     log.info("app.shutdown exit_code=%d", code)
     return int(code)
