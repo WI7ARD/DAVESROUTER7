@@ -10,8 +10,14 @@ plus the via cost when that layer differs, scaled by the smallest possible step
 factor — a lower bound of the true remaining cost, so the search is admissible
 (optimal with respect to the grid and the cost model).
 
-Determinism: the priority queue breaks ties by insertion order; neighbour order
-is fixed. Same inputs → same path.
+Pruning: a state is not expanded when the same (layer, cell[, vias]) was already
+reached more than one 90-degree bend cheaper with another direction; equal f
+values prefer the deeper node. Both only discard states that cannot beat a known
+one by more than a bend penalty, so routes stay near-optimal for the cost model
+(documented: not strictly optimal).
+
+Determinism: the priority queue breaks ties by depth, then insertion order;
+neighbour order is fixed. Same inputs → same path.
 """
 
 from __future__ import annotations
@@ -137,7 +143,11 @@ def search(
                 best = h
         return best
 
-    heap: list[tuple[float, int, float, int]] = []
+    heap: list[tuple[float, float, int, float, int]] = []
+    # best cost to reach a (vias, layer, cell) with any direction: states more than
+    # one 90-degree bend worse cannot lead to a cheaper route (dominance pruning)
+    cell_best: dict[int, float] = {}
+    slack = cm.bend90_nm
     best_g: dict[int, float] = {}
     parent: dict[int, int] = {}
     tie = 0
@@ -150,7 +160,7 @@ def search(
             if s in best_g:
                 continue
             best_g[s] = 0.0
-            heapq.heappush(heap, (heuristic(li, idx), tie, 0.0, s))
+            heapq.heappush(heap, (heuristic(li, idx), 0.0, tie, 0.0, s))
             tie += 1
     if not heap:
         return SearchOutcome(SearchStatus.NO_PATH, elapsed_s=time.perf_counter() - t0)
@@ -162,7 +172,7 @@ def search(
     goal = -1
     ny = g.ny
     while heap:
-        _f, _t, gc, s = heapq.heappop(heap)
+        _f, _ng, _t, gc, s = heapq.heappop(heap)
         if gc > best_g.get(s, math.inf):
             continue
         d = s % 9
@@ -217,12 +227,18 @@ def search(
             if pen is not None:
                 cost += step * pen[ni]
             cost += bend[turn]
-            ns = (base + ni) * 9 + nd
             ng = gc + cost
+            ck = base + ni
+            cb = cell_best.get(ck, math.inf)
+            if ng > cb + slack:
+                continue
+            ns = ck * 9 + nd
             if ng < best_g.get(ns, math.inf):
                 best_g[ns] = ng
+                if ng < cb:
+                    cell_best[ck] = ng
                 parent[ns] = s
-                heapq.heappush(heap, (ng + heuristic(li, ni), tie, ng, ns))
+                heapq.heappush(heap, (ng + heuristic(li, ni), -ng, tie, ng, ns))
                 tie += 1
         if vias_on and via_ok[idx] and (not track_vias or v + 1 < nv):
             v2 = v + 1 if track_vias else v
@@ -234,7 +250,7 @@ def search(
                 if ng < best_g.get(ns, math.inf):
                     best_g[ns] = ng
                     parent[ns] = s
-                    heapq.heappush(heap, (ng + heuristic(l2, idx), tie, ng, ns))
+                    heapq.heappush(heap, (ng + heuristic(l2, idx), -ng, tie, ng, ns))
                     tie += 1
     out = SearchOutcome(status, expanded=expanded, elapsed_s=time.perf_counter() - t0)
     if record_explored:

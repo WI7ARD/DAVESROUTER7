@@ -106,15 +106,29 @@ def test_gui_entry_point_starts_and_exits_cleanly(
     tmp_path: Path, fixture_path: Callable[[str], Path]
 ) -> None:
     """Runs the real ``main()`` GUI path (theme, services, window, background GPU
-    detection, board open, event loop, shutdown) and quits it with a timer."""
+    detection, board open, geometry build, event loop, shutdown) and quits it once
+    the background work has reported."""
     board = fixture_path("vias.kicad_pcb")
     proc = run_python(
         f"""
-        import sys
+        import os, sys, time
+        from pathlib import Path
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
         app = QApplication(sys.argv[:1])
-        QTimer.singleShot(1500, app.quit)
+        # Quit once the background work this test checks has reported (GPU
+        # detection and the Stage 3 geometry build), or after 20 s at most. A fixed
+        # short delay raced with slow CI machines.
+        log_file = Path(os.environ["PCBROUTER_LOG_DIR"]) / "pcbrouter.log"
+        started = time.monotonic()
+        def poll():
+            text = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+            done = "compute.gpu_detected" in text and "geometry.ready" in text
+            if done or time.monotonic() - started > 20:
+                app.quit()
+            else:
+                QTimer.singleShot(100, poll)
+        QTimer.singleShot(300, poll)
         from pcbrouter.app.application import main
         sys.exit(main([{str(board)!r}]))
         """,

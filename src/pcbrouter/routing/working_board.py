@@ -117,6 +117,7 @@ class WorkingBoard:
         self._lock = threading.RLock()
         self._listeners: list[Listener] = []
         self._sequence = 0
+        self._rules: tuple[Any, Any] | None = None
 
     # ------------------------------------------------------------ engine
     @property
@@ -131,19 +132,43 @@ class WorkingBoard:
         with self._lock:
             if self._engine is None:
                 engine = BoardEngine(self.board, self.project_rules, self.overrides, self.config)
+                if self._rules is not None:  # copper commits never change the rules
+                    engine.__dict__["ruleset"], engine.__dict__["resolver"] = self._rules
                 if self._geometry is not None:
                     engine.__dict__["geometry"] = self._geometry
                 else:
                     # build lazily inside the engine, then adopt it as ours
                     self._geometry = engine.geometry
                 self._engine = engine
+                if self._rules is None and "ruleset" in engine.__dict__:
+                    self._rules = (engine.ruleset, engine.resolver)
             return self._engine
+
+    def rules(self) -> tuple[Any, Any]:
+        """(RuleSet, RuleResolver) for the current rules, cached across commits."""
+        engine = self.engine
+        if self._rules is None:
+            self._rules = (engine.ruleset, engine.resolver)
+        return self._rules
+
+    def fork(self) -> WorkingBoard:
+        """A private copy for background board routing: same source, provenance and
+        locks; its own geometry. Commits on the fork never affect this board."""
+        with self._lock:
+            other = WorkingBoard(self.source, self.project_rules, self.overrides, self.config)
+            other.board = self.board
+            other.provenance = dict(self.provenance)
+            other.locks = set(self.locks)
+            other._geometry = self.geometry.copy()
+            other._rules = self._rules
+            return other
 
     def set_rules(self, overrides: RuleOverrides, config: EngineConfig) -> None:
         with self._lock:
             self.overrides = overrides
             self.config = config
             self._engine = None
+            self._rules = None
 
     def subscribe(self, listener: Listener) -> None:
         self._listeners.append(listener)
@@ -186,6 +211,38 @@ class WorkingBoard:
         """Add proposal copper (and optionally rip up ``remove_ids``) as one commit."""
         with self._lock:
             proposals = list(proposals)
+            seq = self._sequence + 1
+            tracks: list[Track] = []
+            vias: list[Via] = []
+            for p_i, prop in enumerate(proposals):
+                for s_i, seg in enumerate(prop.segments):
+                    tid = stable_id(prop.proposal_id, seq, p_i, "s", s_i)
+                    tracks.append(Track(tid, seg.start, seg.end, seg.width, seg.layer, prop.net))
+                for v_i, via in enumerate(prop.vias):
+                    vid = stable_id(prop.proposal_id, seq, p_i, "v", v_i)
+                    vias.append(
+                        Via(vid, via.position, via.diameter, via.drill, prop.net,
+                            via.start_layer, via.end_layer, ViaType.THROUGH)
+                    )  # fmt: skip
+            return self.commit_objects(
+                tracks, vias, remove_ids, label, provenance, metadata, validate
+            )
+
+    def commit_objects(
+        self,
+        tracks: Iterable[Track],
+        vias: Iterable[Via],
+        remove_ids: Iterable[str],
+        label: str,
+        provenance: Provenance = Provenance.ROUTER_GENERATED,
+        metadata: dict[str, Any] | None = None,
+        validate: bool = True,
+    ) -> Commit:
+        """Add tracks/vias and remove generated copper as one commit. With
+        ``validate`` every added object is checked against the resulting state and
+        the commit is rolled back if anything is not legal."""
+        with self._lock:
+            tracks, vias = tuple(tracks), tuple(vias)
             remove = sorted(set(remove_ids))
             idx = self.board.index
             removed_tracks = tuple(idx.tracks_by_id[i] for i in remove if i in idx.tracks_by_id)
@@ -195,52 +252,22 @@ class WorkingBoard:
                     raise CommitError(f"refusing to remove source copper {obj.id}")
                 if self.is_locked(obj.id, obj.net_name):
                     raise CommitError(f"refusing to remove locked copper {obj.id}")
+            for obj in _objs(tracks, vias):
+                if self.is_locked("", obj.net_name):
+                    raise CommitError(f"net {obj.net_name} is locked")
             self._sequence += 1
-            seq = self._sequence
-            tracks: list[Track] = []
-            vias: list[Via] = []
-            for p_i, prop in enumerate(proposals):
-                if self.is_locked("", prop.net):
-                    raise CommitError(f"net {prop.net} is locked")
-                for s_i, seg in enumerate(prop.segments):
-                    tracks.append(
-                        Track(
-                            stable_id(prop.proposal_id, seq, p_i, "s", s_i),
-                            seg.start,
-                            seg.end,
-                            seg.width,
-                            seg.layer,
-                            prop.net,
-                        )
-                    )
-                for v_i, via in enumerate(prop.vias):
-                    vtype = ViaType.THROUGH
-                    vias.append(
-                        Via(
-                            stable_id(prop.proposal_id, seq, p_i, "v", v_i),
-                            via.position,
-                            via.diameter,
-                            via.drill,
-                            prop.net,
-                            via.start_layer,
-                            via.end_layer,
-                            vtype,
-                        )
-                    )
-            if validate:
-                self._validate_against_current(proposals, set(remove))
             before = self.board
             removed_set = set(remove)
             after = replace(
                 before,
-                tracks=tuple(t for t in before.tracks if t.id not in removed_set) + tuple(tracks),
-                vias=tuple(v for v in before.vias if v.id not in removed_set) + tuple(vias),
+                tracks=tuple(t for t in before.tracks if t.id not in removed_set) + tracks,
+                vias=tuple(v for v in before.vias if v.id not in removed_set) + vias,
             )
             commit = Commit(
-                commit_id=f"commit-{seq}",
+                commit_id=f"commit-{self._sequence}",
                 label=label,
-                added_tracks=tuple(tracks),
-                added_vias=tuple(vias),
+                added_tracks=tracks,
+                added_vias=vias,
                 removed_tracks=removed_tracks,
                 removed_vias=removed_vias,
                 before=before,
@@ -251,20 +278,39 @@ class WorkingBoard:
                     o.id: self.provenance_of(o.id) for o in _objs(removed_tracks, removed_vias)
                 },
             )
-            self._apply(commit)
+            self._apply(commit, notify=False)
+            if validate:
+                problems = self._problems(commit)
+                if problems:
+                    self._revert(commit, notify=False)
+                    raise CommitError(
+                        "not committed — the copper is not valid on the working board: "
+                        + "; ".join(problems[:3])
+                    )
+            self._notify(commit)
             return commit
 
-    def _validate_against_current(self, proposals: list[RouteProposal], removing: set[str]) -> None:
-        if removing:
-            return  # validated by the caller against the ripped-up state (Stage 5)
+    def _problems(self, commit: Commit) -> list[str]:
         validator = self.engine.validator
-        for prop in proposals:
-            res = validator.validate_route(prop)
-            if not res.legal:
-                raise CommitError(
-                    f"proposal {prop.proposal_id} is no longer valid on the working board: "
-                    + "; ".join(res.messages[:3])
-                )
+        out: list[str] = []
+        for t in commit.added_tracks:
+            r = validator.validate_segment(t.net_name, t.layer, t.start, t.end, t.width)
+            if not r.legal:
+                out += [f"track {t.id[:8]}: {m}" for m in r.messages()[:2]]
+        for v in commit.added_vias:
+            if v.drill is None or v.start_layer is None or v.end_layer is None:
+                out.append(f"via {v.id[:8]}: incomplete via")
+                continue
+            r = validator.validate_via(
+                v.net_name, v.position, v.start_layer, v.end_layer, v.diameter, v.drill
+            )
+            own = {f"via:{v.id}", f"hole:{v.id}"}  # the committed via itself
+            others = [c for c in r.collisions if c.object_id not in own]
+            if others or (not r.collisions and not r.legal):
+                out += [f"via {v.id[:8]}: {c.message}" for c in others[:2]] or [
+                    f"via {v.id[:8]}: {m}" for m in r.messages()[:2]
+                ]
+        return out
 
     def undo(self) -> Commit | None:
         with self._lock:
@@ -309,7 +355,7 @@ class WorkingBoard:
             out += [f"via:{v.id}", f"hole:{v.id}"]
         return out
 
-    def _apply(self, commit: Commit) -> None:
+    def _apply(self, commit: Commit, notify: bool = True) -> None:
         geo = self.geometry
         add_c, add_h = self._items(commit.added_tracks, commit.added_vias)
         geo.apply_changes(
@@ -329,9 +375,10 @@ class WorkingBoard:
             commit.diff_summary(),
             commit.after.fingerprint[:12],
         )
-        self._notify(commit)
+        if notify:
+            self._notify(commit)
 
-    def _revert(self, commit: Commit) -> None:
+    def _revert(self, commit: Commit, notify: bool = True) -> None:
         if not self.commits or self.commits[-1] is not commit:
             raise CommitError("only the most recent commit can be reverted")
         geo = self.geometry
@@ -346,7 +393,8 @@ class WorkingBoard:
         self.commits.pop()
         self._engine = None
         log.info("working.revert %s %s", commit.commit_id, commit.label)
-        self._notify(None)
+        if notify:
+            self._notify(None)
 
     def _notify(self, commit: Commit | None) -> None:
         for listener in list(self._listeners):

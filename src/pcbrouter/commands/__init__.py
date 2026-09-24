@@ -17,14 +17,18 @@ from pcbrouter.commands.board_commands import (
 )
 from pcbrouter.commands.command_bus import READ_ONLY_MESSAGE, CommandBus
 from pcbrouter.commands.route_commands import (
+    AcceptBoardRoutingCommand,
     AcceptRouteCommand,
+    OptimizeNetCommand,
     ResetWorkingBoardCommand,
+    RouteBoardCommand,
     RouteNetCommand,
     WorkingUndoAction,
 )
 
 __all__ = [
     "READ_ONLY_MESSAGE",
+    "AcceptBoardRoutingCommand",
     "AcceptRouteCommand",
     "ApproveProposalCommand",
     "BaseCommand",
@@ -35,8 +39,10 @@ __all__ = [
     "CommandResult",
     "EditProposalCommand",
     "OpenBoardCommand",
+    "OptimizeNetCommand",
     "RejectProposalCommand",
     "ResetWorkingBoardCommand",
+    "RouteBoardCommand",
     "RouteNetCommand",
     "ValidateAICommand",
     "WorkingUndoAction",

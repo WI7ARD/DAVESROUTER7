@@ -89,3 +89,39 @@ def test_reject_changes_nothing(window: MainWindow, fixture_path: Callable[[str]
     window.routing_ui.reject()
     assert not window.bus.context.project.working.modified
     assert not window.engine_ui.overlays.has("route_preview")
+
+
+def test_route_board_review_accept_subset_and_undo(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    from pcbrouter.routing.board_router import BoardStatus
+    from pcbrouter.routing.optimize import OptimizeGoal
+
+    path = fixture_path("router_basic.kicad_pcb")
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert window.open_board(path)
+    wait(window)
+    ui = window.routing_ui
+    assert window.act_route_board.isEnabled()
+    assert ui.route_board()
+    wait(window)
+    result = ui.board_panel.result
+    assert result is not None and result.status is BoardStatus.FULLY_ROUTED, result
+    assert window.engine_ui.overlays.has("board_preview")
+    assert ui.board_panel.table.rowCount() == len(result.plan.tasks)
+    working = window.bus.context.project.working
+    assert not working.modified  # nothing before Accept
+    ui.board_panel.set_checked({"B", "C"})
+    assert ui.accept_board(ui.board_panel.checked_nets())
+    wait(window)
+    nets = {t.net_name for t in working.board.tracks} - {t.net_name for t in working.source.tracks}
+    assert nets == {"B", "C"}
+    # tweak a routed net (deterministic optimiser; one undoable step or "kept")
+    window._on_net_selected("B")
+    ui.optimize_selected(OptimizeGoal.MERGE_COLLINEAR)
+    wait(window)
+    while working.modified:
+        window.undo()
+        wait(window)
+    assert working.board is working.source
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before

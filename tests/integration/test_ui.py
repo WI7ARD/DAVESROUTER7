@@ -392,15 +392,13 @@ def test_placeholders_say_available_in_a_later_stage(
     monkeypatch.setattr(
         QMessageBox, "information", lambda _p, title, text, *a: messages.append(f"{title}\n{text}")
     )
-    # Stage 4 made "Route Selected Net" real; board routing is still a placeholder.
-    assert "later stage" not in window.act_route_net.text()
-    for act in (window.act_route_board,):
-        assert "Available in a later stage" in act.text()
-        act.trigger()
-    assert len(messages) == 1
+    # Stages 4/5 made routing real: no routing placeholder remains.
+    for act in (window.act_route_net, window.act_route_board):
+        assert "later stage" not in act.text()
+        assert not act.isEnabled()  # disabled (not faked) until a board is open
+    assert not messages
     # Stage 2 activated AI configuration: it is no longer a placeholder.
     assert "later stage" not in window.act_ai.text()
-    assert all("Available in a later stage" in m and "not modified" in m for m in messages)
 
 
 def test_shortcuts(window: MainWindow) -> None:

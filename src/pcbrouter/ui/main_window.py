@@ -57,6 +57,7 @@ log = logging.getLogger(__name__)
 BOARD_FILE_FILTER = "KiCad PCB (*.kicad_pcb);;All files (*)"
 _PANELS = (
     "project", "layers", "inspector", "nets", "log", "ai", "ai_history", "drc", "rules", "route",
+    "jobs",
 )  # fmt: skip
 AI_SETTINGS_TAB = 3
 
@@ -137,11 +138,16 @@ class MainWindow(QMainWindow):
         self.routing_ui = RoutingController(self)
         self.routing_ui.install()
         self.act_route_net = self.routing_ui.act_route_net
+        self.act_route_board = self.routing_ui.act_route_board
         self.menu_router.addAction(self.act_route_net)
         self.menu_router.addAction(self.act_route_board)
+        tweak = self.menu_router.addMenu("&Optimize Selected Net")
+        for act in self.routing_ui.optimize_actions.values():
+            tweak.addAction(act)
         self.menu_router.addSeparator()
         self.menu_router.addAction(self.routing_ui.act_reset)
         self.menu_view.addAction(self.docks["route"].toggleViewAction())
+        self.menu_view.addAction(self.docks["jobs"].toggleViewAction())
         self.toolbar_main.addAction(self.act_route_net)
         self._connect_signals()
         self._apply_viewer_settings()
@@ -237,13 +243,6 @@ class MainWindow(QMainWindow):
             "Undo the last AI proposal decision (never touches geometry)",
         )
         self.act_redo = self._action("&Redo", self.redo, "Ctrl+Shift+Z", "Redo")
-        self.act_route_board = self._action(
-            "Route &Board (Available in a later stage)",
-            lambda: dialogs.show_stage_unavailable(
-                self, "Route Board", "Stage 5 (board-level routing)"
-            ),
-            tip="Available in a later stage",
-        )
         self.act_about = self._action(f"&About {APP_NAME}", lambda: dialogs.show_about(self))
 
     def _build_menus(self) -> None:

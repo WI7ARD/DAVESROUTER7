@@ -163,6 +163,21 @@ def router_4layer() -> str:
     return b.text()
 
 
+def router_ripup() -> str:
+    """X and Y both want the single 0.8 mm F.Cu gap; Y (tested with max_vias=0)
+    has no alternative, X can dive to B.Cu with two vias. Routing X first makes Y
+    fail until the board router rips X up and reroutes it."""
+    b = RBoard(["X", "Y"], "Router rip-up fixture")
+    b.rect_edge(0, 0, 30, 20)
+    b.keepout_on("wall top", '"F.Cu"', 14.5, -1, 15.5, 9.6, tracks=True, vias=False)
+    b.keepout_on("wall bottom", '"F.Cu"', 14.5, 10.4, 15.5, 21, tracks=True, vias=False)
+    b.test_point("X1", 5, 10, "X")
+    b.test_point("X2", 25, 10, "X")
+    b.test_point("Y1", 8, 13, "Y")
+    b.test_point("Y2", 22, 13, "Y")
+    return b.text()
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     (OUT / "router_basic.kicad_pcb").write_text(router_basic())
@@ -182,6 +197,8 @@ def main() -> None:
     )
     (OUT / "router_4layer.kicad_pcb").write_text(router_4layer())
     (OUT / "router_4layer.kicad_pro").write_text(json.dumps(project(), indent=2) + "\n")
+    (OUT / "router_ripup.kicad_pcb").write_text(router_ripup())
+    (OUT / "router_ripup.kicad_pro").write_text(json.dumps(project(), indent=2) + "\n")
 
 
 if __name__ == "__main__":

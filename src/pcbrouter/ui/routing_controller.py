@@ -19,10 +19,18 @@ from pcbrouter.board_engine import BoardEngine
 from pcbrouter.commands import AcceptRouteCommand
 from pcbrouter.geometry.shapes import Shape, capsule, circle
 from pcbrouter.routing.backend import router_for
+from pcbrouter.routing.board_router import (
+    BoardRouter,
+    BoardRouterSettings,
+    BoardRoutingControl,
+    BoardRoutingResult,
+    make_plan,
+)
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteCandidate, RouteResult
 from pcbrouter.routing.working_board import Commit, WorkingBoard
 from pcbrouter.ui import overlays
+from pcbrouter.ui.board_job_panel import BoardJobPanel, ProgressBridge
 from pcbrouter.ui.route_panel import RoutePanel
 from pcbrouter.ui.workers import JobRunner
 
@@ -57,6 +65,41 @@ class RoutingController(QObject):
             "previewed and must be accepted"
         )
         self.act_route_net.triggered.connect(self.route_selected_net)
+        self.act_route_board = QAction("Route &Board", window)
+        self.act_route_board.setShortcut("Ctrl+Shift+R")
+        self.act_route_board.setStatusTip(
+            "Route every incomplete net (ordered plan, retries, bounded rip-up) on a copy; "
+            "review and accept per net"
+        )
+        self.act_route_board.triggered.connect(self.route_board)
+        self.optimize_actions: dict[str, QAction] = {}
+        from pcbrouter.routing.optimize import OptimizeGoal
+
+        for goal, title in (
+            (OptimizeGoal.SHORTER, "Shorten"),
+            (OptimizeGoal.FEWER_VIAS, "Reduce Vias"),
+            (OptimizeGoal.FEWER_BENDS, "Reduce Bends"),
+            (OptimizeGoal.MORE_CLEARANCE, "Increase Clearance"),
+            (OptimizeGoal.MERGE_COLLINEAR, "Merge Collinear Segments"),
+        ):
+            act = QAction(title, window)
+            act.setStatusTip(f"{title}: deterministic tweak of the selected net's routed copper")
+            act.triggered.connect(lambda _=False, g=goal: self.optimize_selected(g))
+            self.optimize_actions[goal.value] = act
+        self.board_panel = BoardJobPanel()
+        self.board_control: BoardRoutingControl | None = None
+        self.last_board_result: BoardRoutingResult | None = None
+        self.bridge = ProgressBridge()
+        self.bridge.progress.connect(self.board_panel.on_progress)
+        self.board_panel.pauseRequested.connect(
+            lambda: self.board_control and self.board_control.pause()
+        )
+        self.board_panel.resumeRequested.connect(
+            lambda: self.board_control and self.board_control.resume()
+        )
+        self.board_panel.cancelRequested.connect(self.cancel)
+        self.board_panel.acceptRequested.connect(self.accept_board)
+        self.board_panel.rejectRequested.connect(self.reject_board)
         self.act_reset = QAction("Reset &Working Board…", window)
         self.act_reset.setStatusTip("Remove all routed copper (back to the source board)")
         self.act_reset.triggered.connect(self.reset_working)
@@ -71,6 +114,11 @@ class RoutingController(QObject):
         w._add_dock("route", "Route Review", self.panel, Qt.DockWidgetArea.RightDockWidgetArea)
         w.tabifyDockWidget(w.docks["ai"], w.docks["route"])
         w.docks["ai"].raise_()
+        w._add_dock(
+            "jobs", "Routing Jobs", self.board_panel, Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        w.tabifyDockWidget(w.docks["log"], w.docks["jobs"])
+        w.docks["log"].raise_()
 
     @property
     def project(self) -> Any:
@@ -91,6 +139,9 @@ class RoutingController(QObject):
     def _update_actions(self) -> None:
         has = self.project.session is not None
         self.act_route_net.setEnabled(has)
+        self.act_route_board.setEnabled(has)
+        for act in self.optimize_actions.values():
+            act.setEnabled(has)
         self.act_reset.setEnabled(has and bool(self._working and self._working.modified))
 
     def shutdown(self) -> None:
@@ -135,6 +186,84 @@ class RoutingController(QObject):
     def cancel(self) -> None:
         if self.cancel_event is not None:
             self.cancel_event.set()
+        if self.board_control is not None:
+            self.board_control.cancel()
+
+    # ------------------------------------------------------------ board routing
+    def route_board(self, settings: BoardRouterSettings | None = None) -> bool:
+        working = self.project.working
+        if working is None or self.jobs.is_running("board"):
+            return False
+        control = BoardRoutingControl()
+        self.board_control = control
+        bridge = self.bridge
+        fork_source = working
+
+        def job() -> BoardRoutingResult:
+            plan_settings = settings or BoardRouterSettings()
+            plan = make_plan(fork_source, plan_settings)
+            return BoardRouter(fork_source, plan_settings).run(
+                plan, control, lambda info: bridge.progress.emit(info)
+            )
+
+        self.board_panel.set_running("Planning board routing…")
+        dock = self.w.docks["jobs"]
+        dock.show()
+        dock.raise_()
+        self.w.engine_ui.lbl_routing.setText("Routing: board job running…")
+        return self.jobs.start("board", job, self._board_done, self._failed)
+
+    def _board_done(self, result: object, _secs: float) -> None:
+        self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
+        self.board_control = None
+        if not isinstance(result, BoardRoutingResult):
+            return
+        self.last_board_result = result
+        self.board_panel.set_result(result)
+        shapes = [capsule(t.start, t.end, t.width // 2) for t in result.added_tracks]
+        shapes += [circle(v.position, v.diameter // 2) for v in result.added_vias]
+        from pcbrouter.routing.collision import ValidationStatus
+
+        self.overlays.set_group(
+            "board_preview", overlays.candidate_items(shapes, ValidationStatus.VALID)
+        )
+        self.w.statusBar().showMessage(result.summary(), 12000)
+
+    def accept_board(self, nets: object) -> bool:
+        from pcbrouter.commands import AcceptBoardRoutingCommand
+
+        if self.last_board_result is None:
+            return False
+        subset = nets if isinstance(nets, set) else None
+        res = self.w.bus.dispatch(AcceptBoardRoutingCommand(self.last_board_result, subset))
+        self.w.statusBar().showMessage(res.message, 10000)
+        if not res.success:
+            self.board_panel.status.setText(f"Not accepted: {res.message}")
+            return False
+        self.overlays.clear("board_preview")
+        self.board_panel.set_result(None)
+        self.board_panel.status.setText(res.message)
+        self.last_board_result = None
+        self.w._update_undo_actions()
+        return True
+
+    def reject_board(self) -> None:
+        self.overlays.clear("board_preview")
+        self.last_board_result = None
+        self.board_panel.set_result(None)
+        self.board_panel.status.setText("Board routing rejected. Nothing was changed.")
+
+    def optimize_selected(self, goal: Any) -> bool:
+        from pcbrouter.commands import OptimizeNetCommand
+
+        net = self.selected_net()
+        if net is None:
+            self.w.statusBar().showMessage("Select a routed net first.", 5000)
+            return False
+        res = self.w.bus.dispatch(OptimizeNetCommand(net, goal))
+        self.w.statusBar().showMessage(res.message, 10000)
+        self.w._update_undo_actions()
+        return res.success
 
     @property
     def overlays(self) -> overlays.OverlayManager:

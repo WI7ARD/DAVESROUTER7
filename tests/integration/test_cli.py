@@ -16,7 +16,7 @@ from pcbrouter.settings import AppSettings, ComputeBackendChoice
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip().endswith(__version__)
-    assert __version__ == "0.4.0-stage4"
+    assert __version__ == "0.5.0-stage5"
 
 
 def test_inspect_outputs_json(
