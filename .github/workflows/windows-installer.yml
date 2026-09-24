@@ -6,13 +6,7 @@ name: Windows
 
 on:
   push:
-    paths:
-      - "packaging/**"
-      - "src/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "LICENSE"
-      - ".github/workflows/windows-installer.yml"
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
