@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
@@ -23,10 +24,11 @@ from pcbrouter.domain.geometry import BoundingBox, Point, arc_points, union_all
 from pcbrouter.domain.layer import Layer, copper_stack_position
 from pcbrouter.domain.net import Net, NetStatistics
 from pcbrouter.domain.pad import Pad
-from pcbrouter.domain.rules import DesignRules
+from pcbrouter.domain.rules import DesignRules, NetClassDef
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm
 from pcbrouter.domain.via import Via
+from pcbrouter.domain.zone import Zone
 
 
 class OutlineShape(Enum):
@@ -77,13 +79,20 @@ class BoardOutline:
     def bounds(self) -> BoundingBox | None:
         return BoundingBox.from_points(p for s in self.segments for p in s.points())
 
-    def closed_loops(self, tolerance: Nm = 1_000) -> tuple[list[list[Point]], int]:
+    def closed_loops(
+        self,
+        tolerance: Nm = 1_000,
+        points: Callable[[OutlineSegment], list[Point]] | None = None,
+    ) -> tuple[list[list[Point]], int]:
         """Chain segments into closed polylines.
 
         Returns ``(loops, open_chain_count)``. Board outlines are stored as
         unordered primitives, so segments are joined greedily wherever endpoints
         coincide within ``tolerance`` (default 1 µm). Circles form their own loop.
+        ``points`` converts one segment to a polyline (default: ``seg.points()``;
+        the geometry engine passes a finer, sagitta-bounded version).
         """
+        to_points = points or OutlineSegment.points
 
         def close(a: Point, b: Point) -> bool:
             return abs(a.x - b.x) <= tolerance and abs(a.y - b.y) <= tolerance
@@ -91,7 +100,7 @@ class BoardOutline:
         loops: list[list[Point]] = []
         pieces: list[list[Point]] = []
         for seg in self.segments:
-            (loops if seg.shape is OutlineShape.CIRCLE else pieces).append(seg.points())
+            (loops if seg.shape is OutlineShape.CIRCLE else pieces).append(to_points(seg))
         open_chains = 0
         while pieces:
             chain = pieces.pop()
@@ -146,6 +155,9 @@ class BoardStatistics:
     total_track_length: Nm
     width: Nm | None
     height: Nm | None
+    zone_count: int = 0  # copper zones (excluding keepouts)
+    keepout_count: int = 0
+    net_class_count: int = 0
 
 
 @dataclass(frozen=True, eq=False)  # identity equality: boards are large aggregates
@@ -158,6 +170,11 @@ class Board:
     vias: tuple[Via, ...]
     outline: BoardOutline = field(default_factory=BoardOutline)
     rules: DesignRules = field(default_factory=DesignRules)
+    #: Copper zones and rule areas (board-level and footprint-level).
+    zones: tuple[Zone, ...] = ()
+    #: Net classes stated in the board file itself (KiCad 5). KiCad 6+ classes live
+    #: in the project file and are merged by :mod:`pcbrouter.rules`.
+    net_classes: tuple[NetClassDef, ...] = ()
 
     # ----------------------------------------------------------------- views
     @property
@@ -226,6 +243,9 @@ class Board:
             total_track_length=sum(t.length for t in self.tracks),
             width=outline.width if outline else None,
             height=outline.height if outline else None,
+            zone_count=sum(1 for z in self.zones if not z.is_keepout),
+            keepout_count=sum(1 for z in self.zones if z.is_keepout),
+            net_class_count=len(self.net_classes),
         )
 
 

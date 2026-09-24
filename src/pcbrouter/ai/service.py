@@ -10,7 +10,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pcbrouter.ai.credentials import CredentialService
 from pcbrouter.ai.exceptions import AIProviderError, AIProviderUnavailableError
@@ -25,6 +25,10 @@ from pcbrouter.ai.session import AIRuntimeConfig, AISession, PreparedRequest
 from pcbrouter.ai.usage import UsageRecord, UsageTracker
 from pcbrouter.domain.board import Board
 from pcbrouter.history.history import HistoryManager
+from pcbrouter.rules.overrides import RuleOverrides
+
+if TYPE_CHECKING:
+    from pcbrouter.board_engine import BoardEngine
 
 log = logging.getLogger(__name__)
 
@@ -57,9 +61,18 @@ class AIService:
         session_id: str,
         config: AIRuntimeConfig,
         history: HistoryManager | None = None,
+        engine_provider: Callable[[], BoardEngine | None] | None = None,
+        on_constraints_changed: Callable[[RuleOverrides], None] | None = None,
     ) -> AISession:
         self.end_session("another board was opened")
-        self.session = AISession(board, session_id=session_id, config=config, history=history)
+        self.session = AISession(
+            board,
+            session_id=session_id,
+            config=config,
+            history=history,
+            engine_provider=engine_provider,
+            on_constraints_changed=on_constraints_changed,
+        )
         log.info("ai.session.start session=%s fingerprint=%s", session_id, board.fingerprint[:16])
         return self.session
 

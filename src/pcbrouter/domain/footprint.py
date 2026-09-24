@@ -7,6 +7,13 @@ from enum import Enum
 
 from pcbrouter.domain.geometry import BoundingBox, Point, rotate_point
 from pcbrouter.domain.pad import Pad
+from pcbrouter.domain.units import Nm
+
+
+@dataclass(frozen=True, slots=True)
+class Courtyard:
+    layer: str  # "F.CrtYd" or "B.CrtYd"
+    points: tuple[Point, ...]  # closed polygon, absolute coordinates
 
 
 class BoardSide(Enum):
@@ -32,6 +39,11 @@ class Footprint:
     local_bounds: BoundingBox | None
     locked: bool = False
     attributes: tuple[str, ...] = ()  # e.g. ("smd",), ("through_hole",)
+    #: Courtyard polygons in absolute board coordinates. Placement metadata only:
+    #: courtyards are NOT routing keepouts (see docs/geometry_engine.md).
+    courtyards: tuple[Courtyard, ...] = ()
+    #: Footprint-level clearance override for its pads (``None`` = inherit).
+    local_clearance: Nm | None = None
 
     def outline(self) -> tuple[Point, ...]:
         """Absolute polygon (4 corners) of the body, or empty if unknown."""

@@ -172,6 +172,15 @@ class CommandProposal:
                         {"severity": i.severity.value, "code": i.code, "message": i.text()}
                         for i in v.issues
                     ],
+                    "deterministic_rule_checks": [
+                        {
+                            "label": c.label,
+                            "outcome": c.outcome,
+                            "detail": c.detail,
+                            "source": c.source,
+                        }
+                        for c in v.rule_checks
+                    ],
                 }
             ),
             "state_log": [{"state": s, "at": t, "note": n} for s, t, n in self.state_log],

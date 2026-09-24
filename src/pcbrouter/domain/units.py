@@ -78,6 +78,11 @@ def mil_to_internal(mil: float | int) -> Nm:
     return round(Decimal(str(mil)) * NM_PER_MIL)
 
 
+def internal_to_mil(nm: Nm) -> float:
+    """Convert internal nanometres to thousandths of an inch (display/reporting only)."""
+    return nm / NM_PER_MIL
+
+
 def format_mm(nm: Nm, decimals: int = 4) -> str:
     """Format an internal length as a millimetre string, trimming trailing zeros."""
     text = f"{internal_to_mm(nm):.{decimals}f}".rstrip("0").rstrip(".")

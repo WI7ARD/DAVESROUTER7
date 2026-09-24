@@ -32,8 +32,9 @@ from pcbrouter.domain.board import (
     OutlineShape,
 )
 from pcbrouter.domain.component import Component
-from pcbrouter.domain.footprint import BoardSide, Footprint
+from pcbrouter.domain.footprint import BoardSide, Courtyard, Footprint
 from pcbrouter.domain.geometry import (
+    ORIGIN,
     BoundingBox,
     Point,
     arc_mid_from_center,
@@ -51,11 +52,12 @@ from pcbrouter.domain.layer import (
     expand_layer_pattern,
 )
 from pcbrouter.domain.net import Net
-from pcbrouter.domain.pad import Pad, PadShape, PadType
-from pcbrouter.domain.rules import DesignRules
+from pcbrouter.domain.pad import Pad, PadPrimitive, PadShape, PadType, PrimitiveKind
+from pcbrouter.domain.rules import DesignRules, NetClassDef
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm, UnitConversionError, parse_mm
 from pcbrouter.domain.via import Via, ViaType
+from pcbrouter.domain.zone import FilledPolygon, KeepoutRules, Zone, ZoneFillState
 from pcbrouter.kicad.errors import MalformedBoardError, UnsupportedKiCadVersion
 from pcbrouter.kicad.parser import SNode, line_col
 
@@ -85,7 +87,7 @@ _IGNORED_TOP_LEVEL = frozenset(
 #: Recognised constructs that Stage 1 intentionally does not display.
 _NOT_DISPLAYED_TOP_LEVEL = frozenset(
     {
-        "zone", "dimension", "gr_text", "gr_text_box", "target", "group", "image",
+        "dimension", "gr_text", "gr_text_box", "target", "group", "image",
         "generated", "table", "embedded_files", "gr_vector", "gr_bbox", "barcode",
         "point",
     }
@@ -211,13 +213,27 @@ def _graphic_points(node: SNode) -> list[Point]:
         pts_node = node.first("pts")
         if pts_node is None:
             raise _ItemError("missing pts")
-        pts = [_point(xy, "xy") for xy in pts_node.nodes("xy")]
+        pts = _pts(pts_node)
         if len(pts) < 2:
             raise _ItemError("polygon with fewer than two points")
         if kind == "poly":
             pts.append(pts[0])
         return pts
     raise _ItemError(f"unsupported graphic {node.name}")
+
+
+def _pts(pts_node: SNode) -> list[Point]:
+    """Points of a ``(pts ...)`` list. KiCad 7+ may embed ``(arc (start)(mid)(end))``
+    elements, which are expanded into a polyline (<= 10 degrees per chord)."""
+    pts: list[Point] = []
+    for child in pts_node.nodes():
+        if child.name == "xy":
+            pts.append(_point(child, "xy"))
+        elif child.name == "arc":
+            start, mid, end = _arc_triplet(child)
+            arc = arc_points(start, mid, end)
+            pts.extend(arc if not pts or pts[-1] != arc[0] else arc[1:])
+    return pts
 
 
 def _arc_triplet(node: SNode) -> tuple[Point, Point, Point]:
@@ -274,6 +290,7 @@ class KiCadBoardAdapter:
         tracks: list[Track] = []
         vias: list[Via] = []
         outline: list[OutlineSegment] = []
+        zones: list[Zone] = []
         not_displayed: Counter[str] = Counter()
         unknown: Counter[str] = Counter()
 
@@ -283,6 +300,8 @@ class KiCadBoardAdapter:
                 comp = self._guard(node, f"footprint #{index}", self._footprint, index)
                 if comp is not None:
                     components.append(comp)
+                    outline.extend(self._footprint_edge_cuts(node, comp.footprint))
+                    zones.extend(self._footprint_zones(node, comp.reference))
             elif name in ("segment", "arc"):
                 track = self._guard(node, f"{name} track", self._track, index)
                 if track is not None:
@@ -291,6 +310,10 @@ class KiCadBoardAdapter:
                 via = self._guard(node, "via", self._via, index)
                 if via is not None:
                     vias.append(via)
+            elif name == "zone":
+                zone = self._guard(node, "zone", self._zone, index, None)
+                if zone is not None:
+                    zones.append(zone)
             elif name in _OUTLINE_GRAPHICS:
                 if _graphic_layer(node) == EDGE_CUTS:
                     segs = self._guard(node, f"board outline {name}", self._outline_segments)
@@ -305,11 +328,23 @@ class KiCadBoardAdapter:
                 unknown[name] += 1
 
         for name, count in sorted(not_displayed.items()):
-            self._ctx.info(f"{count} × '{name}' present but not displayed in Stage 1")
+            self._ctx.info(f"{count} × '{name}' present but not displayed")
         for name, count in sorted(unknown.items()):
             self._ctx.warn(f"{count} × unrecognised construct '{name}' ignored")
         if not outline:
             self._ctx.info("no Edge.Cuts board outline found; bounds derived from content")
+        if zones:
+            keepouts = sum(1 for z in zones if z.is_keepout)
+            unfilled = sum(1 for z in zones if z.fill_state is ZoneFillState.UNFILLED)
+            self._ctx.info(
+                f"{len(zones)} zone(s) loaded: {len(zones) - keepouts} copper, "
+                f"{keepouts} keepout/rule area(s)"
+                + (
+                    f"; {unfilled} copper zone(s) have no stored fill (extent unknown)"
+                    if unfilled
+                    else ""
+                )
+            )
 
         duplicates = sorted(
             ref for ref, n in Counter(c.reference for c in components).items() if n > 1
@@ -327,6 +362,8 @@ class KiCadBoardAdapter:
             vias=tuple(vias),
             outline=BoardOutline(tuple(outline)),
             rules=self._rules(),
+            zones=tuple(zones),
+            net_classes=self._net_classes(),
         )
 
     # ------------------------------------------------------------ plumbing
@@ -422,6 +459,8 @@ class KiCadBoardAdapter:
             "track": None,
             "via": None,
             "drill": None,
+            "uvia": None,
+            "uvia_drill": None,
         }
         source = "unknown"
         if setup is not None:
@@ -430,6 +469,8 @@ class KiCadBoardAdapter:
                 ("track", "trace_min"),
                 ("via", "via_min_size"),
                 ("drill", "via_min_drill"),
+                ("uvia", "uvia_min_size"),
+                ("uvia_drill", "uvia_min_drill"),
             ):
                 if setup.value(token) is not None:
                     try:
@@ -455,6 +496,8 @@ class KiCadBoardAdapter:
             min_via_diameter=values["via"],
             min_via_drill=values["drill"],
             board_thickness=thickness,
+            min_microvia_diameter=values["uvia"],
+            min_microvia_drill=values["uvia_drill"],
         )
 
     # ------------------------------------------------------------ nets
@@ -538,12 +581,15 @@ class KiCadBoardAdapter:
         pads: list[Pad] = []
         for pad_index, pad_node in enumerate(node.nodes("pad")):
             try:
-                pads.append(self._pad(pad_node, pad_index, fp_id, reference, position, rotation))
+                pads.append(
+                    self._pad(pad_node, pad_index, fp_id, reference, position, rotation, node)
+                )
             except _ItemError as exc:
                 self._ctx.warn(f"skipped pad #{pad_index} of {reference}: {exc}", pad_node)
 
         attr = node.first("attr")
         attributes = tuple(attr.atoms()) if attr is not None else ()
+        fp_clearance = self._optional_mm(node.value("clearance"), "footprint clearance", node)
         footprint = Footprint(
             id=fp_id,
             lib_id=lib_id,
@@ -554,6 +600,8 @@ class KiCadBoardAdapter:
             local_bounds=self._footprint_local_bounds(node, pads, position, rotation),
             locked=node.has_flag("locked"),
             attributes=attributes,
+            courtyards=self._courtyards(node, position, rotation),
+            local_clearance=fp_clearance,
         )
         return Component(
             reference=reference,
@@ -598,6 +646,7 @@ class KiCadBoardAdapter:
         reference: str,
         fp_pos: Point,
         fp_rot: float,
+        fp_node: SNode | None = None,
     ) -> Pad:
         atoms = node.atoms()
         if len(atoms) < 3:
@@ -613,11 +662,19 @@ class KiCadBoardAdapter:
         height = _mm(size_node.atom(1), "pad height") if size_node.atom(1) else width
 
         drill: Nm | None = None
+        drill_size: tuple[Nm, Nm] | None = None
+        offset = ORIGIN
         drill_node = node.first("drill")
         if drill_node is not None:
             numeric = [a for a in drill_node.atoms() if a != "oval"]
             if numeric:
-                drill = _mm(numeric[0], "drill")
+                dx = _mm(numeric[0], "drill")
+                dy = _mm(numeric[1], "drill height") if len(numeric) > 1 else dx
+                drill = min(dx, dy)  # round diameter, or slot width
+                drill_size = (dx, dy)
+            off = drill_node.first("offset")
+            if off is not None:
+                offset = Point(_mm(off.atom(0), "offset x"), _mm(off.atom(1), "offset y"))
 
         layers: list[str] = []
         layers_node = node.first("layers")
@@ -627,6 +684,23 @@ class KiCadBoardAdapter:
                     layers.append(name)
 
         rratio_text = node.value("roundrect_rratio")
+        chamfer_text = node.value("chamfer_ratio")
+        chamfer_node = node.first("chamfer")
+        delta_node = node.first("rect_delta")
+        trapezoid_delta = None
+        if delta_node is not None:
+            trapezoid_delta = (
+                _mm(delta_node.atom(0), "rect_delta x"),
+                _mm(delta_node.atom(1), "rect_delta y"),
+            )
+        shape = PadShape.parse(shape_text)
+        anchor: PadShape | None = None
+        primitives: tuple[PadPrimitive, ...] = ()
+        if shape is PadShape.CUSTOM:
+            options = node.first("options")
+            anchor_text = options.value("anchor") if options is not None else None
+            anchor = PadShape.parse(anchor_text) if anchor_text else PadShape.CIRCLE
+            primitives = self._pad_primitives(node)
         return Pad(
             id=self._ctx.unique_id(_item_id(node), f"{fp_id}:pad{index}"),
             number=number,
@@ -640,7 +714,252 @@ class KiCadBoardAdapter:
             rotation_deg=pad_rot,
             drill=drill,
             roundrect_ratio=_float(rratio_text, "roundrect ratio") if rratio_text else None,
+            offset=offset,
+            drill_size=drill_size,
+            local_clearance=self._optional_mm(node.value("clearance"), "pad clearance", node),
+            chamfer_ratio=_float(chamfer_text, "chamfer ratio") if chamfer_text else None,
+            chamfer_corners=tuple(chamfer_node.atoms()) if chamfer_node is not None else (),
+            trapezoid_delta=trapezoid_delta,
+            custom_anchor=anchor,
+            primitives=primitives,
+            remove_unused_layers=node.has_flag("remove_unused_layers")
+            or node.first("remove_unused_layers") is not None,
         )
+
+    def _optional_mm(self, atom: str | None, what: str, node: SNode) -> Nm | None:
+        if atom is None:
+            return None
+        try:
+            return _mm(atom, what)
+        except _ItemError as exc:
+            self._ctx.warn(f"{what} ignored: {exc}", node)
+            return None
+
+    def _pad_primitives(self, node: SNode) -> tuple[PadPrimitive, ...]:
+        prims_node = node.first("primitives")
+        if prims_node is None:
+            return ()
+        out: list[PadPrimitive] = []
+        for g in prims_node.nodes():
+            width_text = g.value("width")
+            stroke = g.first("stroke")
+            if stroke is not None and stroke.value("width"):
+                width_text = stroke.value("width")
+            width = _mm(width_text, "primitive width") if width_text else 0
+            fill = g.value("fill")
+            filled = fill in ("yes", "solid", "true")
+            kind = g.name[3:] if g.name.startswith("gr_") else g.name
+            try:
+                if kind == "poly":
+                    pts_node = g.first("pts")
+                    pts = _pts(pts_node) if pts_node is not None else []
+                    # A polygon primitive is always filled in pads unless fill is "no".
+                    out.append(PadPrimitive(PrimitiveKind.POLYGON, tuple(pts), width, fill != "no"))
+                elif kind == "circle":
+                    c = _point(g.first("center") or g.first("start"), "center")
+                    e = _point(g.first("end"), "end")
+                    out.append(PadPrimitive(PrimitiveKind.CIRCLE, (c, e), width, filled))
+                elif kind == "line":
+                    a = _point(g.first("start"), "start")
+                    b = _point(g.first("end"), "end")
+                    out.append(PadPrimitive(PrimitiveKind.LINE, (a, b), width, False))
+                elif kind == "rect":
+                    a = _point(g.first("start"), "start")
+                    b = _point(g.first("end"), "end")
+                    pts4 = (a, Point(b.x, a.y), b, Point(a.x, b.y))
+                    out.append(PadPrimitive(PrimitiveKind.RECT, pts4, width, filled))
+                elif kind == "arc":
+                    # Kept as (start, mid, end); geometry turns it into bounded chords.
+                    out.append(PadPrimitive(PrimitiveKind.ARC, _arc_triplet(g), width, False))
+                elif kind in ("curve", "bezier"):
+                    pts_node = g.first("pts")
+                    pts = _pts(pts_node) if pts_node is not None else []
+                    out.append(PadPrimitive(PrimitiveKind.CURVE, tuple(pts), width, False))
+                else:
+                    self._ctx.warn(f"custom pad primitive '{g.name}' ignored", g)
+            except _ItemError as exc:
+                self._ctx.warn(f"custom pad primitive skipped: {exc}", g)
+        return tuple(out)
+
+    def _courtyards(self, node: SNode, position: Point, rotation: float) -> tuple[Courtyard, ...]:
+        """Courtyard outlines in absolute coordinates (metadata, not keepouts)."""
+        result: list[Courtyard] = []
+        for side_layer in ("F.CrtYd", "B.CrtYd"):
+            loose: list[OutlineSegment] = []
+            for g in node.nodes():
+                if g.name not in _FP_GRAPHICS or _graphic_layer(g) != side_layer:
+                    continue
+                try:
+                    pts = [self._fp_abs(p, position, rotation) for p in _graphic_points(g)]
+                except _ItemError:
+                    continue
+                kind = g.name[3:]
+                if kind == "circle":
+                    center = self._fp_abs(
+                        _point(g.first("center") or g.first("start"), "center"), position, rotation
+                    )
+                    edge = self._fp_abs(_point(g.first("end"), "end"), position, rotation)
+                    circle = OutlineSegment(OutlineShape.CIRCLE, center, edge)
+                    result.append(Courtyard(side_layer, tuple(circle.points())))
+                elif kind in ("rect", "poly"):
+                    result.append(Courtyard(side_layer, tuple(pts[:-1])))
+                else:
+                    loose.extend(
+                        OutlineSegment(OutlineShape.LINE, a, b)
+                        for a, b in itertools.pairwise(pts)
+                        if a != b
+                    )
+            if loose:
+                loops, _ = BoardOutline(tuple(loose)).closed_loops()
+                result.extend(Courtyard(side_layer, tuple(loop[:-1])) for loop in loops)
+        return tuple(result)
+
+    @staticmethod
+    def _fp_abs(local: Point, position: Point, rotation: float) -> Point:
+        return rotate_point(position + local, rotation, position)
+
+    def _footprint_edge_cuts(self, node: SNode, fp: Footprint) -> list[OutlineSegment]:
+        """Edge.Cuts graphics inside a footprint (slots, cutouts) in board coords."""
+        segments: list[OutlineSegment] = []
+        for g in node.nodes():
+            if g.name not in _FP_GRAPHICS or _graphic_layer(g) != EDGE_CUTS:
+                continue
+            try:
+                for seg in self._outline_segments(g):
+                    segments.append(
+                        OutlineSegment(
+                            seg.shape,
+                            self._fp_abs(seg.start, fp.position, fp.rotation_deg),
+                            self._fp_abs(seg.end, fp.position, fp.rotation_deg),
+                            (
+                                self._fp_abs(seg.mid, fp.position, fp.rotation_deg)
+                                if seg.mid is not None
+                                else None
+                            ),
+                            seg.width,
+                        )
+                    )
+            except _ItemError as exc:
+                self._ctx.warn(f"skipped footprint Edge.Cuts graphic: {exc}", g)
+        return segments
+
+    def _footprint_zones(self, node: SNode, reference: str) -> list[Zone]:
+        zones: list[Zone] = []
+        for index, z in enumerate(node.nodes("zone")):
+            zone = self._guard(z, f"zone in {reference}", self._zone, index, reference)
+            if zone is not None:
+                zones.append(zone)
+        return zones
+
+    # ------------------------------------------------------------ zones
+    def _zone(self, node: SNode, index: int, footprint_ref: str | None) -> Zone:
+        layers: list[str] = []
+        layer_one = node.value("layer")
+        layer_list = node.first("layers")
+        patterns = [layer_one] if layer_one else (layer_list.atoms() if layer_list else [])
+        for pattern in patterns:
+            for name in expand_layer_pattern(pattern, self._ctx.copper_layers):
+                if name not in layers:
+                    layers.append(name)
+        if not layers:
+            raise _ItemError("zone without layers")
+        outlines: list[tuple[Point, ...]] = []
+        for poly in node.nodes("polygon"):
+            pts_node = poly.first("pts")
+            if pts_node is not None:
+                pts = _pts(pts_node)
+                if len(pts) >= 3:
+                    outlines.append(tuple(pts))
+        if not outlines:
+            raise _ItemError("zone without an outline polygon")
+        keepout_node = node.first("keepout")
+        keepout: KeepoutRules | None = None
+        if keepout_node is not None:
+
+            def forbidden(item: str) -> bool:
+                return keepout_node.value(item) == "not_allowed"
+
+            keepout = KeepoutRules(
+                tracks=forbidden("tracks"),
+                vias=forbidden("vias"),
+                pads=forbidden("pads"),
+                copper_pour=forbidden("copperpour"),
+                footprints=forbidden("footprints"),
+            )
+        filled: list[FilledPolygon] = []
+        for fp in node.nodes("filled_polygon"):
+            pts_node = fp.first("pts")
+            if pts_node is None:
+                continue
+            pts = _pts(pts_node)
+            if len(pts) < 3:
+                continue
+            fill_layer = fp.value("layer") or (layers[0] if len(layers) == 1 else None)
+            if fill_layer is None:
+                self._ctx.warn("zone fill polygon without a layer ignored", fp)
+                continue
+            filled.append(FilledPolygon(fill_layer, tuple(pts), fp.first("island") is not None))
+        if keepout is not None:
+            state = ZoneFillState.NOT_APPLICABLE
+        else:
+            state = ZoneFillState.FILLED if filled else ZoneFillState.UNFILLED
+        net_name = self._net_of(node)
+        if net_name is None:
+            named = node.value("net_name")
+            if named:
+                net_name = named
+                self._ctx.referenced_nets.add(named)
+        connect = node.first("connect_pads")
+        clearance = None
+        if connect is not None and connect.value("clearance") is not None:
+            clearance = self._optional_mm(connect.value("clearance"), "zone clearance", connect)
+        priority_text = node.value("priority")
+        zone_name = node.value("name")
+        zone_id = self._ctx.unique_id(_item_id(node), f"zone:{footprint_ref or ''}{index}")
+        return Zone(
+            id=zone_id,
+            layers=tuple(layers),
+            outline=outlines[0],
+            net_name=net_name,
+            name=zone_name,
+            keepout=keepout,
+            filled=tuple(filled),
+            fill_state=state,
+            priority=int(priority_text) if priority_text and _is_int(priority_text) else 0,
+            local_clearance=clearance,
+            footprint_ref=footprint_ref,
+            locked=node.has_flag("locked") or node.value("locked") == "yes",
+            extra_outlines=tuple(outlines[1:]),
+        )
+
+    # ------------------------------------------------------------ net classes (KiCad 5)
+    def _net_classes(self) -> tuple[NetClassDef, ...]:
+        classes: list[NetClassDef] = []
+        for nc in self._root.nodes("net_class"):
+            name = nc.atom(0)
+            if not name:
+                continue
+
+            def val(token: str, node: SNode = nc) -> Nm | None:
+                return self._optional_mm(node.value(token), f"net class {token}", node)
+
+            classes.append(
+                NetClassDef(
+                    name=name,
+                    description=nc.atom(1),
+                    clearance=val("clearance"),
+                    track_width=val("trace_width"),
+                    via_diameter=val("via_dia"),
+                    via_drill=val("via_drill"),
+                    microvia_diameter=val("uvia_dia"),
+                    microvia_drill=val("uvia_drill"),
+                    diff_pair_width=val("diff_pair_width"),
+                    diff_pair_gap=val("diff_pair_gap"),
+                    nets=tuple(a for n in nc.nodes("add_net") for a in n.atoms()[:1]),
+                    source="board file (KiCad 5 net class)",
+                )
+            )
+        return tuple(classes)
 
     # ------------------------------------------------------------ copper
     def _track(self, node: SNode, index: int) -> Track:

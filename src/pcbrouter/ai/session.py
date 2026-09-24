@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pcbrouter import __version__
 from pcbrouter.ai.anonymizer import AnonymizationOptions, Anonymizer, EntityKind
@@ -28,7 +29,12 @@ from pcbrouter.ai.command_schema import (
     OperationCategory,
     RoutingConstraints,
 )
-from pcbrouter.ai.command_validator import SemanticValidator, SessionLocks, ValidationStatus
+from pcbrouter.ai.command_validator import (
+    RuleCheck,
+    SemanticValidator,
+    SessionLocks,
+    ValidationStatus,
+)
 from pcbrouter.ai.context_builder import (
     BoardContext,
     BoardContextBuilder,
@@ -41,8 +47,14 @@ from pcbrouter.ai.prompt_builder import PromptBuilder, PromptInputs
 from pcbrouter.ai.proposals import CommandProposal, CommandState, ProposalStateError
 from pcbrouter.ai.requests import AIMode, AIRequest
 from pcbrouter.ai.responses import AIResponse, FinishStatus, TokenUsage
+from pcbrouter.ai.rule_facts import prompt_rule_checks
 from pcbrouter.domain.board import Board
+from pcbrouter.domain.units import mm_to_internal
 from pcbrouter.history.history import HistoryManager, UndoableAction
+from pcbrouter.rules.overrides import NetOverride, RuleOverrides
+
+if TYPE_CHECKING:
+    from pcbrouter.board_engine import BoardEngine
 
 log = logging.getLogger(__name__)
 EXPORT_FORMAT_VERSION = 1
@@ -92,6 +104,8 @@ class Interaction:
     error_detail: str | None = None
     usage: TokenUsage | None = None
     latency_s: float | None = None
+    #: Stage 3 deterministic verdicts on what the user asked (authoritative).
+    rule_checks: list[RuleCheck] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +139,10 @@ class Interaction:
                 }
             ),
             "latency_s": self.latency_s,
+            "deterministic_rule_checks": [
+                {"label": c.label, "outcome": c.outcome, "detail": c.detail, "source": c.source}
+                for c in self.rule_checks
+            ],
         }
 
 
@@ -161,8 +179,13 @@ class AISession:
         config: AIRuntimeConfig | None = None,
         history: HistoryManager | None = None,
         board_revision: int = 0,
+        engine_provider: Callable[[], BoardEngine | None] | None = None,
+        on_constraints_changed: Callable[[RuleOverrides], None] | None = None,
     ) -> None:
         self.board = board
+        #: Stage 3: the deterministic geometry/rule engine for this board (optional).
+        self._engine_provider = engine_provider
+        self._on_constraints_changed = on_constraints_changed
         self.session_id = session_id
         self.config = config or AIRuntimeConfig()
         self.history = history
@@ -180,8 +203,62 @@ class AISession:
     def fingerprint(self) -> str:
         return self.board.fingerprint
 
+    @property
+    def engine(self) -> BoardEngine | None:
+        """The rule engine for *this* board state (never one built for another board)."""
+        if self._engine_provider is None:
+            return None
+        engine = self._engine_provider()
+        if engine is None or engine.board.fingerprint != self.board.fingerprint:
+            return None
+        return engine
+
     def validator(self) -> SemanticValidator:
-        return SemanticValidator(self.board, self.anonymizer, self.locks)
+        return SemanticValidator(self.board, self.anonymizer, self.locks, engine=self.engine)
+
+    def ai_overrides(self) -> RuleOverrides:
+        """Routing constraints the user approved from AI proposals (Set Net Constraint).
+        Handed to the rule engine as explicit user constraints that may only tighten
+        rules (see pcbrouter.rules.overrides)."""
+        overrides = RuleOverrides()
+        for p in self.proposals.values():
+            if p.state is not CommandState.APPROVED:
+                continue
+            cmd = p.current
+            if cmd.operation is not Operation.SET_NET_CONSTRAINT:
+                continue
+            c = cmd.effective_constraints
+            width = c.preferred_trace_width_mm or c.min_trace_width_mm
+            for net in self._command_nets(cmd):
+                overrides = overrides.with_net(
+                    net,
+                    NetOverride(
+                        width=mm_to_internal(width) if width is not None else None,
+                        clearance=(
+                            mm_to_internal(c.min_clearance_mm)
+                            if c.min_clearance_mm is not None
+                            else None
+                        ),
+                        max_vias=c.max_vias,
+                        forbidden_layers=tuple(c.forbidden_layers or ()),
+                        origin=p.proposal_id,
+                    ),
+                )
+        return overrides
+
+    @staticmethod
+    def _command_nets(cmd: AICommand) -> list[str]:
+        nets: list[str] = []
+        for t in cmd.targets:
+            if isinstance(t, NetTarget):
+                nets.append(t.name)
+            elif isinstance(t, NetGroupTarget):
+                nets.extend(t.names)
+        return nets
+
+    def _constraints_changed(self) -> None:
+        if self._on_constraints_changed is not None:
+            self._on_constraints_changed(self.ai_overrides())
 
     def interaction(self, request_id: str) -> Interaction | None:
         return next((i for i in self.interactions if i.request_id == request_id), None)
@@ -195,7 +272,10 @@ class AISession:
         level: ContextLevel | None = None,
     ) -> BoardContext:
         return BoardContextBuilder(
-            self.board, session_id=self.session_id, board_revision=self.board_revision
+            self.board,
+            session_id=self.session_id,
+            board_revision=self.board_revision,
+            engine=self.engine,
         ).build(
             level or self.config.context_level,
             self.config.limits,
@@ -403,6 +483,7 @@ class AISession:
             inter.kind = InteractionKind.PROPOSALS
         else:
             inter.kind = InteractionKind.ANALYSIS
+        inter.rule_checks = prompt_rule_checks(prepared.display_prompt, self.engine)
         self.conversation.add(
             ConversationTurn(
                 "user",
@@ -556,6 +637,7 @@ class DecisionAction(UndoableAction):
         if p.category is OperationCategory.READ_ONLY:
             p.transition(CommandState.EXECUTED, "read-only operation completed")
         self._apply_locks()
+        self._session._constraints_changed()
 
     def revert(self) -> None:
         p = self._p
@@ -569,6 +651,7 @@ class DecisionAction(UndoableAction):
         locks.components -= self._added["components"]
         locks.nets -= self._added["nets"]
         locks.track_nets -= self._added["track_nets"]
+        self._session._constraints_changed()
 
     def _apply_locks(self) -> None:
         cmd = self._p.current

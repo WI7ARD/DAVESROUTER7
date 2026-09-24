@@ -182,9 +182,11 @@ def test_outline_primitives() -> None:
 def test_unknown_and_undisplayed_constructs_are_reported() -> None:
     _, w = build('(zone (net 0)) (zone (net 0)) (gr_text "x" (at 0 0)) (brand_new_thing 1)')
     info = warnings_of(w, WarningSeverity.INFO)
-    assert "2 × 'zone' present but not displayed in Stage 1" in info
     assert any("'gr_text'" in m for m in info)
-    assert any("brand_new_thing" in m for m in warnings_of(w, WarningSeverity.WARNING))
+    warn = warnings_of(w, WarningSeverity.WARNING)
+    # Stage 3 parses zones; these two have no layers and are skipped with a warning.
+    assert sum("zone without layers" in m for m in warn) == 2
+    assert any("brand_new_thing" in m for m in warn)
 
 
 def test_bad_items_are_skipped_with_line_numbers() -> None:

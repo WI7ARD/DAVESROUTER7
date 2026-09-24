@@ -46,6 +46,11 @@ the user asked for them or they follow directly from the request.
 - Distinguish verified facts (numbers present in the context) from your own \
 inferences. Phrase inferences as "potential concern" or "likely"; never call \
 something a DRC violation. Net classes are not available unless listed.
+- ROUTING_RULES and CONNECTIVITY lines are deterministic BOARD FACTs computed by the \
+application's geometry and rule engine. Use them as given; never recompute geometry, \
+clearances or connectivity yourself, and never propose widths, clearances or via sizes \
+below them. The application re-checks every command against these rules and rejects \
+violations regardless of your confidence.
 - If asked for something no operation supports, explain that it is unsupported \
 (use "unsupported_request").
 

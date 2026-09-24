@@ -19,13 +19,25 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pcbrouter.ai.anonymizer import AnonymizationOptions, Anonymizer, EntityKind
 from pcbrouter.ai.board_summary import BoardFactService, NetFacts, NetRoutingStatus
 from pcbrouter.ai.usage import estimate_tokens
 from pcbrouter.domain.board import Board
+from pcbrouter.domain.units import internal_to_mm
+
+if TYPE_CHECKING:
+    from pcbrouter.board_engine import BoardEngine
+
+#: Header of the Stage 3 deterministic rule facts in the context.
+ROUTING_RULES_HEADER = (
+    "ROUTING_RULES (BOARD FACT: deterministic values from the geometry/rule engine. "
+    "Never propose values below them; the application rejects commands that do.)"
+)
 
 CONTEXT_FORMAT_VERSION = 1
 
@@ -93,11 +105,20 @@ def mentioned_names(text: str, candidates: list[str]) -> set[str]:
 
 
 class BoardContextBuilder:
-    def __init__(self, board: Board, *, session_id: str = "", board_revision: int = 0) -> None:
+    def __init__(
+        self,
+        board: Board,
+        *,
+        session_id: str = "",
+        board_revision: int = 0,
+        engine: BoardEngine | None = None,
+    ) -> None:
         self.board = board
         self.facts = BoardFactService(board)
         self.session_id = session_id
         self.board_revision = board_revision
+        #: Stage 3 deterministic engine: when present, rule/connectivity facts are added.
+        self.engine = engine
 
     def build(
         self,
@@ -140,9 +161,7 @@ class BoardContextBuilder:
             f"name: {quote(bf.name)}",
             f"outline_size_mm: {size}",
             f"copper_layers: {json.dumps(list(bf.copper_layers))}",
-            "net_classes: unknown (not loaded in this version)",
-            f"known_min_track_width_mm: {bf.min_track_width_mm or 'unknown'}",
-            f"known_min_clearance_mm: {bf.min_clearance_mm or 'unknown'}",
+            *self._rule_header(bf.min_track_width_mm, bf.min_clearance_mm),
             "",
             "STATISTICS",
             f"components: {bf.components} | pads: {bf.pads} | nets: {bf.nets} | "
@@ -214,8 +233,35 @@ class BoardContextBuilder:
                 lines.append(row)
                 net_rows += 1
 
+        if self.engine is not None:
+            disclosure.append("design rules and connectivity (deterministic engine facts)")
+            rule_order = [n for n in net_order if n][: lim.max_nets]
+            lines += ["", ROUTING_RULES_HEADER]
+            for name in rule_order:
+                row = self._rule_row(name, net_out)
+                if not room(row):
+                    break
+                lines.append(row)
+            m = self.engine.connectivity.metrics()
+            summary = (
+                f"CONNECTIVITY (BOARD FACT): nets_with_2plus_pads={m['nets_with_2plus_pads']} "
+                f"fully_connected={m['fully_connected']} "
+                f"partially_connected={m['partially_connected']} unrouted={m['unrouted']} "
+                f"remaining_connections={m['remaining_connections']}"
+            )
+            if room(summary):
+                lines += [summary]
+            unsupported = self.engine.ruleset.unsupported
+            if unsupported:
+                row = (
+                    "UNSUPPORTED_RULES (cannot be checked; affected checks are RULE_UNKNOWN): "
+                    + json.dumps([u.name for u in unsupported])
+                )
+                if room(row):
+                    lines.append(row)
+
         without = self.facts.nets_without_tracks()
-        if without and level is not ContextLevel.MINIMAL:
+        if without and level is not ContextLevel.MINIMAL and self.engine is None:
             row = (
                 "NETS_WITH_NO_TRACKS (>=2 pads, no copper; connectivity not analysed): ["
                 + ", ".join(net_out(n) for n in without)
@@ -279,6 +325,71 @@ class BoardContextBuilder:
             anonymized=tuple(anon.options.enabled_labels()),
             disclosure=tuple(disclosure),
         )
+
+    # ---------------------------------------------------------------- Stage 3 facts
+    def _rule_header(self, min_w: float | None, min_c: float | None) -> list[str]:
+        engine = self.engine
+        if engine is None:
+            return [
+                "net_classes: unknown (not loaded)",
+                f"known_min_track_width_mm: {min_w or 'unknown'}",
+                f"known_min_clearance_mm: {min_c or 'unknown'}",
+            ]
+        rs = engine.ruleset
+        board = rs.board
+
+        def mm(v: int | None) -> str:
+            return f"{internal_to_mm(v):g}" if v is not None else "unknown"
+
+        return [
+            f"net_classes: {json.dumps(sorted(rs.classes.classes))}",
+            f"board_min_track_width_mm: {mm(board.min_track_width)}",
+            f"board_min_clearance_mm: {mm(board.min_clearance)}",
+            f"board_min_via_diameter_mm: {mm(board.min_via_diameter)}",
+            f"copper_to_edge_clearance_mm: {mm(engine.resolver.resolve_edge_clearance().value)}",
+        ]
+
+    def _rule_row(self, net: str, net_out: Callable[[str], str]) -> str:
+        engine = self.engine
+        assert engine is not None
+        s = engine.resolver.summary(net)
+
+        def mm(v: int | None) -> str:
+            return f"{internal_to_mm(v):g}" if v is not None else "unknown"
+
+        info = engine.connectivity.net(net)
+        row = (
+            f"{net_out(net)} class={json.dumps(list(s.net_classes))} "
+            f"preferred_width_mm={mm(s.width.preferred.value)} "
+            f"min_width_mm={mm(s.width.minimum.value)} "
+            f"clearance_mm={mm(s.clearance.value)} "
+            f"via_mm={mm(s.via.diameter.value)}/{mm(s.via.drill.value)} "
+            f"allowed_layers={json.dumps(list(s.layers.allowed))}"
+        )
+        if info is not None:
+            row += (
+                f" pads={info.pad_count} connected_groups={len(info.groups)} "
+                f"remaining_connections={info.remaining_connections} vias={info.via_count} "
+                f"status={info.status.name.lower()}"
+            )
+            row += f" congestion_near_pads={self._congestion_near(info.pad_uids)}"
+        return row
+
+    def _congestion_near(self, pad_uids: list[str]) -> str:
+        from pcbrouter.routing.congestion import level
+
+        engine = self.engine
+        assert engine is not None
+        worst: float | None = None
+        for uid in pad_uids[:32]:
+            item = engine.geometry.copper.get(uid)
+            if item is None:
+                continue
+            for layer in sorted(item.layers):
+                value = engine.congestion(layer).value_at(item.bounds.center)
+                if value is not None and (worst is None or value > worst):
+                    worst = value
+        return level(worst)
 
     @staticmethod
     def _net_row(nf: NetFacts, net_out, ref_out, level: ContextLevel) -> str:  # type: ignore[no-untyped-def]

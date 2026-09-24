@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-pcb-router"
-# PEP 440 cannot express "0.2.0-stage2"; "+stage2" is the equivalent local
+# PEP 440 cannot express "0.3.0-stage3"; "+stage3" is the equivalent local
 # version label. The user-facing version string lives in pcbrouter.__version__.
-version = "0.2.0+stage2"
+version = "0.3.0+stage3"
 description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,6 +25,9 @@ classifiers = [
 dependencies = [
     "PySide6>=6.6",
     "pydantic>=2.6,<3",
+    # Compact occupancy/congestion grids for the Stage 3 geometry engine
+    # (see docs/geometry_engine.md for why NumPy and not Shapely).
+    "numpy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +90,8 @@ allowed-confusables = ["×", "–", "‹", "ℹ"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
 "tools/**" = ["T20"]
+# KiCad s-expression fixture templates: one board object per line is easier to audit.
+"tests/fixtures/stage3_boards.py" = ["T20", "E501"]
 # Entry points that write to the terminal. print() (not sys.stdout.write) because the
 # windowed Windows executable has sys.stdout = None, where print() is a safe no-op.
 "src/pcbrouter/app/cli.py" = ["T20"]

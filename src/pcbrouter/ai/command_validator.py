@@ -14,7 +14,7 @@ import difflib
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pcbrouter.ai.anonymizer import Anonymizer, EntityKind
 from pcbrouter.ai.command_schema import (
@@ -28,7 +28,10 @@ from pcbrouter.ai.command_schema import (
     RoutingConstraints,
 )
 from pcbrouter.domain.board import Board
-from pcbrouter.domain.units import internal_to_mm
+from pcbrouter.domain.units import format_mm, internal_to_mm, mm_to_internal
+
+if TYPE_CHECKING:
+    from pcbrouter.board_engine import BoardEngine
 
 
 class ValidationStatus(StrEnum):
@@ -71,12 +74,24 @@ class CheckResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleCheck:
+    """One deterministic rule-engine verdict (Stage 3). Authoritative over the AI."""
+
+    label: str
+    outcome: str  # "VALID" | "INVALID" | "RULE_UNKNOWN"
+    detail: str
+    source: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ValidationReport:
     status: ValidationStatus
     issues: tuple[ValidationIssue, ...]
     checks: tuple[CheckResult, ...]
     #: The command with anonymised identifiers mapped back to real names.
     resolved: AICommand | None
+    #: Deterministic geometry/rule-engine verdicts (empty without an engine).
+    rule_checks: tuple[RuleCheck, ...] = ()
 
     @property
     def errors(self) -> list[ValidationIssue]:
@@ -151,10 +166,13 @@ class SemanticValidator:
         board: Board,
         anonymizer: Anonymizer | None = None,
         locks: SessionLocks | None = None,
+        engine: BoardEngine | None = None,
     ) -> None:
         self.board = board
         self.anonymizer = anonymizer
         self.locks = locks or SessionLocks()
+        #: Stage 3 geometry/rule engine; when present its verdicts are authoritative.
+        self.engine = engine
         self._nets = [n.name for n in board.nets]
         self._refs = sorted(board.index.components_by_ref)
         self._copper = set(board.copper_layer_names)
@@ -234,6 +252,9 @@ class SemanticValidator:
             )
 
         self._check_constraints(cmd, c, target_nets, add)
+        rule_checks: list[RuleCheck] = []
+        if self.engine is not None:
+            self._check_rules(cmd, c, target_nets, add, rule_checks)
         self._check_locks(cmd, c, target_nets, add)
         self._stage_notes(cmd, c, target_nets, add)
 
@@ -253,14 +274,18 @@ class SemanticValidator:
                 else ValidationStatus.VALID
             )
         )
-        checks = (
+        checks: tuple[CheckResult, ...] = (
             CheckResult("Operation accepts these targets", "op" not in failed),
             CheckResult("Referenced nets and components exist", "entities" not in failed),
             CheckResult("Layers exist and are copper", "layers" not in failed),
             CheckResult("Constraints are consistent", "constraints" not in failed),
             CheckResult("Locked items are respected", "locks" not in failed),
         )
-        return ValidationReport(status, tuple(issues), checks, resolved)
+        if self.engine is not None:
+            checks += (
+                CheckResult("Deterministic design rules (geometry engine)", "rules" not in failed),
+            )
+        return ValidationReport(status, tuple(issues), checks, resolved, tuple(rule_checks))
 
     # ------------------------------------------------------------------ resolution
     def _resolve(self, command: AICommand, add: Any) -> AICommand | None:
@@ -422,6 +447,8 @@ class SemanticValidator:
                 "constraints",
             )
         rules = self.board.rules
+        if self.engine is not None:
+            return self._check_other_constraints(c, target_nets, add)  # widths: _check_rules
         for label, value in (("Minimum", w_min), ("Preferred", w_pref)):
             if (
                 value is not None
@@ -446,6 +473,11 @@ class SemanticValidator:
                 f"{internal_to_mm(rules.min_clearance)} mm; board rules still apply.",
             )
 
+        self._check_other_constraints(c, target_nets, add)
+
+    def _check_other_constraints(
+        self, c: RoutingConstraints, target_nets: list[str], add: Any
+    ) -> None:
         if c.target_length_mm is not None:
             if c.max_length_mm is not None and c.target_length_mm > c.max_length_mm:
                 add(
@@ -544,6 +576,182 @@ class SemanticValidator:
                 "impedance",
                 "Impedance targets need stackup data that is not available; recorded only.",
             )
+
+    def _check_rules(
+        self,
+        cmd: AICommand,
+        c: RoutingConstraints,
+        target_nets: list[str],
+        add: Any,
+        out: list[RuleCheck],
+    ) -> None:
+        """Stage 3: deterministic rule-engine verdicts. They cannot be overridden by the
+        AI: an INVALID verdict makes the whole proposal INVALID."""
+        from pcbrouter.domain.geometry import Point
+
+        engine = self.engine
+        assert engine is not None
+        resolver = engine.resolver
+
+        def verdict(
+            label: str, outcome: str, detail: str, source: str | None = None, code: str = "rule"
+        ) -> None:
+            out.append(RuleCheck(label, outcome, detail, source))
+            if outcome == "INVALID":
+                add(Severity.ERROR, code, detail + (f" Rule: {source}." if source else ""), "rules")
+            elif outcome == "RULE_UNKNOWN":
+                add(Severity.WARNING, "rule_unknown", f"RULE UNKNOWN: {detail}")
+
+        widths = [
+            (label, value)
+            for label, value in (
+                ("Minimum", c.min_trace_width_mm),
+                ("Preferred", c.preferred_trace_width_mm),
+                ("Maximum", c.max_trace_width_mm),
+            )
+            if value is not None
+        ]
+        for net in dict.fromkeys(target_nets):
+            if net not in self._nets:
+                continue  # existence is reported by the entity check
+            rules = resolver.width_rules(net)
+            for label, value in widths:
+                req = mm_to_internal(value)
+                what = f"{label} trace width for {net}"
+                minimum, maximum = rules.minimum, rules.maximum
+                if minimum.value is None:
+                    verdict(
+                        what, "RULE_UNKNOWN", f"{what} {value} mm: no rule states a minimum width."
+                    )
+                elif req < minimum.value:
+                    verdict(
+                        what, "INVALID",
+                        f"Requested {label.lower()} width {value} mm for {net} is below the "
+                        f"minimum allowed {format_mm(minimum.value)}.",
+                        minimum.source.describe(), "rule_min_width",
+                    )  # fmt: skip
+                    continue
+                elif minimum.possibly_stricter is not None and req < minimum.possibly_stricter:
+                    verdict(
+                        what,
+                        "RULE_UNKNOWN",
+                        f"{what} {value} mm: unsupported rule "
+                        f"{', '.join(minimum.possibly_stricter_rules)} may require more.",
+                    )
+                else:
+                    verdict(
+                        what,
+                        "VALID",
+                        f"{value} mm >= minimum {format_mm(minimum.value)}",
+                        minimum.source.describe(),
+                    )
+                if maximum.value is not None and req > maximum.value:
+                    verdict(
+                        what,
+                        "INVALID",
+                        f"Requested width {value} mm for {net} exceeds the maximum "
+                        f"{format_mm(maximum.value)}.",
+                        maximum.source.describe(),
+                        "rule_max_width",
+                    )
+            if c.min_clearance_mm is not None:
+                clr = resolver.resolve_net_clearance(net)
+                req = mm_to_internal(c.min_clearance_mm)
+                what = f"Clearance for {net}"
+                if clr.value is None:
+                    verdict(
+                        what,
+                        "VALID",
+                        f"{c.min_clearance_mm} mm would define the clearance (no rule states one).",
+                    )
+                elif req < clr.value:
+                    verdict(
+                        what, "INVALID",
+                        f"Requested clearance {c.min_clearance_mm} mm for {net} is below the rule "
+                        f"{format_mm(clr.value)}; overrides may only tighten rules.",
+                        clr.source.describe(), "rule_clearance",
+                    )  # fmt: skip
+                else:
+                    verdict(
+                        what,
+                        "VALID",
+                        f"{c.min_clearance_mm} mm >= rule {format_mm(clr.value)}",
+                        clr.source.describe(),
+                    )
+            allowed = resolver.resolve_allowed_layers(net)
+            for layer in c.preferred_layers or []:
+                if layer in self._copper and layer not in allowed.allowed:
+                    verdict(
+                        f"Layer {layer} for {net}",
+                        "INVALID",
+                        f"{layer} is not allowed for {net}.",
+                        allowed.source.describe(),
+                        "rule_layer",
+                    )
+            info = engine.connectivity.net(net)
+            if cmd.operation in (Operation.ROUTE_NET, Operation.ROUTE_GROUP):
+                if info is None or info.pad_count < 2:
+                    verdict(
+                        f"Connections of {net}",
+                        "VALID",
+                        f"{net} has fewer than two pads: nothing to connect.",
+                    )
+                    add(
+                        Severity.WARNING,
+                        "nothing_to_route",
+                        f"{net} has fewer than two pads; there is nothing to connect.",
+                    )
+                elif info.is_fully_connected:
+                    verdict(
+                        f"Connections of {net}",
+                        "VALID",
+                        f"{net} is already fully connected (0 unrouted groups).",
+                    )
+                    add(Severity.WARNING, "already_connected", f"{net} is already fully connected.")
+                else:
+                    verdict(
+                        f"Connections of {net}", "VALID",
+                        f"{net}: {len(info.groups)} pad groups, "
+                        f"{info.remaining_connections} connection(s) remaining.",
+                    )  # fmt: skip
+            if (
+                cmd.operation in (Operation.OPTIMIZE_NET, Operation.REDUCE_VIAS)
+                and info is not None
+                and not info.attached_copper
+                and info.via_count == 0
+            ):
+                add(
+                    Severity.WARNING,
+                    "nothing_to_optimize",
+                    f"{net} has no routed copper to optimise.",
+                )
+        region = engine.geometry.region
+        for t in cmd.targets:
+            if isinstance(t, AreaTarget):
+                center = Point(
+                    mm_to_internal((t.x_min_mm + t.x_max_mm) / 2),
+                    mm_to_internal((t.y_min_mm + t.y_max_mm) / 2),
+                )
+                inside = region.contains(center)
+                if inside is None:
+                    verdict(
+                        "Protected area on the board",
+                        "RULE_UNKNOWN",
+                        "board outline unknown: cannot check the area.",
+                    )
+                elif not inside:
+                    verdict(
+                        "Protected area on the board",
+                        "INVALID",
+                        "The protected area is not on the board "
+                        "(outside the outline or in a cutout).",
+                        None,
+                        "area_outside",
+                    )
+                else:
+                    verdict(
+                        "Protected area on the board", "VALID", "Area centre lies on the board."
+                    )
 
     def _check_locks(
         self, cmd: AICommand, c: RoutingConstraints, target_nets: list[str], add: Any

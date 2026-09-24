@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pcbrouter.domain.board import Board
 
-FINGERPRINT_VERSION = 1
+FINGERPRINT_VERSION = 2
 
 
 def board_fingerprint(board: Board) -> str:
@@ -54,6 +54,16 @@ def board_fingerprint(board: Board) -> str:
                 pad.net_name,
                 pad.layers,
                 pad.drill,
+                pad.shape.value,
+                pad.pad_type.value,
+                pad.offset,
+                pad.drill_size,
+                pad.local_clearance,
+                pad.roundrect_ratio,
+                pad.chamfer_ratio,
+                pad.chamfer_corners,
+                pad.trapezoid_delta,
+                pad.primitives,
             )
     for t in sorted(board.tracks, key=lambda t: t.id):
         put("T", t.id, t.start, t.end, t.mid, t.width, t.layer, t.net_name, t.locked)
@@ -72,4 +82,10 @@ def board_fingerprint(board: Board) -> str:
         )
     for s in board.outline.segments:
         put("O", s.shape.value, s.start, s.end, s.mid)
+    for z in sorted(board.zones, key=lambda z: z.id):
+        put("Z", z.id, z.layers, z.net_name, z.outline, z.extra_outlines, z.keepout, z.priority)
+        for f in z.filled:
+            put("F", f.layer, f.points)
+    for nc in board.net_classes:
+        put("NC", nc)
     return h.hexdigest()

@@ -108,7 +108,7 @@ class ValidateAICommand(BaseCommand):
         board = ctx.project.board
         warnings = ""
         if board is not None:
-            report = SemanticValidator(board).validate(command)
+            report = SemanticValidator(board, engine=ctx.project.engine).validate(command)
             if not report.is_valid:
                 message = "Command does not match the board: " + "; ".join(
                     i.text() for i in report.errors

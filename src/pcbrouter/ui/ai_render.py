@@ -4,7 +4,7 @@ Claim labels keep speculation distinct from truth:
 
 * **BOARD FACT** — computed deterministically from the loaded board;
 * **AI OBSERVATION** — the model's inference (may be wrong);
-* **DRC RESULT** — only from a deterministic DRC (none exists before Stage 3);
+* **DRC RESULT** — only from the deterministic Internal Geometry Check (never KiCad DRC);
 * **USER CONSTRAINT** — values the user set or changed.
 
 Every string is HTML-escaped: model output can never inject markup or links.
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import time
+from collections.abc import Sequence
 
 from pcbrouter.ai.board_summary import BoardFactService
 from pcbrouter.ai.command_schema import (
@@ -24,7 +25,7 @@ from pcbrouter.ai.command_schema import (
     NetGroupTarget,
     NetTarget,
 )
-from pcbrouter.ai.command_validator import Severity
+from pcbrouter.ai.command_validator import RuleCheck, Severity
 from pcbrouter.ai.proposals import CommandProposal, CommandState
 from pcbrouter.ai.session import Interaction, InteractionKind
 
@@ -32,6 +33,36 @@ LABEL_FACT = "BOARD FACT"
 LABEL_AI = "AI OBSERVATION"
 LABEL_DRC = "DRC RESULT"
 LABEL_USER = "USER CONSTRAINT"
+#: Stage 3: verdicts of the deterministic geometry/rule engine — authoritative over the AI.
+LABEL_RULE = "DETERMINISTIC RULE CHECK"
+_OUTCOME_COLORS = {
+    "VALID": "#3fb950",
+    "INVALID": "#f85149",
+    "RULE_UNKNOWN": "#d29922",
+    "FACT": "#58a6ff",
+}
+
+
+def rule_checks_html(checks: Sequence[RuleCheck]) -> str:
+    """A visually authoritative block: the engine's verdict, not the model's."""
+    if not checks:
+        return ""
+    rows = []
+    for c in checks:
+        color = _OUTCOME_COLORS.get(c.outcome, "#8b949e")
+        rows.append(
+            f"<tr><td><b style='color:{color}'>{esc(c.outcome)}</b>&nbsp;</td>"
+            f"<td>{esc(c.label)} — {esc(c.detail)}"
+            + (f"<br><span style='color:#8b949e'>Rule: {esc(c.source)}</span>" if c.source else "")
+            + "</td></tr>"
+        )
+    return (
+        "<table width='100%' cellpadding=4 style='border:2px solid #58a6ff; margin:4px 0'>"
+        f"<tr><td colspan=2><b>{esc(LABEL_RULE)}</b> "
+        "<span style='color:#8b949e'>(deterministic engine — overrides any AI statement)</span>"
+        "</td></tr>" + "".join(rows) + "</table>"
+    )
+
 
 _COLORS = {LABEL_FACT: "#3fb950", LABEL_AI: "#d29922", LABEL_DRC: "#8b949e", LABEL_USER: "#58a6ff"}
 _STATE_COLORS = {
@@ -151,9 +182,12 @@ def proposal_html(p: CommandProposal, facts: BoardFactService | None) -> str:
                 )
         if fact_lines:
             parts.append(f"<p>{badge(LABEL_FACT)}<br>" + "<br>".join(fact_lines) + "</p>")
+    if p.validation is not None and p.validation.rule_checks:
+        parts.append(rule_checks_html(p.validation.rule_checks))
     parts.append(
-        f"<p>{badge(LABEL_DRC)} Not available — deterministic DRC arrives in Stage 3. "
-        "Nothing here is a DRC result.</p>"
+        f"<p>{badge(LABEL_DRC)} Not applicable — a proposal has no copper yet. Nothing here "
+        "is a DRC result. The Internal Geometry Check (Tools menu) covers existing copper; "
+        "it is not KiCad DRC.</p>"
     )
     if p.user_changes:
         parts.append(
@@ -188,6 +222,7 @@ def interaction_html(inter: Interaction, proposals: dict[str, CommandProposal]) 
         parts.append(f"<p>{who}<br><span style='color:{color}'>{esc(inter.message)}</span></p>")
     else:
         parts.append(f"<p>{who} {badge(LABEL_AI)}<br>{esc(inter.message)}</p>")
+    parts.append(rule_checks_html(inter.rule_checks))
     a = inter.analysis
     if a is not None:
         body = [f"<i>{esc(a.summary)}</i>"]

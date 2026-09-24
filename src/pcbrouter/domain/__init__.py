@@ -21,10 +21,11 @@ from pcbrouter.domain.geometry import BoundingBox, Point
 from pcbrouter.domain.layer import CopperLayerType, Layer, LayerKind
 from pcbrouter.domain.net import Net, NetStatistics
 from pcbrouter.domain.pad import Pad, PadShape, PadType
-from pcbrouter.domain.rules import DesignRules
+from pcbrouter.domain.rules import DesignRules, NetClassDef, NetClassPattern
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm, internal_to_mm, mm_to_internal
 from pcbrouter.domain.via import Via, ViaType
+from pcbrouter.domain.zone import FilledPolygon, KeepoutRules, Zone, ZoneFillState
 
 __all__ = [
     "Board",
@@ -37,10 +38,14 @@ __all__ = [
     "Component",
     "CopperLayerType",
     "DesignRules",
+    "FilledPolygon",
     "Footprint",
+    "KeepoutRules",
     "Layer",
     "LayerKind",
     "Net",
+    "NetClassDef",
+    "NetClassPattern",
     "NetStatistics",
     "Nm",
     "OutlineSegment",
@@ -52,6 +57,8 @@ __all__ = [
     "Track",
     "Via",
     "ViaType",
+    "Zone",
+    "ZoneFillState",
     "internal_to_mm",
     "mm_to_internal",
 ]
