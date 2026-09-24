@@ -65,8 +65,10 @@ its full path, e.g.
   trying to open its `.exe` for writing (Windows locks the image of a running
   executable). If it is running, they show Retry/Cancel. In silent mode they exit with
   code 5.
-- **64-bit only, Windows 10 1809 or later.** This is the minimum for Qt 6. The bundled
-  Python and Qt are 64-bit.
+- **64-bit Windows 10 1809 or later.** This is the minimum for Qt 6. The bundled
+  Python and Qt are 64-bit. Setup itself is a 32-bit program, like most NSIS installers,
+  because the official Windows build of NSIS ships only 32-bit stubs. Setup therefore
+  checks for 64-bit Windows and uses the 64-bit registry view explicitly.
 - **No UPX compression.** UPX-packed executables often trigger antivirus false
   positives.
 
@@ -118,7 +120,8 @@ Pipeline (`packaging/windows/`):
 The installer is uploaded as a workflow artifact. The same workflow runs the full test
 suite on Windows.
 
-**Linux:** the NSIS part is testable there (`apt install nsis wine64`), because makensis
+**Linux:** the NSIS part is testable there (`apt install nsis wine wine32:i386`, after
+`dpkg --add-architecture i386`), because makensis
 runs on Linux:
 
 ```bash

@@ -232,7 +232,10 @@ def test_script_installs_per_user_without_admin() -> None:
     code = _nsi_code()
     assert "RequestExecutionLevel user" in code
     assert "HKLM" not in code
-    assert "Target amd64-unicode" in code
+    # 32-bit Setup (stock NSIS on Windows has only x86 stubs) for a 64-bit app:
+    assert "Target x86-unicode" in code
+    assert "${IfNot} ${RunningX64}" in code  # refuses 32-bit Windows
+    assert code.count("SetRegView 64") == 2  # installer and uninstaller
     assert 'InstallDir "$LOCALAPPDATA\\Programs\\${APP_NAME}"' in code
 
 

@@ -1,7 +1,8 @@
 """Windows installer: compile with makensis, then run the real installer under Wine.
 
 * ``test_installer_compiles`` needs ``makensis`` (``apt install nsis``); skipped otherwise.
-* ``test_installer_lifecycle_under_wine`` also needs 64-bit Wine and is opt-in
+* ``test_installer_lifecycle_under_wine`` also needs Wine with 32-bit support (Setup is
+  a 32-bit program) and is opt-in
   (``PCBROUTER_TEST_WINE=1``) because the first Wine start takes a while.
 
 The payload is not the real PyInstaller bundle (that can only be built on Windows; see
@@ -87,15 +88,17 @@ def test_installer_compiles(tmp_path: Path) -> None:
 
 
 def _wine_binary() -> str | None:
-    return shutil.which("wine64") or next(
-        (p for p in ("/usr/lib/wine/wine64", "/usr/lib/wine/wine") if Path(p).is_file()), None
+    # The "wine" launcher runs both the 32-bit Setup.exe and the 64-bit app stubs; it
+    # needs 32-bit Wine support (Debian/Ubuntu: wine + wine32:i386).
+    return shutil.which("wine") or next(
+        (p for p in ("/usr/lib/wine/wine",) if Path(p).is_file()), None
     )
 
 
 WINE = _wine_binary()
 wine_opt_in = pytest.mark.skipif(
     MAKENSIS is None or WINE is None or os.environ.get("PCBROUTER_TEST_WINE") != "1",
-    reason="needs makensis + 64-bit Wine and PCBROUTER_TEST_WINE=1",
+    reason="needs makensis + Wine with 32-bit support, and PCBROUTER_TEST_WINE=1",
 )
 
 

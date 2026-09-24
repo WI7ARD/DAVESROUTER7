@@ -12,7 +12,10 @@
 ; Design decisions
 ; * Per-user install into %LOCALAPPDATA%\Programs (no administrator rights, no UAC
 ;   prompt). Settings, logs and API keys are per-user anyway.
-; * 64-bit only (the bundled Python/Qt are 64-bit), Windows 10 1809+ (Qt 6 minimum).
+; * The app is 64-bit only (bundled Python/Qt), Windows 10 1809+ (Qt 6 minimum). Setup
+;   itself is a 32-bit program, like most NSIS installers: the official Windows build of
+;   NSIS ships only x86 stubs. It therefore checks for 64-bit Windows and uses the 64-bit
+;   registry view, so it writes exactly where the 64-bit app reads.
 ; * The uninstaller deletes the exact list of installed files and removes folders only
 ;   when empty. It never runs a recursive delete on the install folder.
 ; * The "Open with" option adds the app to Explorer's Open with list for .kicad_pcb.
@@ -26,7 +29,7 @@
 !endif
 
 Unicode true
-Target amd64-unicode
+Target x86-unicode
 ManifestDPIAware true
 SetCompressor /SOLID lzma
 RequestExecutionLevel user
@@ -61,6 +64,7 @@ VIAddVersionKey "LegalCopyright" "MIT License"
 !include Sections.nsh
 !include FileFunc.nsh
 !include WinVer.nsh
+!include x64.nsh
 
 Var PreviousDir
 Var PreviousVersion
@@ -218,11 +222,13 @@ SectionEnd
 Function .onInit
   SetShellVarContext current
 
-  ${IfNot} ${AtLeastBuild} ${MIN_WINDOWS_BUILD}
+  ${IfNot} ${RunningX64}
+  ${OrIfNot} ${AtLeastBuild} ${MIN_WINDOWS_BUILD}
     MessageBox MB_OK|MB_ICONSTOP "${APP_NAME} requires 64-bit Windows 10 version 1809 or later." /SD IDOK
     SetErrorLevel 3
     Quit
   ${EndIf}
+  SetRegView 64
 
   ; Only one copy of Setup at a time.
   System::Call 'kernel32::CreateMutexW(p 0, i 0, w "${SETUP_MUTEX}") p .r1 ?e'
@@ -304,6 +310,9 @@ FunctionEnd
 
 Function un.onInit
   SetShellVarContext current
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${EndIf}
   ; /REMOVEUSERDATA selects the user-data option (for silent uninstalls: /S /REMOVEUSERDATA).
   ${un.GetParameters} $R0
   ClearErrors
