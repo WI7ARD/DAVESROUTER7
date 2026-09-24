@@ -86,7 +86,16 @@ Details: [docs/stage2.md](docs/stage2.md) · [docs/ai_architecture.md](docs/ai_a
   `keyring` are all optional; the test suite proves the app runs with all of them
   blocked.
 
-## Setup
+## Install on Windows
+
+Download `AI-PCB-Router-<version>-Setup-x64.exe`. It is the `AI-PCB-Router-Setup-x64`
+artifact of the latest **Windows** workflow run on GitHub (Actions tab), or you can
+build it yourself. Then run the setup wizard. It installs for your account only, so
+no administrator rights are needed. The installer is not code-signed yet, so
+SmartScreen will warn you: click *More info ▸ Run anyway*. Details, silent install and
+how to build it: [docs/windows_installer.md](docs/windows_installer.md).
+
+## Setup from source
 
 ```bash
 git clone <this repo> ai-pcb-router
@@ -117,6 +126,7 @@ python -m pcbrouter                    # same, without the console script
 pcbrouter board.kicad_pcb --inspect    # headless JSON summary (no GUI)
 pcbrouter board.kicad_pcb --check-command '{"operation":"route_net","target":"GND"}'
 pcbrouter --version
+pcbrouter --diagnostics                # JSON: versions, paths, Qt, AI SDKs, key storage
 ```
 
 Try it on the bundled fixtures, e.g. `pcbrouter tests/fixtures/boards/can_node.kicad_pcb`.
@@ -166,8 +176,8 @@ Nothing is ever written next to your KiCad project.
 
 ```bash
 pytest                 # full suite (GUI tests run headless via QT_QPA_PLATFORM=offscreen)
-black --check src tests tools
-ruff check src tests tools
+black --check src tests tools packaging
+ruff check src tests tools packaging
 mypy                   # strict mode, configured in pyproject.toml
 ```
 
@@ -239,6 +249,8 @@ See [docs/roadmap.md](docs/roadmap.md).
 ![Stage 2 AI provider settings](docs/images/stage2-provider-settings.png)
 
 ![Stage 1 inspector showing a four-layer test board](docs/images/stage1-inspector.png)
+
+![Windows setup wizard](docs/images/windows-installer.png)
 
 ## License
 

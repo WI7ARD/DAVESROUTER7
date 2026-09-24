@@ -33,6 +33,8 @@ dependencies = [
 openai = ["openai>=3.19", "keyring>=25"]  # OpenAI and OpenAI-compatible endpoints
 anthropic = ["anthropic>=1.8", "keyring>=25"]
 ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25"]
+# Windows installer build (packaging/windows/build_installer.py); NSIS is separate.
+packaging = ["pyinstaller>=6.22"]
 dev = [
     "ai-pcb-router[ai]",
     "pytest>=8",
@@ -52,7 +54,7 @@ pcbrouter-gui = "pcbrouter.app.application:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pcbrouter = ["py.typed"]
+pcbrouter = ["py.typed", "resources/*.png"]
 
 [tool.black]
 line-length = 100
@@ -85,7 +87,12 @@ allowed-confusables = ["×", "–", "‹", "ℹ"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
 "tools/**" = ["T20"]
+# Entry points that write to the terminal. print() (not sys.stdout.write) because the
+# windowed Windows executable has sys.stdout = None, where print() is a safe no-op.
 "src/pcbrouter/app/cli.py" = ["T20"]
+"src/pcbrouter/app/application.py" = ["T20"]
+"src/pcbrouter/app/maintenance.py" = ["T20"]
+"packaging/**" = ["T20"]
 # Qt signals follow Qt's camelCase naming (e.g. objectSelected), matching the Qt API.
 "src/pcbrouter/ui/**" = ["N815"]
 

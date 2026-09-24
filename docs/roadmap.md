@@ -14,7 +14,7 @@ not start until the previous stage is accepted.
 | 7 | AI agent loop | Deterministic board-query tools for the model, multi-step plans, AI-assisted review of routing results — still approval-gated. |
 | 8 | GPU acceleration | CUDA backend implementing `ComputeBackend` with CPU fallback and parity tests. |
 | 9 | Safe KiCad writing | Writer for tracks/vias, validate-by-reparse, workspace snapshots, atomic replace, undo/redo of accepted proposals, export. |
-| 10 | Productisation | Installers (Windows, Linux AppImage), performance, plugin/scripting API over the command bus, user docs. |
+| 10 | Productisation | Code signing, Linux AppImage, auto-update, performance, plugin/scripting API over the command bus, user docs. *(The Windows NSIS installer was pulled forward and exists since Stage 2; see [windows_installer.md](windows_installer.md).)* |
 
 ## Parked ideas (not scheduled)
 

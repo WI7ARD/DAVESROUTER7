@@ -254,3 +254,5 @@ Implemented and audited in Stage 2; see [security.md](security.md).
 | `ProjectSession.session_id` | Distinguishes two openings of the same file |
 | `ui/ai_*.py` modules | Panel, dialogs, rendering, provider settings and the Qt bridge kept out of `main_window.py` |
 | AI dock placed full-height on the right | The proposal preview needs vertical space |
+| `app/maintenance.py` (`--diagnostics`, `--forget-api-keys`) | Support report; lets the Windows uninstaller remove saved keys ([windows_installer.md](windows_installer.md)) |
+| `packaging/windows/` | PyInstaller + NSIS installer; the app needs no code changes to be frozen beyond console-less stdio handling |
