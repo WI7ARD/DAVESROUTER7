@@ -23,8 +23,8 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SUBPROCESS_TIMEOUT_S = 3.0
-#: Python packages that a future CUDA backend could build on.
-CUDA_PYTHON_PACKAGES: tuple[str, ...] = ("cupy", "numba", "torch", "cuda")
+#: Python packages a GPU backend can build on (CuPy: NVIDIA CUDA; dpnp: Intel oneAPI).
+CUDA_PYTHON_PACKAGES: tuple[str, ...] = ("cupy", "numba", "torch", "cuda", "dpnp")
 
 _PCI_VENDORS = {"0x10de": "NVIDIA", "0x1002": "AMD", "0x8086": "Intel"}
 
@@ -88,6 +88,8 @@ class GpuStatus(Enum):
     CUDA_DEVICE_DETECTED = "cuda_device_detected"
     GPU_LIBRARIES_NOT_INSTALLED = "gpu_libraries_not_installed"
     UNSUPPORTED_GPU = "unsupported_gpu"
+    ONEAPI_DEVICE_DETECTED = "oneapi_device_detected"  # Intel GPU + dpnp installed
+    ONEAPI_LIBRARIES_NOT_INSTALLED = "oneapi_libraries_not_installed"  # Intel GPU, no dpnp
     CUDA_UNAVAILABLE = "cuda_unavailable"
     DETECTION_ERROR = "detection_error"
     PENDING = "pending"
@@ -99,6 +101,8 @@ class GpuStatus(Enum):
             GpuStatus.CUDA_DEVICE_DETECTED: "CUDA device (not used yet)",
             GpuStatus.GPU_LIBRARIES_NOT_INSTALLED: "CUDA device, no GPU libs",
             GpuStatus.UNSUPPORTED_GPU: "unsupported GPU",
+            GpuStatus.ONEAPI_DEVICE_DETECTED: "Intel GPU (oneAPI)",
+            GpuStatus.ONEAPI_LIBRARIES_NOT_INSTALLED: "Intel GPU, no dpnp",
             GpuStatus.CUDA_UNAVAILABLE: "CUDA unavailable",
             GpuStatus.DETECTION_ERROR: "detection failed",
             GpuStatus.PENDING: "detecting…",
@@ -110,7 +114,12 @@ class GpuStatus(Enum):
             GpuStatus.CUDA_DEVICE_DETECTED: "CUDA-capable device detected",
             GpuStatus.GPU_LIBRARIES_NOT_INSTALLED:
                 "CUDA-capable device detected, but GPU Python libraries are not installed",
-            GpuStatus.UNSUPPORTED_GPU: "GPU found, but it is not a supported (NVIDIA CUDA) device",
+            GpuStatus.UNSUPPORTED_GPU:
+                "GPU found, but it is not a supported (NVIDIA CUDA or Intel oneAPI) device",
+            GpuStatus.ONEAPI_DEVICE_DETECTED:
+                "Intel GPU detected and the oneAPI dpnp package is installed (experimental)",
+            GpuStatus.ONEAPI_LIBRARIES_NOT_INSTALLED:
+                "Intel GPU detected; install the optional dpnp package (Intel oneAPI) to use it",
             GpuStatus.CUDA_UNAVAILABLE: "CUDA unavailable (no NVIDIA driver/device found)",
             GpuStatus.DETECTION_ERROR: "GPU detection failed",
             GpuStatus.PENDING: "GPU detection in progress",
@@ -135,6 +144,15 @@ class GpuDetectionResult:
     @property
     def cuda_device(self) -> GpuDevice | None:
         return next((d for d in self.devices if d.vendor == "NVIDIA"), None)
+
+    @property
+    def array_module(self) -> str | None:
+        """Which GPU array library applies: "cupy" (NVIDIA), "dpnp" (Intel)."""
+        if self.status is GpuStatus.CUDA_DEVICE_DETECTED:
+            return "cupy"
+        if self.status is GpuStatus.ONEAPI_DEVICE_DETECTED:
+            return "dpnp"
+        return None
 
     def summary(self) -> str:
         names = ", ".join(d.name for d in self.devices) or "none"
@@ -268,6 +286,12 @@ def detect_gpu(
                 "the NVIDIA driver may not be installed.",
             )
             return GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE, tuple(others), installed, notes)
+        if any(d.vendor == "Intel" for d in others):
+            status = (
+                GpuStatus.ONEAPI_DEVICE_DETECTED if "dpnp" in installed
+                else GpuStatus.ONEAPI_LIBRARIES_NOT_INSTALLED
+            )  # fmt: skip
+            return GpuDetectionResult(status, tuple(others), installed)
         if others:
             return GpuDetectionResult(GpuStatus.UNSUPPORTED_GPU, tuple(others), installed)
         return GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE, (), installed)

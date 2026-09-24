@@ -485,7 +485,7 @@ def test_about_and_compute_info_text(window: MainWindow) -> None:
     assert "not KiCad DRC" in about and "working copy" in about
     info = dialogs.compute_info_text(window.compute)
     assert "Active compute backend: CPU" in info
-    assert "Threads:" in info and "GPU candidate" in info and "CUDA: Not configured yet" in info
+    assert "Threads:" in info and "GPU candidate" in info and "Array library:" in info
 
 
 def test_gpu_detection_updates_status_bar(window: MainWindow) -> None:

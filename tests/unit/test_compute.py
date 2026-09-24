@@ -130,27 +130,85 @@ class TestGpuDetection:
 
 
 class TestBackendsAndManager:
-    def test_gpu_backend_is_a_placeholder(self) -> None:
+    def test_gpu_backend_without_gpu_library_is_unavailable(self) -> None:
+        def missing(name: str) -> object:
+            raise ImportError(f"No module named {name!r}")
+
         gpu = GPUBackend(
             GpuDetectionResult(
                 GpuStatus.CUDA_DEVICE_DETECTED, (GpuDevice("RTX", "NVIDIA", "550", "8 GiB"),)
-            )
+            ),
+            loader=missing,
         )
-        assert not gpu.available
+        assert not gpu.available  # hardware alone is not enough: the kernel must run
         assert gpu.capabilities == frozenset()
         info = gpu.device_info()
         assert info.name == "RTX"
-        assert info.details["CUDA"] == "Not configured yet"
-        assert any("later stage" in n for n in info.notes)
+        assert "GPU backend unavailable" in info.details["Array library"]
+        assert any("optional" in n for n in info.notes)
         with pytest.raises(BackendUnavailableError):
             gpu.initialize()
         gpu.shutdown()  # safe no-op
+
+    def test_gpu_backend_with_working_array_module(self) -> None:
+        import numpy as np
+
+        class FakeCuda:
+            class runtime:  # noqa: N801 - mirrors cupy.cuda.runtime
+                @staticmethod
+                def getDeviceProperties(_i: int) -> dict[str, bytes]:
+                    return {"name": b"Fake GPU"}
+
+                @staticmethod
+                def memGetInfo() -> tuple[int, int]:
+                    return (512 * 2**20, 1024 * 2**20)
+
+        class FakeXp:
+            float32 = np.float32
+            cuda = FakeCuda
+            arange = staticmethod(np.arange)
+
+            @staticmethod
+            def get_default_memory_pool() -> object:
+                return type("Pool", (), {"free_all_blocks": lambda self: None})()
+
+        det = GpuDetectionResult(GpuStatus.CUDA_DEVICE_DETECTED, (GpuDevice("RTX", "NVIDIA"),))
+        gpu = GPUBackend(det, loader=lambda _name: FakeXp)
+        assert gpu.available and gpu.initialized
+        assert gpu.device_info().name == "Fake GPU"
+        ok, why = gpu.fits(cells=100_000, layers=2)
+        assert ok, why
+        too_big, why2 = gpu.fits(cells=50_000_000, layers=4)
+        assert not too_big and "MiB" in why2  # VRAM guard
+        gpu.shutdown()
+
+    def test_intel_gpu_detection(self) -> None:
+        intel = [GpuDevice("Intel(R) Iris(R) Xe Graphics", "Intel")]
+        r = detect_gpu(
+            which=fake_which(False),
+            run=fake_run(None),
+            has_package=lambda _p: False,
+            other_devices=lambda: intel,
+        )
+        assert r.status is GpuStatus.ONEAPI_LIBRARIES_NOT_INSTALLED
+        assert r.array_module is None
+        r2 = detect_gpu(
+            which=fake_which(False),
+            run=fake_run(None),
+            has_package=lambda p: p == "dpnp",
+            other_devices=lambda: intel,
+        )
+        assert r2.status is GpuStatus.ONEAPI_DEVICE_DETECTED and r2.array_module == "dpnp"
+        assert (
+            GPUBackend(r2, loader=lambda _n: (_ for _ in ()).throw(ImportError("x"))).available
+            is False
+        )
 
     def test_manager_falls_back_to_cpu(self) -> None:
         mgr = ComputeManager(gpu_detection=GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE))
         active = mgr.select(BackendKind.GPU)
         assert active is mgr.cpu and mgr.cpu.initialized
-        assert mgr.fallback_reason is not None and "later stage" in mgr.fallback_reason
+        assert mgr.fallback_reason is not None and "unavailable" in mgr.fallback_reason
         assert mgr.select(BackendKind.CPU) is mgr.cpu
         assert mgr.fallback_reason is None
         mgr.shutdown()

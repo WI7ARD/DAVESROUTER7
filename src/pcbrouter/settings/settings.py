@@ -47,8 +47,9 @@ class Theme(StrEnum):
 
 
 class ComputeBackendChoice(StrEnum):
-    CPU = "cpu"
-    GPU = "gpu"  # selectable only once a GPU backend exists (later stage)
+    CPU = "cpu"  # A* on the CPU (reference; always available)
+    GPU = "gpu"  # wavefront on the GPU when usable, else CPU fallback per search
+    AUTO = "auto"  # GPU only for large grids
 
 
 class _Model(BaseModel):
@@ -112,10 +113,17 @@ class AISettings(_Model):
 
 
 class RoutingSettings(_Model):
-    """Placeholder section. Inactive in Stage 1."""
+    """Router preferences (Stages 4-5). Rule values never come from here."""
 
-    enabled: Literal[False] = False
-    note: str = "Autorouting is available in a later stage."
+    enabled: bool = True
+    candidates: int = Field(default=3, ge=1, le=5)
+    time_limit_s: float = Field(default=30.0, ge=1.0, le=600.0)
+    strategy: Literal[
+        "critical_first", "most_constrained", "shortest_first", "fewest_escapes",
+        "congestion_aware",
+    ] = "critical_first"  # fmt: skip
+    max_passes: int = Field(default=3, ge=1, le=5)
+    allow_ripup: bool = True
 
 
 class GeometrySettings(_Model):
@@ -131,10 +139,10 @@ class GeometrySettings(_Model):
 
 
 class GPUSettings(_Model):
-    """Placeholder section. Inactive in Stage 1."""
+    """GPU preferences (Stage 6). The backend choice itself is
+    ``AppSettings.default_compute_backend``."""
 
-    enabled: Literal[False] = False
-    note: str = "GPU acceleration is available in a later stage."
+    enabled: bool = False  # legacy flag from earlier versions; not used for decisions
 
 
 class WindowSettings(_Model):

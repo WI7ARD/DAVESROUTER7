@@ -25,7 +25,8 @@ def test_defaults() -> None:
     assert s.recent_boards == []
     assert s.ai.profiles == [] and s.ai.default_profile is None
     assert s.ai.show_privacy_preview is True and s.ai.debug_log_prompts is False
-    assert s.routing.enabled is False and s.gpu.enabled is False
+    assert s.routing.enabled is True and s.routing.candidates == 3
+    assert s.routing.strategy == "critical_first" and s.routing.allow_ripup is True
 
 
 def test_missing_file_gives_defaults(tmp_path: Path) -> None:
@@ -62,7 +63,7 @@ def test_default_location_uses_config_dir() -> None:
         json.dumps({"viewer": {"grid_spacing_mm": -5}}),
         json.dumps({"theme": "neon"}),
         json.dumps({"schema_version": 2, "ai": {"request_timeout_s": -1}}),
-        json.dumps({"routing": {"enabled": True}}),  # future sections cannot be switched on
+        json.dumps({"routing": {"candidates": 99}}),  # out of range
     ],
 )
 def test_corrupt_file_is_quarantined(tmp_path: Path, content: str) -> None:

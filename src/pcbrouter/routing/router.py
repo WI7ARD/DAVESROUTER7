@@ -665,6 +665,12 @@ class Router:
 
     def _done(self, result: RouteResult, t0: float) -> RouteResult:
         result.metrics.elapsed_s = time.perf_counter() - t0
+        used = getattr(self.search_fn, "used", None)
+        if isinstance(used, dict):  # hybrid backend: report what actually ran
+            result.metrics.backend = (
+                f"{self.backend_name} (cpu {used.get('cpu', 0)}, gpu {used.get('gpu', 0)}, "
+                f"fallback {used.get('fallback', 0)})"
+            )
         log.info(
             "router.done net=%s status=%s reason=%s candidates=%d nodes=%d searches=%d "
             "repairs=%d ms=%.1f width=%s",

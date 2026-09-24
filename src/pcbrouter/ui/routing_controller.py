@@ -157,7 +157,38 @@ class RoutingController(QObject):
         if net is None:
             self.w.statusBar().showMessage("Select a net (or a pad/track of it) first.", 5000)
             return False
-        return self.route_net(RouteRequest(net))
+        return self.route_net(self.request_for(net))
+
+    def request_for(self, net: str) -> RouteRequest:
+        """A request built from the user's routing settings (rules still decide values)."""
+        from pcbrouter.domain.units import mm_to_internal
+
+        st = self.w.settings
+        return RouteRequest(
+            net,
+            candidates=st.routing.candidates,
+            time_limit_s=st.routing.time_limit_s,
+            grid_resolution=mm_to_internal(st.geometry.grid_resolution_mm),
+        )
+
+    def search_mode(self) -> Any:
+        from pcbrouter.routing.backend import mode_from_settings
+
+        return mode_from_settings(self.w.compute, self.w.settings.default_compute_backend)
+
+    def board_settings(self) -> BoardRouterSettings:
+        from dataclasses import replace
+
+        from pcbrouter.routing.board_router import Strategy
+
+        st = self.w.settings.routing
+        base = replace(self.request_for(""), candidates=1)
+        return BoardRouterSettings(
+            strategy=Strategy(st.strategy),
+            max_passes=st.max_passes,
+            allow_ripup=st.allow_ripup,
+            base_request=base,
+        )
 
     def route_net(self, request: RouteRequest) -> bool:
         engine = self.project.engine
@@ -169,9 +200,10 @@ class RoutingController(QObject):
         self.cancel_event = threading.Event()
         cancel = self.cancel_event
         compute = self.w.compute
+        mode = self.search_mode()
 
         def job(e: BoardEngine = engine) -> RouteResult:
-            return router_for(e, compute).route_net(request, cancel=cancel)
+            return router_for(e, compute, mode).route_net(request, cancel=cancel)
 
         self.panel.set_running(
             f"Routing {request.net}… (CPU search, {request.candidates} candidate(s))"
@@ -198,13 +230,15 @@ class RoutingController(QObject):
         self.board_control = control
         bridge = self.bridge
         fork_source = working
+        plan_settings = settings or self.board_settings()
+        compute = self.w.compute
+        mode = self.search_mode()
 
         def job() -> BoardRoutingResult:
-            plan_settings = settings or BoardRouterSettings()
             plan = make_plan(fork_source, plan_settings)
-            return BoardRouter(fork_source, plan_settings).run(
-                plan, control, lambda info: bridge.progress.emit(info)
-            )
+            router = BoardRouter(fork_source, plan_settings,
+                                 router_factory=lambda e: router_for(e, compute, mode))  # fmt: skip
+            return router.run(plan, control, lambda info: bridge.progress.emit(info))
 
         self.board_panel.set_running("Planning board routing…")
         dock = self.w.docks["jobs"]

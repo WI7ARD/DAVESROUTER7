@@ -15,12 +15,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE
 from pcbrouter.compute.manager import ComputeManager
 from pcbrouter.routing.occupancy import GRID_RESOLUTIONS_MM
 from pcbrouter.settings.settings import AppSettings, ComputeBackendChoice, Theme
@@ -53,7 +53,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._general_tab(), "General")
         tabs.addTab(self._viewer_tab(), "Viewer")
-        tabs.addTab(self._compute_tab(), "Compute")
+        tabs.addTab(self._compute_tab(compute), "Compute")
         tabs.addTab(self._ai_tab(), "AI Providers")
         tabs.addTab(self._routing_tab(), "Routing")
         tabs.addTab(self._gpu_tab(compute), "GPU")
@@ -115,24 +115,37 @@ class SettingsDialog(QDialog):
         form.addRow(self.show_bodies)
         return w
 
-    def _compute_tab(self) -> QWidget:
+    def _compute_tab(self, compute: ComputeManager | None) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
         self.backend_combo = QComboBox()
-        self.backend_combo.addItem("CPU", ComputeBackendChoice.CPU)
+        gpu_ok = bool(compute is not None and compute.gpu.available)
+        gpu_name = compute.gpu.name if compute is not None else "GPU"
+        self.backend_combo.addItem("CPU (reference A* search)", ComputeBackendChoice.CPU)
         self.backend_combo.addItem(
-            f"GPU (CUDA) — {STAGE_UNAVAILABLE_MESSAGE}", ComputeBackendChoice.GPU
+            f"{gpu_name} wavefront" + ("" if gpu_ok else " — not available on this machine"),
+            ComputeBackendChoice.GPU,
         )
-        # Disable the GPU entry: selectable only once a GPU backend exists.
+        self.backend_combo.addItem(
+            "Auto (GPU for large grids)" + ("" if gpu_ok else " — not available"),
+            ComputeBackendChoice.AUTO,
+        )
+        # GPU entries are selectable only when the GPU backend actually initialised.
         model = self.backend_combo.model()
-        if isinstance(model, QStandardItemModel) and model.item(1) is not None:
-            model.item(1).setEnabled(False)
-        self.backend_combo.setCurrentIndex(0)
+        if isinstance(model, QStandardItemModel) and not gpu_ok:
+            for row in (1, 2):
+                if model.item(row) is not None:
+                    model.item(row).setEnabled(False)
+        current = self._settings.default_compute_backend
+        idx = self.backend_combo.findData(current)
+        self.backend_combo.setCurrentIndex(idx if idx >= 0 and (gpu_ok or idx == 0) else 0)
         form.addRow("Default backend:", self.backend_combo)
         form.addRow(
             _banner(
-                "This version always uses the CPU. The compute backend is not used for "
-                "any heavy work yet — routing arrives in a later stage."
+                "The CPU A* router is the reference and always available. A GPU "
+                "(NVIDIA via CuPy, Intel via dpnp) accelerates the wavefront search when "
+                "installed; every route is still checked by the CPU exact validator, and "
+                "any GPU problem falls back to the CPU."
             )
         )
         return w
@@ -149,17 +162,40 @@ class SettingsDialog(QDialog):
         super().done(result)
 
     def _routing_tab(self) -> QWidget:
+        r = self._settings.routing
         w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.addWidget(
+        form = QFormLayout(w)
+        form.addRow(
             _banner(
-                f"Routing — {STAGE_UNAVAILABLE_MESSAGE}.\n\nThis version performs no autorouting "
-                "and never modifies boards. Stage 3 validates hypothetical geometry only (see "
-                "the Geometry tab and the Tools menu). Router settings (costs, layer "
-                "preferences, rip-up) will appear here when the router is implemented."
+                "Router preferences. Widths, clearances and via sizes always come from the "
+                "board rules (Tools ▸ Routing Rules Inspector); routes change only the "
+                "in-memory working copy until you export."
             )
         )
-        layout.addStretch(1)
+        self.route_candidates = QSpinBox()
+        self.route_candidates.setRange(1, 5)
+        self.route_candidates.setValue(r.candidates)
+        form.addRow("Candidates per net:", self.route_candidates)
+        self.route_time = QDoubleSpinBox()
+        self.route_time.setRange(1.0, 600.0)
+        self.route_time.setSuffix(" s")
+        self.route_time.setValue(r.time_limit_s)
+        form.addRow("Search time limit:", self.route_time)
+        self.route_strategy = QComboBox()
+        for key in ("critical_first", "most_constrained", "shortest_first", "fewest_escapes",
+                    "congestion_aware"):  # fmt: skip
+            self.route_strategy.addItem(key.replace("_", " ").capitalize(), key)
+        self.route_strategy.setCurrentIndex(max(0, self.route_strategy.findData(r.strategy)))
+        form.addRow("Board net order:", self.route_strategy)
+        self.route_passes = QSpinBox()
+        self.route_passes.setRange(1, 5)
+        self.route_passes.setValue(r.max_passes)
+        form.addRow("Board routing passes:", self.route_passes)
+        self.route_ripup = QCheckBox(
+            "Allow rip-up of router-generated copper (never source copper)"
+        )
+        self.route_ripup.setChecked(r.allow_ripup)
+        form.addRow(self.route_ripup)
         return w
 
     def _gpu_tab(self, compute: ComputeManager | None) -> QWidget:
@@ -167,8 +203,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(w)
         layout.addWidget(
             _banner(
-                f"GPU acceleration — {STAGE_UNAVAILABLE_MESSAGE}. "
-                "Detection results are shown for information only."
+                "GPU acceleration is optional (Compute tab). The CPU router is the "
+                "reference; GPU results are validated by the same CPU checks."
             )
         )
         info = QLabel(compute_info_text(compute) if compute else "Compute information unavailable")
@@ -237,6 +273,11 @@ class SettingsDialog(QDialog):
         s.viewer.show_reference_labels = self.show_labels.isChecked()
         s.viewer.show_footprint_bodies = self.show_bodies.isChecked()
         s.default_compute_backend = self.backend_combo.currentData()
+        s.routing.candidates = self.route_candidates.value()
+        s.routing.time_limit_s = self.route_time.value()
+        s.routing.strategy = self.route_strategy.currentData()
+        s.routing.max_passes = self.route_passes.value()
+        s.routing.allow_ripup = self.route_ripup.isChecked()
         s.geometry.conservative_rules = self.conservative_rules.isChecked()
         s.geometry.grid_resolution_mm = self.grid_resolution.currentData()
         s.geometry.check_on_open = self.check_on_open.isChecked()

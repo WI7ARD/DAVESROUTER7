@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-pcb-router"
-# PEP 440 cannot express "0.5.0-stage5"; "+stage5" is the equivalent local
+# PEP 440 cannot express "0.6.0-stage6"; "+stage6" is the equivalent local
 # version label. The user-facing version string lives in pcbrouter.__version__.
-version = "0.5.0+stage5"
+version = "0.6.0+stage6"
 description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "MIT" }
@@ -34,6 +34,9 @@ dependencies = [
 # Provider SDKs are optional: the app runs (and inspects boards) without them, and the
 # AI settings explain how to install a missing one. Lower bounds = versions tested.
 openai = ["openai>=3.19", "keyring>=25"]  # OpenAI and OpenAI-compatible endpoints
+# Optional GPU acceleration (Stage 6). Never required; the CPU router is the reference.
+gpu-cuda = ["cupy-cuda12x>=13"]  # NVIDIA GPUs with a CUDA 12 driver
+gpu-intel = ["dpnp>=0.16"]  # Intel GPUs (Iris Xe, Arc) with the oneAPI GPU runtime
 anthropic = ["anthropic>=1.8", "keyring>=25"]
 ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25"]
 # Windows installer build (packaging/windows/build_installer.py); NSIS is separate.
