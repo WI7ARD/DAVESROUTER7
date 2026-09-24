@@ -155,7 +155,12 @@ class ProjectManager:
     def set_conservative_rules(self, enabled: bool) -> None:
         if enabled != self.conservative_rules:
             self.conservative_rules = enabled
-            self._engine = None
+            if self._engine is not None:
+                from pcbrouter.board_engine import EngineConfig
+
+                self._engine = self._engine.with_overrides(
+                    self.effective_overrides(), EngineConfig(conservative=enabled)
+                )
 
     def _refresh_engine_rules(self) -> None:
         if self._engine is not None:

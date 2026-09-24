@@ -118,6 +118,18 @@ class RoutingSettings(_Model):
     note: str = "Autorouting is available in a later stage."
 
 
+class GeometrySettings(_Model):
+    """Stage 3 geometry + rule engine preferences (no secrets, no board content)."""
+
+    #: Unknown critical rules make route validation refuse (RULE_UNKNOWN). Default ON.
+    #: OFF is an explicit expert choice: unknowns become warnings (never silent).
+    conservative_rules: bool = True
+    #: Default routing-grid resolution for View ▸ Routing Grid.
+    grid_resolution_mm: float = Field(default=0.10, gt=0.0, le=5.0)
+    #: Run the Internal Geometry Check automatically after a board opens.
+    check_on_open: bool = False
+
+
 class GPUSettings(_Model):
     """Placeholder section. Inactive in Stage 1."""
 
@@ -141,6 +153,7 @@ class AppSettings(_Model):
     window: WindowSettings = Field(default_factory=WindowSettings)
     ai: AISettings = Field(default_factory=AISettings)
     routing: RoutingSettings = Field(default_factory=RoutingSettings)
+    geometry: GeometrySettings = Field(default_factory=GeometrySettings)
     gpu: GPUSettings = Field(default_factory=GPUSettings)
 
     @field_validator("recent_boards")

@@ -29,6 +29,31 @@ SELECTION_COLOR = QColor("#ffffff")
 HOVER_COLOR = QColor("#7dd3fc")
 NET_HIGHLIGHT_COLOR = QColor("#fde047")
 
+# Stage 3 engineering overlays (display only; never board data).
+DRC_ERROR_COLOR = QColor("#ff3b30")
+DRC_WARNING_COLOR = QColor("#ffb020")
+DRC_INFO_COLOR = QColor("#7dd3fc")
+CANDIDATE_VALID_COLOR = QColor("#34d399")
+CANDIDATE_INVALID_COLOR = QColor("#ff3b30")
+CANDIDATE_UNKNOWN_COLOR = QColor("#ffb020")
+ENVELOPE_COLOR = QColor("#f472b6")
+KEEPOUT_COLOR = QColor("#ef4444")
+BOUNDARY_COLOR = QColor("#22d3ee")
+RAW_BOUNDS_COLOR = QColor("#a3a3a3")
+INFLATED_COLOR = QColor("#f59e0b")
+AIRWIRE_COLOR = QColor("#e5e7eb")
+#: Occupancy-grid cell colours (RGBA) indexed by CellState value; FREE is transparent.
+GRID_CELL_RGBA = (
+    (0, 0, 0, 0),  # FREE
+    (52, 211, 153, 110),  # SAME_NET
+    (239, 68, 68, 120),  # FOREIGN_NET
+    (148, 163, 184, 120),  # BLOCKED (holes)
+    (217, 70, 239, 120),  # KEEPOUT
+    (250, 204, 21, 130),  # EDGE
+    (15, 23, 42, 150),  # OUTSIDE_BOARD
+    (255, 140, 0, 140),  # UNKNOWN
+)
+
 _LAYER_COLORS = {
     FRONT_COPPER: QColor("#d04a3f"),
     BACK_COPPER: QColor("#3f86d0"),

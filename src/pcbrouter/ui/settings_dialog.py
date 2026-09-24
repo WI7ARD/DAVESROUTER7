@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTabWidget,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from pcbrouter.ai.provider import STAGE_UNAVAILABLE_MESSAGE
 from pcbrouter.compute.manager import ComputeManager
+from pcbrouter.routing.occupancy import GRID_RESOLUTIONS_MM
 from pcbrouter.settings.settings import AppSettings, ComputeBackendChoice, Theme
 from pcbrouter.ui.ai_controller import AIRequestController
 from pcbrouter.ui.ai_provider_settings import ProviderSettingsWidget
@@ -55,6 +57,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._ai_tab(), "AI Providers")
         tabs.addTab(self._routing_tab(), "Routing")
         tabs.addTab(self._gpu_tab(compute), "GPU")
+        tabs.addTab(self._geometry_tab(), "Geometry")  # appended: keeps tab indices stable
         self.tabs = tabs
 
         buttons = QDialogButtonBox(
@@ -151,9 +154,9 @@ class SettingsDialog(QDialog):
         layout.addWidget(
             _banner(
                 f"Routing — {STAGE_UNAVAILABLE_MESSAGE}.\n\nThis version performs no autorouting "
-                "and never "
-                "modifies boards. Router settings (grid, costs, layer preferences, rip-up) will "
-                "appear here when the router is implemented."
+                "and never modifies boards. Stage 3 validates hypothetical geometry only (see "
+                "the Geometry tab and the Tools menu). Router settings (costs, layer "
+                "preferences, rip-up) will appear here when the router is implemented."
             )
         )
         layout.addStretch(1)
@@ -175,6 +178,51 @@ class SettingsDialog(QDialog):
         layout.addStretch(1)
         return w
 
+    def _geometry_tab(self) -> QWidget:
+        g = self._settings.geometry
+        w = QWidget()
+        form = QFormLayout(w)
+        form.addRow(
+            _banner(
+                "Stage 3 geometry and design-rule engine. These settings affect only the "
+                "application's own checks; KiCad files are never modified."
+            )
+        )
+        self.conservative_rules = QCheckBox("Conservative Rule Handling (recommended)")
+        self.conservative_rules.setChecked(g.conservative_rules)
+        self.conservative_rules.setToolTip(
+            "ON: when a critical rule is unknown or unsupported, route validation refuses the "
+            "geometry (RULE_UNKNOWN).\nOFF (expert): unknowns are reported as warnings instead. "
+            "Known violations are always INVALID either way."
+        )
+        self.conservative_rules.toggled.connect(self._on_conservative_toggled)
+        form.addRow(self.conservative_rules)
+        self.grid_resolution = QComboBox()
+        for mm in GRID_RESOLUTIONS_MM:
+            self.grid_resolution.addItem(f"{mm:.2f} mm", mm)
+        idx = self.grid_resolution.findData(g.grid_resolution_mm)
+        self.grid_resolution.setCurrentIndex(idx if idx >= 0 else 0)
+        form.addRow("Routing grid resolution:", self.grid_resolution)
+        self.check_on_open = QCheckBox("Run the Internal Geometry Check after opening a board")
+        self.check_on_open.setChecked(g.check_on_open)
+        form.addRow(self.check_on_open)
+        return w
+
+    def _on_conservative_toggled(self, checked: bool) -> None:
+        if checked or not self.isVisible():
+            return
+        answer = QMessageBox.warning(
+            self,
+            "Turn off Conservative Rule Handling?",
+            "With conservative handling OFF, geometry affected by an unknown or unsupported "
+            "critical rule is reported as VALID WITH WARNINGS instead of being refused.\n\n"
+            "Only do this if you have checked those rules yourself. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.conservative_rules.setChecked(True)
+
     # ------------------------------------------------------------------ result
     def _on_clear_recent(self) -> None:
         self._settings.recent_boards = []
@@ -189,5 +237,8 @@ class SettingsDialog(QDialog):
         s.viewer.show_reference_labels = self.show_labels.isChecked()
         s.viewer.show_footprint_bodies = self.show_bodies.isChecked()
         s.default_compute_backend = self.backend_combo.currentData()
+        s.geometry.conservative_rules = self.conservative_rules.isChecked()
+        s.geometry.grid_resolution_mm = self.grid_resolution.currentData()
+        s.geometry.check_on_open = self.check_on_open.isChecked()
         self.ai_widget.apply_preferences()
         return s

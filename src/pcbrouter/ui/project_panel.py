@@ -39,11 +39,15 @@ class ProjectPanel(QWidget):
         layout.addWidget(self.filter)
         layout.addWidget(self.tree, 1)
         self._components_root: QTreeWidgetItem | None = None
+        self._root: QTreeWidgetItem | None = None
+        self._geometry: QTreeWidgetItem | None = None
         self.set_session(None, None)
 
     def set_session(self, session: ProjectSession | None, render: RenderStats | None) -> None:
         self.tree.clear()
         self._components_root = None
+        self._root = None
+        self._geometry = None
         self.filter.clear()
         if session is None:
             self.tree.addTopLevelItem(QTreeWidgetItem(["No board loaded", "File ▸ Open Board"]))
@@ -56,6 +60,7 @@ class ProjectPanel(QWidget):
         root = QTreeWidgetItem([session.name, "read-only"])
         root.setToolTip(0, str(session.source_path))
         self.tree.addTopLevelItem(root)
+        self._root = root
 
         info = QTreeWidgetItem(["Board", ""])
         root.addChild(info)
@@ -107,8 +112,12 @@ class ProjectPanel(QWidget):
             item.setToolTip(1, item.text(1))
             notes.addChild(item)
 
-        ws = QTreeWidgetItem(["Workspace", "planned (not created)"])
-        ws.setToolTip(0, "Future snapshot/proposal storage. Nothing is written in Stage 1.")
+        ws = QTreeWidgetItem(["Workspace", "created on demand"])
+        ws.setToolTip(
+            0,
+            "Application data for this board (router overrides, saved AI sessions). "
+            "Nothing is ever written next to or into the KiCad files.",
+        )
         root.addChild(ws)
         _row(ws, "Location", str(session.workspace.root))
         _row(ws, "Snapshots", str(session.workspace.snapshots_dir))
@@ -126,6 +135,29 @@ class ProjectPanel(QWidget):
         info.setExpanded(True)
         st.setExpanded(True)
         self.tree.resizeColumnToContents(0)
+
+    def set_geometry_stats(self, rows: list[tuple[str, str]]) -> None:
+        """Stage 3 statistics (engine facts: connectivity, internal DRC, index)."""
+        if self._root is None:
+            return
+        if self._geometry is None:
+            self._geometry = QTreeWidgetItem(["Geometry & Rules", "Stage 3 engine"])
+            self._root.insertChild(2, self._geometry)
+        self._geometry.takeChildren()
+        for label, value in rows:
+            _row(self._geometry, label, value)
+        self._geometry.setExpanded(True)
+
+    def geometry_stats(self) -> dict[str, str]:
+        g = self._geometry
+        if g is None:
+            return {}
+        out: dict[str, str] = {}
+        for i in range(g.childCount()):
+            child = g.child(i)
+            if child is not None:
+                out[child.text(0)] = child.text(1)
+        return out
 
     def _on_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         comp_id = item.data(0, _ROLE_ID)

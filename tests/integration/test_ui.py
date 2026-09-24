@@ -309,6 +309,7 @@ def test_hover_reports_coordinates_and_object(
     window.open_board(fixture_path("vias.kicad_pcb"))
     c = window.canvas
     pos = scene_to_view(c, 113.0, 100.0)
+    qtbot.mouseMove(c.viewport(), pos + QPoint(25, 25))  # ensure the next move is a real move
     with qtbot.waitSignal(c.cursorMoved) as blocker:
         qtbot.mouseMove(c.viewport(), pos)
     x, y = blocker.args
@@ -465,7 +466,7 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
     dlg = SettingsDialog(window.settings, window.compute, window)
     qtbot.addWidget(dlg)
     tabs = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
-    assert tabs == ["General", "Viewer", "Compute", "AI Providers", "Routing", "GPU"]
+    assert tabs == ["General", "Viewer", "Compute", "AI Providers", "Routing", "GPU", "Geometry"]
     dlg.grid_spacing.setValue(2.54)
     dlg.grid_visible.setChecked(False)
     result = dlg.result_settings()
@@ -480,7 +481,8 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
 
 def test_about_and_compute_info_text(window: MainWindow) -> None:
     about = dialogs.about_text()
-    assert __version__ in about and "does not perform autorouting or AI API calls" in about
+    assert __version__ in about and "does not perform autorouting" in about
+    assert "not KiCad DRC" in about and "never modifies the board file" in about
     info = dialogs.compute_info_text(window.compute)
     assert "Active compute backend: CPU" in info
     assert "Threads:" in info and "GPU candidate" in info and "CUDA: Not configured yet" in info

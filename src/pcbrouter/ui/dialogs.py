@@ -48,9 +48,11 @@ def about_text() -> str:
     return (
         f"<h3>{APP_NAME}</h3>"
         f"<p>Version <b>{__version__}</b> (Stage {STAGE} of 10)</p>"
-        "<p>Read-only KiCad board inspector and the foundation for deterministic, "
-        "AI-assisted PCB autorouting.</p>"
-        "<p><b>Stage 1 does not perform autorouting or AI API calls.</b></p>"
+        "<p>Read-only KiCad board inspector with a deterministic geometry and "
+        "design-rule engine — the foundation for AI-assisted PCB autorouting.</p>"
+        "<p><b>Stage 3 does not perform autorouting and never modifies the board file.</b> "
+        "The Internal Geometry Check is the router's own check, not KiCad DRC. AI API "
+        "calls happen only when you send a request.</p>"
         f"<p>Python {platform.python_version()} · Qt {qVersion()} · PySide6 {pyside_version}"
         f"<br>{platform.platform()}</p>"
     )

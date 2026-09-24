@@ -17,6 +17,7 @@ from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QDockWidget,
     QFileDialog,
     QLabel,
@@ -40,6 +41,7 @@ from pcbrouter.ui.ai_controller import AIRequestController
 from pcbrouter.ui.ai_dialogs import UsageDialog
 from pcbrouter.ui.ai_history_panel import AIHistoryPanel
 from pcbrouter.ui.ai_panel import AIEngineeringPanel
+from pcbrouter.ui.geometry_controller import GeometryController
 from pcbrouter.ui.inspector_panel import InspectorPanel
 from pcbrouter.ui.layers_panel import LayersPanel
 from pcbrouter.ui.log_panel import LogPanel
@@ -52,7 +54,7 @@ from pcbrouter.ui.theme import apply_theme
 log = logging.getLogger(__name__)
 
 BOARD_FILE_FILTER = "KiCad PCB (*.kicad_pcb);;All files (*)"
-_PANELS = ("project", "layers", "inspector", "nets", "log", "ai", "ai_history")
+_PANELS = ("project", "layers", "inspector", "nets", "log", "ai", "ai_history", "drc", "rules")
 AI_SETTINGS_TAB = 3
 
 
@@ -125,6 +127,9 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_status_bar()
+        # Stage 3: geometry + rule engine UI (docks, tools, overlays, status fields).
+        self.engine_ui = GeometryController(self)
+        self.engine_ui.install(self.menu_view, self.menu_tools, self.menu_help, self.toolbar_main)
         self._connect_signals()
         self._apply_viewer_settings()
         self._restore_window_state()
@@ -273,6 +278,8 @@ class MainWindow(QMainWindow):
 
         tools = mb.addMenu("&Tools")
         tools.addAction(self.act_compute)
+        self.menu_view = view
+        self.menu_tools = tools
         ai = mb.addMenu("&AI")
         ai.addAction(self.act_ai_panel)
         ai.addAction(self.act_ai)
@@ -284,6 +291,7 @@ class MainWindow(QMainWindow):
         router.addAction(self.act_route_board)
         help_menu = mb.addMenu("&Help")
         help_menu.addAction(self.act_about)
+        self.menu_help = help_menu
 
     def _build_toolbar(self) -> None:
         tb = QToolBar("Main")
@@ -296,11 +304,13 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_grid)
         tb.addSeparator()
         stage = QLabel(
-            f"  Stage {STAGE} · read-only board · AI plans on request, never edits · no routing  "
+            f"  Stage {STAGE} · read-only board · deterministic geometry + rule checks · "
+            "AI plans on request, never edits · no routing  "
         )
         stage.setProperty("role", "muted")
         tb.addWidget(stage)
         self.addToolBar(tb)
+        self.toolbar_main = tb
 
     def _build_status_bar(self) -> None:
         sb = self.statusBar()
@@ -413,6 +423,8 @@ class MainWindow(QMainWindow):
             show_labels=v.show_reference_labels,
         )
         self.project_panel.set_session(session, self.canvas.render_stats if board else None)
+        self.engine_ui.on_board_changed()
+        self.refresh_statistics()
         self._apply_viewer_settings()
         has = board is not None
         self.act_close.setEnabled(has)
@@ -432,6 +444,11 @@ class MainWindow(QMainWindow):
         )
         self.lbl_layer.setText(f"Layer {self.canvas.active_layer or '—'}")
         self.setWindowTitle(f"{session.name} — {APP_NAME} {__version__}")
+
+    def refresh_statistics(self) -> None:
+        """Stage 3 engine statistics in the project panel (once the engine is ready)."""
+        if self.bus.context.project.session is not None:
+            self.project_panel.set_geometry_stats(self.engine_ui.statistics())
 
     def _rebuild_recent_menu(self) -> None:
         self.recent_menu.clear()
@@ -482,6 +499,7 @@ class MainWindow(QMainWindow):
             apply_theme(app, new.theme)
         self._apply_viewer_settings()
         self._rebuild_recent_menu()
+        self.engine_ui.apply_settings()
         self.save_settings()
         self.statusBar().showMessage("Settings saved.", 4000)
 
@@ -574,6 +592,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.ai_controller.cancel()
+        self.engine_ui.shutdown()  # finish background work, close tool dialogs
         self.save_settings()
         if self.bus.context.project.is_open:
             self._end_ai_session()
@@ -584,6 +603,10 @@ class MainWindow(QMainWindow):
     def run_settings_dialog(self, dlg: SettingsDialog) -> bool:
         """Separate method so tests can drive the dialog."""
         return dlg.exec() == SettingsDialog.DialogCode.Accepted
+
+    def run_dialog(self, dlg: QDialog) -> int:
+        """Run a modal dialog (separate method so tests can drive it)."""
+        return dlg.exec()
 
     def open_ai_settings(self) -> None:
         self.open_settings(tab=AI_SETTINGS_TAB)
@@ -599,9 +622,15 @@ class MainWindow(QMainWindow):
         project = self.bus.context.project.session
         if project is None:
             return
-        self.ai_service.start_session(project.board, project.session_id,
-                                      runtime_config_from_settings(self.settings.ai),
-                                      history=self.bus.context.history)  # fmt: skip
+        manager = self.bus.context.project
+        self.ai_service.start_session(
+            project.board,
+            project.session_id,
+            runtime_config_from_settings(self.settings.ai),
+            history=self.bus.context.history,
+            engine_provider=lambda: manager.engine,
+            on_constraints_changed=self.engine_ui.on_ai_constraints_changed,
+        )
         self._refresh_ai()
 
     def _end_ai_session(self) -> None:

@@ -125,9 +125,11 @@ class BoardEngine:
             self.geometry, self.validator.engine, self.geometry.copper[pad_uid]
         )
 
-    def with_overrides(self, overrides: RuleOverrides) -> BoardEngine:
+    def with_overrides(
+        self, overrides: RuleOverrides, config: EngineConfig | None = None
+    ) -> BoardEngine:
         """A new engine sharing this board's geometry (rules re-resolved)."""
-        engine = BoardEngine(self.board, self.project_rules, overrides, self.config)
+        engine = BoardEngine(self.board, self.project_rules, overrides, config or self.config)
         if "geometry" in self.__dict__:
             engine.__dict__["geometry"] = self.geometry
             engine.__dict__["connectivity"] = self.connectivity

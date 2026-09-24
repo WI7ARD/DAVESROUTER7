@@ -139,6 +139,9 @@ class PcbCanvas(QGraphicsView):
     selectionCleared = Signal()
     cursorMoved = Signal(float, float)  # scene position in mm
     zoomChanged = Signal(float)  # pixels per mm
+    #: Emitted before every scene is cleared: owners of extra scene items (overlays)
+    #: must drop their references, because ``QGraphicsScene.clear`` deletes them.
+    aboutToClear = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -248,7 +251,24 @@ class PcbCanvas(QGraphicsView):
         )  # fmt: skip
         self.zoom_to_fit()
 
+    @property
+    def overlay_scene(self) -> QGraphicsScene:
+        """The scene, for display-only overlays (see :mod:`pcbrouter.ui.overlays`)."""
+        return self._scene
+
+    def focus_on(self, rect_mm: QRectF, min_px_per_mm: float = 20.0) -> None:
+        """Centre ``rect_mm`` and zoom in so it is at least ``min_px_per_mm``."""
+        if self.px_per_mm < min_px_per_mm:
+            self.zoom_by(min_px_per_mm / max(self.px_per_mm, 1e-9))
+        view = self.viewport().rect()
+        if rect_mm.width() > 0 and rect_mm.height() > 0:
+            fit = min(view.width() / rect_mm.width(), view.height() / rect_mm.height()) * 0.5
+            if fit < self.px_per_mm:
+                self.zoom_by(fit / self.px_per_mm)
+        self.centerOn(rect_mm.center())
+
     def clear_board(self) -> None:
+        self.aboutToClear.emit()
         self._scene.removeItem(self._selection_overlay)
         self._scene.removeItem(self._hover_overlay)
         self._scene.clear()
