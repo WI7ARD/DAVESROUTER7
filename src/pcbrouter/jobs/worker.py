@@ -133,14 +133,21 @@ def _enable_worker_crash_log() -> None:
         pass
 
 
-def worker_main(inbox: Any, outbox: Any, cancel_job: Any, paused: Any) -> None:
-    """Process entry point (must stay importable at module level for ``spawn``)."""
+def worker_main(
+    inbox: Any, outbox: Any, cancel_job: Any, paused: Any, in_process: bool = False
+) -> None:
+    """Process entry point (must stay importable at module level for ``spawn``).
+
+    ``in_process=True``: fallback mode on a thread of the GUI process (used only
+    when a worker process cannot be started): the app's logging and crash log are
+    left alone; log records already reach the app's own handlers."""
     install_pickling()
-    _enable_worker_crash_log()
     capture = _LogCapture()
-    root = logging.getLogger()
-    root.handlers[:] = [capture]
-    root.setLevel(logging.INFO)
+    if not in_process:
+        _enable_worker_crash_log()
+        root = logging.getLogger()
+        root.handlers[:] = [capture]
+        root.setLevel(logging.INFO)
     log = logging.getLogger("pcbrouter.worker")
 
     current: dict[str, Any] = {"job": None, "cancel": threading.Event(), "run": threading.Event()}
@@ -173,6 +180,8 @@ def worker_main(inbox: Any, outbox: Any, cancel_job: Any, paused: Any) -> None:
                 send(Heartbeat(job, os.getpid(), rss, peak))
 
     threading.Thread(target=monitor, name="route-worker-monitor", daemon=True).start()
+    if in_process:  # nothing to forward: the records went to the app's handlers
+        capture.setLevel(logging.CRITICAL + 1)
     send(WorkerReady(os.getpid(), sys.version.split()[0]))
     log.info("routing worker started pid=%d", os.getpid())
 

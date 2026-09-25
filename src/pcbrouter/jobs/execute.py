@@ -474,6 +474,8 @@ def _fake(job: FakeJob, ctx: JobContext) -> Any:
     for i in range(total):
         if job.outcome == "crash" and i >= total // 2:
             os._exit(3)  # simulate a hard crash (e.g. a GPU driver fault)
+        if job.outcome == "crash_gpu" and job.mode != "cpu" and i >= total // 2:
+            os._exit(3)  # a fault only on the GPU path: the CPU retry succeeds
         if job.outcome == "fail" and i >= total // 2:
             raise RuntimeError("synthetic routing failure")
         if job.outcome != "hang":

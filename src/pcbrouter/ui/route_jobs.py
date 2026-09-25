@@ -22,8 +22,10 @@ import contextlib
 import itertools
 import logging
 import multiprocessing as mp
+import os
 import pickle
 import queue
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -51,7 +53,8 @@ IDLE_POLL_MS = 250
 POLL_BUDGET_S = 0.012  # never spend more than ~12 ms of a GUI tick on messages
 HEARTBEAT_TIMEOUT_S = 20.0
 CANCEL_GRACE_S = 5.0
-START_TIMEOUT_S = 90.0
+START_TIMEOUT_S = 60.0
+MAX_START_FAILURES = 2
 
 
 class JobState(StrEnum):
@@ -148,6 +151,72 @@ class WorkerHost:
         log.info("route_worker.stopped pid=%s", self.process.pid)
 
 
+class _Value:
+    """Stand-in for a multiprocessing.Value in the in-process fallback."""
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+
+class InProcessHost:
+    """Fallback when no worker *process* can be started (blocked by security
+    software, broken installation…): the same protocol on a thread of the GUI
+    process. Routing still never runs on the Qt thread, but a long route can make
+    the window less smooth (shared GIL), so the user is told about the fallback."""
+
+    def __init__(self) -> None:
+        from types import SimpleNamespace
+
+        from pcbrouter.jobs.worker import worker_main
+
+        self.inbox: Any = queue.Queue()
+        self.outbox: Any = queue.Queue()
+        self.cancel_job: Any = _Value(0)
+        self.paused: Any = _Value(0)
+        self.process: Any = SimpleNamespace(pid=os.getpid())
+        self.ready = False
+        self.pid: int | None = None
+        self.started_at = time.monotonic()
+        self._dead = False
+        self._thread = threading.Thread(
+            target=worker_main,
+            args=(self.inbox, self.outbox, self.cancel_job, self.paused, True),
+            name="route-worker-inprocess",
+            daemon=True,
+        )
+        self._thread.start()
+        log.warning("route_worker.in_process_fallback started")
+
+    def alive(self) -> bool:
+        return not self._dead and self._thread.is_alive()
+
+    @property
+    def exitcode(self) -> int | None:
+        return None
+
+    def submit(self, job_id: int, job: JobBase) -> None:
+        self.inbox.put((job_id, job))
+
+    def poll(self, budget_s: float = POLL_BUDGET_S, max_items: int = 500) -> list[Any]:
+        out: list[Any] = []
+        end = time.monotonic() + budget_s
+        while len(out) < max_items and time.monotonic() < end:
+            try:
+                out.append(pickle.loads(self.outbox.get_nowait()))
+            except queue.Empty:
+                break
+        return out
+
+    def stop(self) -> None:
+        self.inbox.put(None)
+
+    def kill(self) -> None:
+        """A thread cannot be killed: cancel whatever runs and abandon its output."""
+        self.cancel_job.value = -1 if self.cancel_job.value == 0 else self.cancel_job.value
+        self._dead = True
+        self.inbox.put(None)
+
+
 @dataclass
 class _Active:
     job_id: int
@@ -160,6 +229,8 @@ class _Active:
     cancel_at: float | None = None
     cancel_reason: str = ""
     log_tail: list[str] = field(default_factory=list)
+    retries: int = 0
+    note: str = ""
 
 
 class RouteJobController(QObject):
@@ -169,6 +240,7 @@ class RouteJobController(QObject):
     progress = Signal(object)  # RouteProgress (coalesced, ≤ ~30/s, typically ≤ 10/s)
     heartbeat = Signal(object)  # Heartbeat
     jobStarted = Signal(object)  # the JobBase
+    notice = Signal(str)  # something the user should know (retry, fallback)
     finished = Signal(object)  # JobDone (after the job's own callback ran)
 
     _ids = itertools.count(1)
@@ -178,10 +250,14 @@ class RouteJobController(QObject):
     ) -> None:
         super().__init__(parent)
         self._host_factory = host_factory or WorkerHost.shared
-        self._host: WorkerHost | None = None
+        self._host: Any = None  # WorkerHost, or InProcessHost in fallback mode
         self.state = JobState.IDLE
         self.active: _Active | None = None
         self.last_done: JobDone | None = None
+        #: worker processes that died before becoming ready; after
+        #: ``MAX_START_FAILURES`` the in-process fallback is used
+        self.start_failures = 0
+        self.in_process = False
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_MS)
         self._timer.timeout.connect(self._poll)
@@ -271,11 +347,30 @@ class RouteJobController(QObject):
             self._set_state(JobState.IDLE)
 
     # -------------------------------------------------------------- internals
-    def _ensure_host(self) -> WorkerHost:
+    def _ensure_host(self) -> Any:
         if self._host is None or not self._host.alive():
-            self._host = self._host_factory()
+            if self.start_failures >= MAX_START_FAILURES and not self.in_process:
+                self.in_process = True
+                self.notice.emit(
+                    "The routing worker process could not be started (security software "
+                    "or a damaged installation?). Routing now runs inside the app; the "
+                    "window may be less smooth during long routes."
+                )
+            self._host = InProcessHost() if self.in_process else self._host_factory()
             self._timer.start()
         return self._host
+
+    def _retry(self, a: _Active, job: JobBase, note: str) -> None:
+        """Run the active job again (once) on a fresh worker."""
+        host = self._ensure_host()
+        a.job_id = next(self._ids)
+        a.job, a.retries, a.note = job, a.retries + 1, note
+        a.last_heartbeat = a.last_progress_at = time.monotonic()
+        host.paused.value = 0
+        host.submit(a.job_id, job)
+        log.warning("[route:%d] retrying: %s", a.job_id, note)
+        self.notice.emit(note)
+        self._set_state(JobState.STARTING)
 
     def _set_state(self, state: JobState) -> None:
         if state is not self.state:
@@ -333,6 +428,23 @@ class RouteJobController(QObject):
             code = host.exitcode
             self._host = None
             WorkerHost.discard_shared(host)
+            if not host.ready:
+                self.start_failures += 1
+            if a.retries == 0 and a.cancel_at is None:
+                if not host.ready:
+                    self._retry(a, a.job, "The routing worker failed to start; trying again.")
+                    return
+                if a.job.mode != "cpu":
+                    from dataclasses import replace as dc_replace
+
+                    self._retry(
+                        a,
+                        dc_replace(a.job, mode="cpu"),
+                        f"The routing worker stopped during {a.job.mode.upper()} routing "
+                        f"(exit code {code}, e.g. a GPU driver fault); running the same job "
+                        "again on the CPU.",
+                    )
+                    return
             tail = "\n".join(a.log_tail[-20:])
             self._finish(
                 JobDone(
@@ -356,7 +468,13 @@ class RouteJobController(QObject):
             )
             return
         if not host.ready and now - host.started_at > START_TIMEOUT_S:
-            self._stop_worker(host, JobStatus.FAILED, "the routing worker did not start")
+            self.start_failures += 1
+            host.kill()
+            self._host = None
+            if a.retries == 0:
+                self._retry(a, a.job, "The routing worker did not start in time; trying again.")
+            else:
+                self._stop_worker(host, JobStatus.FAILED, "the routing worker did not start")
             return
         if host.ready and now - a.last_heartbeat > HEARTBEAT_TIMEOUT_S:
             self._stop_worker(
@@ -399,6 +517,8 @@ class RouteJobController(QObject):
         if a.cancel_reason == "timeout" and done.status == JobStatus.CANCELED.value:
             done.status = JobStatus.TIMED_OUT.value
             done.error = done.error or f"Timed out after {a.job.timeout_s:.0f} s"
+        if a.note:
+            done.diagnostics["note"] = a.note
         self.last_done = done
         timings = ", ".join(f"{k.lower()} {v:.2f}s" for k, v in done.phase_timings.items())
         backend = done.backend.text() if done.backend else "n/a"

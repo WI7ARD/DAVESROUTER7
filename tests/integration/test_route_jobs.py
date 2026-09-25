@@ -282,3 +282,84 @@ def test_guides_cover_features_and_buttons_work(window: MainWindow) -> None:
     window._guide_route_board()  # no board: answers instead of failing
     assert "Open a board first" in window.statusBar().currentMessage()
     dlg.close()
+
+
+def test_gpu_crash_is_retried_on_cpu(window: MainWindow) -> None:
+    notices: list[str] = []
+    window.route_jobs.notice.connect(notices.append)
+    done = submit(window, FakeJob(duration_s=0.6, outcome="crash_gpu", mode="gpu"))
+    run_until(lambda: bool(done), 60)
+    assert done[0].status == JobStatus.COMPLETED.value
+    assert "again on the CPU" in done[0].diagnostics["note"] and notices
+
+
+class _DeadHost:
+    """A worker process that dies before it is ready (e.g. blocked by antivirus)."""
+
+    def __init__(self) -> None:
+        from types import SimpleNamespace
+
+        self.ready, self.pid, self.started_at = False, None, time.monotonic()
+        self.process = SimpleNamespace(pid=0)
+        self.cancel_job = SimpleNamespace(value=0)
+        self.paused = SimpleNamespace(value=0)
+
+    def alive(self) -> bool:
+        return False
+
+    exitcode = 1
+
+    def submit(self, *_a: object) -> None:
+        pass
+
+    def poll(self, *_a: object, **_k: object) -> list[object]:
+        return []
+
+    def kill(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+
+def test_worker_that_cannot_start_falls_back_in_process(qtbot: QtBot) -> None:
+    from pcbrouter.ui.route_jobs import RouteJobController
+
+    rj = RouteJobController(host_factory=_DeadHost)  # type: ignore[arg-type]
+    notices: list[str] = []
+    rj.notice.connect(notices.append)
+    out: list[JobDone] = []
+    assert rj.submit(FakeJob(duration_s=0.3), out.append) is not None
+    run_until(lambda: bool(out), 30)
+    if out[0].status != JobStatus.COMPLETED.value:  # first retry also on a dead host
+        assert rj.submit(FakeJob(duration_s=0.3), out.append) is not None
+        run_until(lambda: len(out) == 2, 30)
+    assert out[-1].status == JobStatus.COMPLETED.value
+    assert rj.in_process and any("could not be started" in n for n in notices)
+    rj.shutdown()
+
+
+def test_log_panel_batches_bursts_from_threads(window: MainWindow) -> None:
+    import logging
+    import threading
+
+    from pcbrouter.app_logging import add_handler, remove_handler
+    from pcbrouter.ui.log_panel import MAX_BUFFERED
+
+    panel = window.log_panel
+    add_handler(panel.handler)
+    try:
+        ticker = Ticker()
+        t = threading.Thread(
+            target=lambda: [
+                logging.getLogger("pcbrouter.flood").warning("flood %d", i) for i in range(20_000)
+            ]
+        )
+        t.start()
+        run_until(lambda: not t.is_alive(), 30)
+        assert len(panel.handler._buf) <= MAX_BUFFERED
+        run_until(lambda: not panel.handler._buf, 30)
+        assert ticker.max_gap() < 0.5
+        assert "flood 19999" in panel.text.toPlainText()
+    finally:
+        remove_handler(panel.handler)
