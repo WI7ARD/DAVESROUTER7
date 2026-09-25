@@ -18,6 +18,7 @@ validator.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -125,12 +126,24 @@ def compile_grid(
     via_diameter: Nm | None,
     cell: Nm,
     window: BoundingBox | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> SearchGrid:
+    """``progress`` (optional) is told which layer is being rasterised."""
     notes: list[str] = []
     complete = True
     passable: list[BoolGrid] = []
     spec: GridSpec | None = None
+    total = len(layers) + (len(engine.geometry.copper_layers) if via_diameter else 0)
+    step = 0
+
+    def tell(what: str) -> None:
+        nonlocal step
+        step += 1
+        if progress is not None:
+            progress(f"grid {step}/{total}: {what}")
+
     for layer in layers:
+        tell(f"tracks on {layer}")
         occ = engine.occupancy(layer, net, width, cell, window)
         spec = occ.spec
         complete &= occ.rules_complete
@@ -141,6 +154,7 @@ def compile_grid(
     if via_diameter is not None and len(layers) > 1:
         via_ok = np.ones((spec.ny, spec.nx), dtype=np.bool_)
         for layer in engine.geometry.copper_layers:  # a through via spans every layer
+            tell(f"vias on {layer}")
             occ = engine.occupancy(layer, net, via_diameter, cell, window, ItemType.VIA)
             complete &= occ.rules_complete
             via_ok &= _passable(occ.cells)

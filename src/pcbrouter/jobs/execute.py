@@ -127,12 +127,12 @@ class JobContext:
             if top_level:
                 if "phase" in info:
                     fields["phase"] = info["phase"]
+                    fields["message"] = info.get("message", "")
                 if "net" in info:
                     fields["current_net_name"] = info["net"]
             elif "phase" in info:
-                fields["message"] = (
-                    f"{info.get('net', '')}: {info['phase'].lower().replace('_', ' ')}"
-                )
+                detail = info.get("message") or info["phase"].lower().replace("_", " ")
+                fields["message"] = f"{info.get('net', '')}: {detail}"
             self.reporter.update(**fields)
 
         return hook

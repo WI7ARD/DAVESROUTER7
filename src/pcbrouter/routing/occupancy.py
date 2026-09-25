@@ -31,8 +31,15 @@ import numpy.typing as npt
 from pcbrouter.domain.geometry import BoundingBox, Point
 from pcbrouter.domain.units import Nm
 from pcbrouter.geometry.board import BoardGeometry, ItemKind, RegionStatus
+from pcbrouter.geometry.distance import PolygonCore
 from pcbrouter.geometry.errors import GeometryError
-from pcbrouter.geometry.raster import centers, distance_field, polygon_inside
+from pcbrouter.geometry.raster import (
+    FAST_POLYGON_EDGES,
+    centers,
+    distance_field,
+    polygon_inside_grid,
+    polygon_near_mask,
+)
 from pcbrouter.geometry.shapes import Shape
 from pcbrouter.routing.collision import item_type_of
 from pcbrouter.rules.model import ItemType
@@ -167,12 +174,18 @@ class _Rasterizer:
         if win is None:
             return
         rows, cols = win
-        xs, ys = np.meshgrid(self.xs[cols], self.ys[rows])
-        dist = distance_field(shape.core, xs, ys, box) - shape.radius
+        core = shape.core
+        if isinstance(core, PolygonCore) and core.polygon.edge_count > FAST_POLYGON_EDGES:
+            # big polygons (zone fills): same cells, without a full-window
+            # distance field per edge (that was minutes per layer for a GND pour)
+            hit = polygon_near_mask(
+                self.xs[cols], self.ys[rows], core.polygon, float(shape.radius), float(reach)
+            )
+        else:
+            xs, ys = np.meshgrid(self.xs[cols], self.ys[rows])
+            hit = (distance_field(core, xs, ys, box) - shape.radius) <= reach
         sub = self.cells[rows, cols]
-        np.maximum(
-            sub, np.where(dist <= reach, np.uint8(state), np.uint8(0)).astype(np.uint8), out=sub
-        )
+        np.maximum(sub, np.where(hit, np.uint8(state), np.uint8(0)).astype(np.uint8), out=sub)
 
 
 def build_occupancy(
@@ -203,10 +216,9 @@ def build_occupancy(
 
     # Board region: outside / cutout cells.
     if geo.region.status is RegionStatus.KNOWN:
-        xs, ys = np.meshgrid(raster.xs, raster.ys)
         inside = np.zeros(cells.shape, dtype=np.bool_)
         for loop in geo.region.loops:
-            inside ^= polygon_inside(xs, ys, loop)
+            inside ^= polygon_inside_grid(raster.xs, raster.ys, loop)
         cells[~inside] = CellState.OUTSIDE_BOARD
         edge_req = resolver.resolve_edge_clearance(net, item, layer)
         if edge_req.value is None:

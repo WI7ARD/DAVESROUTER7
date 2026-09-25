@@ -188,6 +188,7 @@ class Router:
                 norm.via_diameter if norm.vias_allowed else None,
                 norm.request.grid_resolution,
                 window,
+                progress=self._grid_progress(norm.net),
             )
             self._apply_costs(grid, norm, penalties, avoid_uids)
             result.metrics.grid_cells = grid.n * len(grid.layers)
@@ -704,6 +705,12 @@ class Router:
         if self._deadline is None:
             return per_search
         return max(0.001, min(per_search, self._deadline - time.perf_counter()))
+
+    def _grid_progress(self, net: str) -> Callable[[str], None]:
+        def tell(message: str) -> None:
+            self._report(phase="BUILDING_GRID", net=net, message=message)
+
+        return tell
 
     def _report(self, **info: Any) -> None:
         if self.progress is not None:
