@@ -589,3 +589,20 @@ def test_gpu_mode_without_device_shows_skipped(
     window._update_backend_label()
     assert "GPU: SKIPPED" in window.lbl_backend.text()
     assert "no CUDA or oneAPI GPU device found" in window.lbl_backend.toolTip()
+
+
+@pytest.mark.parametrize("choice", ["cpu", "gpu", "auto"])
+def test_window_starts_with_every_saved_backend(qtbot: QtBot, tmp_path: Path, choice: str) -> None:
+    """Regression: a saved GPU/AUTO backend crashed the window at startup."""
+    from pcbrouter.settings.settings import ComputeBackendChoice
+
+    store = SettingsStore(tmp_path / "config" / "settings.json")
+    settings = store.load()
+    settings.default_compute_backend = ComputeBackendChoice(choice)
+    store.save(settings)
+    w = make_window(qtbot, store)
+    assert "GPU:" in w.lbl_backend.text()
+    assert w.open_board(
+        Path(__file__).parents[1] / "fixtures" / "boards" / "router_basic.kicad_pcb"
+    )
+    w.close()

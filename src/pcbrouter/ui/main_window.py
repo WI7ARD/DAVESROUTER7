@@ -79,6 +79,9 @@ class MainWindow(QMainWindow):
         log_panel: LogPanel | None = None,
     ) -> None:
         super().__init__()
+        #: GPU hardware probe, run in the background (never on the GUI thread);
+        #: set first: status-bar code reads it while the window is being built
+        self.gpu_probe: Any = None
         self.bus = bus
         self.compute = compute
         self.settings = settings
@@ -144,8 +147,6 @@ class MainWindow(QMainWindow):
         # state (see ui/route_jobs.py). The overlay shows phase, backend, progress.
         self.route_jobs = RouteJobController(self)
         self.routing_overlay = RoutingOverlay(self.canvas)
-        #: GPU hardware probe, run in the background (never on the GUI thread)
-        self.gpu_probe: Any = None
         self._bg_jobs = JobRunner(self)
         # Stage 4: routing (route, preview, accept/reject, undo via the history stack).
         self.routing_ui = RoutingController(self)
@@ -723,7 +724,7 @@ class MainWindow(QMainWindow):
         gate_note = ""
         if self.settings.default_compute_backend is not ComputeBackendChoice.CPU:
             # a GPU mode is selected: the (background) hardware probe decides
-            gate = self.gpu_probe
+            gate = getattr(self, "gpu_probe", None)
             if gate is None:
                 gpu_text = "checking…"
                 gate_note = "\nChecking for a GPU device…"
