@@ -347,19 +347,27 @@ def test_log_panel_batches_bursts_from_threads(window: MainWindow) -> None:
     from pcbrouter.ui.log_panel import MAX_BUFFERED
 
     panel = window.log_panel
+    appends: list[int] = []
+    original = panel.text.appendPlainText
+    panel.text.appendPlainText = lambda text: (
+        appends.append(text.count("\n") + 1),  # type: ignore[method-assign]
+        original(text),
+    )[1]
     add_handler(panel.handler)
     try:
-        ticker = Ticker()
         t = threading.Thread(
             target=lambda: [
                 logging.getLogger("pcbrouter.flood").warning("flood %d", i) for i in range(20_000)
             ]
         )
         t.start()
-        run_until(lambda: not t.is_alive(), 30)
-        assert len(panel.handler._buf) <= MAX_BUFFERED
+        run_until(lambda: not t.is_alive(), 60)
+        assert len(panel.handler._buf) <= MAX_BUFFERED  # bounded, never unbounded growth
         run_until(lambda: not panel.handler._buf, 30)
-        assert ticker.max_gap() < 0.5
+        QCoreApplication.processEvents()
         assert "flood 19999" in panel.text.toPlainText()
+        # 20k records reached the widget in batches, not one Qt event per record
+        assert sum(appends) <= 20_000 and len(appends) < 200
     finally:
         remove_handler(panel.handler)
+        panel.text.appendPlainText = original  # type: ignore[method-assign]

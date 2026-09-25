@@ -389,9 +389,7 @@ class MainWindow(QMainWindow):
         rj.progress.connect(self.routing_ui.on_job_progress)
         rj.heartbeat.connect(lambda _hb: ov.set_heartbeat_age(rj.seconds_since_progress))
         rj.stateChanged.connect(self._on_route_job_state)
-        rj.notice.connect(
-            lambda msg: (self.statusBar().showMessage(msg, 20000), ov.detail.setText(msg))
-        )
+        rj.notice.connect(self._on_route_notice)
         ov.cancel_button.clicked.connect(self.routing_ui.cancel)
         c = self.canvas
         c.cursorMoved.connect(self._on_cursor)
@@ -645,6 +643,10 @@ class MainWindow(QMainWindow):
         self._update_backend_label()
         if self.gpu_probe is None:
             self.start_gpu_probe()
+
+    def _on_route_notice(self, message: str) -> None:
+        self.statusBar().showMessage(message, 20000)
+        self.routing_overlay.detail.setText(message)
 
     def _on_route_job_state(self, state: str) -> None:
         if state == JobState.CANCELING.value:
