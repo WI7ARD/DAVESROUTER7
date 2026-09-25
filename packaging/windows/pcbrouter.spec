@@ -41,10 +41,42 @@ if importlib.util.find_spec("win32ctypes") is not None:
     # backend dynamically at import time.
     hiddenimports += collect_submodules("win32ctypes")
 
+binaries = []
+# Intel GPU support (dpnp/dpctl + the SYCL/oneMKL runtime) is bundled when it is
+# installed in the build environment, so the installed app can route on Iris Xe /
+# Arc without a separate Python. pip puts the runtime DLLs in <env>\Library\bin;
+# they are copied to the same relative place and registered at run time by
+# pcbrouter.compute.gpu_runtime.prepare_gpu_runtime().
+GPU_PACKAGES = ("dpnp", "dpctl")
+if all(importlib.util.find_spec(name) is not None for name in GPU_PACKAGES):
+    import sys as _sys
+
+    from PyInstaller.utils.hooks import collect_all
+
+    for name in GPU_PACKAGES:
+        d, b, h = collect_all(name)
+        datas += d
+        binaries += b
+        hiddenimports += h
+    runtime = Path(_sys.prefix) / "Library" / "bin"
+    if runtime.is_dir():
+        for dll in runtime.glob("*.dll"):
+            binaries.append((str(dll), "Library/bin"))
+        for extra in runtime.iterdir():  # e.g. sycl/ur adapter subfolders
+            if extra.is_dir():
+                for f in extra.rglob("*"):
+                    if f.is_file():
+                        rel = f.parent.relative_to(runtime)
+                        binaries.append((str(f), str(Path("Library/bin") / rel)))
+    print(f"[spec] bundling Intel GPU support: dpnp + dpctl + {runtime}")
+else:
+    print("[spec] dpnp/dpctl not installed: building without Intel GPU support")
+
 a = Analysis(
     [str(SRC / "pcbrouter" / "__main__.py")],
     pathex=[str(SRC)],
     datas=datas,
+    binaries=binaries,
     hiddenimports=hiddenimports,
     excludes=[
         # Development tools that may be installed in the build venv.

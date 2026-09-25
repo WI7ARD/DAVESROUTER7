@@ -22,6 +22,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any
 
 from pcbrouter.compute.detection import detect_gpu
 
@@ -69,6 +70,9 @@ def _cuda_devices(deep: bool = True) -> tuple[list[str], list[str]]:
     ]
     checks.append(f"nvidia-smi: {len(names)} device(s)")
     if deep and names and importlib.util.find_spec("cupy") is not None:
+        from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime
+
+        prepare_gpu_runtime()
         try:
             cp = importlib.import_module("cupy")
             count = int(cp.cuda.runtime.getDeviceCount())
@@ -90,6 +94,9 @@ def _oneapi_devices(deep: bool = True) -> tuple[list[str], list[str]]:
         return [], checks
     checks.append(f"Intel adapter(s): {', '.join(intel)}")
     if deep and importlib.util.find_spec("dpctl") is not None:
+        from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime
+
+        prepare_gpu_runtime()
         try:
             dpctl = importlib.import_module("dpctl")
             devices = dpctl.get_devices(device_type="gpu")
@@ -149,6 +156,61 @@ def _probe(deep: bool) -> GpuProbe:
     except Exception as exc:  # the probe must never break the application
         log.warning("gpu.probe_failed error=%r", exc)
         return GpuProbe(False, None, (), f"probe error: {exc!r}")
+
+
+def gpu_library_report() -> dict[str, Any]:
+    """Which copy of the app is this, and can it load the GPU library? (No GUI.)"""
+    import sys
+
+    from pcbrouter import __version__
+    from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime, runtime_dirs
+
+    report: dict[str, Any] = {
+        "app": (
+            "installed app (Setup.exe build)"
+            if getattr(sys, "frozen", False)
+            else f"Python install: {sys.executable}"
+        ),
+        "version": __version__,
+        "runtime_dirs": [str(d) for d in runtime_dirs()],
+    }
+    prepare_gpu_runtime()
+    lib = next((m for m in ("dpnp", "cupy") if importlib.util.find_spec(m) is not None), None)
+    report["library"] = lib
+    report["library_loads"] = False
+    if lib is None:
+        report["problem"] = "no GPU library in THIS copy of the app" + (
+            " (this installer build has none bundled)"
+            if getattr(sys, "frozen", False)
+            else f"; install it into this Python: {sys.executable} -m pip install dpnp"
+        )
+        return report
+    try:
+        mod = importlib.import_module(lib)
+        report["library_loads"] = True
+        report["library_version"] = getattr(mod, "__version__", "?")
+    except Exception as exc:  # DLL/runtime problems are reported, not raised
+        report["problem"] = f"{lib} is present but failed to load: {exc!r}"
+        return report
+    if lib == "dpnp":
+        try:
+            dpctl = importlib.import_module("dpctl")
+
+            devices = dpctl.get_devices()
+            report["sycl_devices"] = [f"{d.name} ({d.device_type})" for d in devices]
+            gpus = [d for d in devices if "gpu" in str(d.device_type)]
+            report["gpu_device_found"] = bool(gpus)
+            if gpus:
+                x = mod.arange(1000, dtype=mod.float32, device=gpus[0])
+                report["gpu_compute_test"] = float(x.sum()) == 499500.0
+            else:
+                report["problem"] = (
+                    "dpnp loads but no SYCL GPU device: install/update the Intel graphics "
+                    "driver (it provides the GPU compute runtime)"
+                )
+        except Exception as exc:
+            report["problem"] = f"device query failed: {exc!r}"
+    return report
 
 
 def reset_probe() -> None:

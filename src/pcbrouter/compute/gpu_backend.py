@@ -44,6 +44,9 @@ def import_array_module(name: str) -> Any:
 
     if name not in ("cupy", "dpnp"):
         raise ImportError(f"unknown GPU array module {name!r}")
+    from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime
+
+    prepare_gpu_runtime()  # frozen app / system Python: make the runtime DLLs findable
     return importlib.import_module(name)
 
 

@@ -68,6 +68,11 @@ Check ($LASTEXITCODE -eq 0 -and $inspect.counts.nets -eq 7) "CLI inspects a boar
 $selftest = ((& $cli $Board --worker-selftest) -join "`n") | ConvertFrom-Json
 Check ($LASTEXITCODE -eq 0 -and $selftest.ok) "routing worker process runs in the installed app (fake: $($selftest.fake_job.status), board: $($selftest.board_job.status))"
 
+# Intel GPU support bundled into the installed app: dpnp + the SYCL runtime DLLs must
+# load from the bundle (the CI machine has no Intel GPU, so no device is expected).
+$gpu = ((& $cli --gpu-check) -join "`n") | ConvertFrom-Json
+Check ($gpu.library -eq 'dpnp' -and $gpu.library_loads) "installed app loads bundled dpnp ($($gpu.library_version); $($gpu.problem))"
+
 # ---------------------------------------------------------------- GUI
 $gui = Start-Process -FilePath (Join-Path $dir 'AI PCB Router.exe') -ArgumentList "`"$Board`"" -PassThru
 Start-Sleep -Seconds 12

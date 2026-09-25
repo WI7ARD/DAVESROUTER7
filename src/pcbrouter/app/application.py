@@ -117,6 +117,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "make it the AI provider and test it",
     )
     parser.add_argument(
+        "--gpu-check",
+        action="store_true",
+        help="print which app copy runs, whether the GPU library (dpnp/CuPy) loads, and "
+        "the GPU devices found (JSON); exit 0 when the library loads",
+    )
+    parser.add_argument(
         "--setup-gpu",
         action="store_true",
         help="detect the GPU, install the matching GPU library (pip) and test it",
@@ -134,6 +140,13 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "OS credential store and exit (used by the Windows uninstaller)",
     )
     return parser.parse_args(argv)
+
+
+def gpu_check_cli() -> dict[str, Any]:
+    """Which copy of the app is this, and can it load the GPU library? (No GUI.)"""
+    from pcbrouter.compute.probe import gpu_library_report
+
+    return gpu_library_report()
 
 
 def setup_gpu_cli() -> int:
@@ -245,6 +258,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.setup_ollama:
         return setup_ollama_cli(args.setup_ollama)
+    if args.gpu_check:
+        report = gpu_check_cli()
+        print(json.dumps(report, indent=2))
+        return 0 if report["library_loads"] else 1
     if args.setup_gpu:
         return setup_gpu_cli()
     if args.worker_selftest:

@@ -47,6 +47,8 @@ class GpuSetupPlan:
 
 def can_install_packages() -> tuple[bool, str]:
     if getattr(sys, "frozen", False):
+        if installed("dpnp") or installed("cupy-cuda12x"):
+            return False, "GPU support is built into this installation (nothing to install)."
         return False, (
             "This is the installed (Setup.exe) build: it cannot add Python packages. "
             "GPU routing needs the Python install (see docs/stage6.md, 'Using the GPU')."
