@@ -18,6 +18,7 @@ from pcbrouter.jobs.protocol import (
     BackendInfo,
     ExportJob,
     FakeJob,
+    FreeroutingJob,
     GpuCheckJob,
     JobBase,
     JobPhase,
@@ -326,6 +327,8 @@ def run_job(job: JobBase, ctx: JobContext) -> Any:
         return _gpu_check(job, ctx)
     if isinstance(job, ExportJob):
         return _export(job, ctx)
+    if isinstance(job, FreeroutingJob):
+        return _freerouting(job, ctx)
     raise TypeError(f"unknown job type {type(job).__name__}")
 
 
@@ -454,6 +457,35 @@ def _export(job: ExportJob, ctx: JobContext) -> Any:
         phase=lambda name: ctx.phase(name),
         cancel=ctx.cancel,
     )
+
+
+def _freerouting(job: FreeroutingJob, ctx: JobContext) -> Any:
+    from pcbrouter.routing.freerouting import FreeroutingError, find_freerouting, freeroute
+
+    wb = working_from(job.snapshot, ctx)
+    tool = find_freerouting(job.tool_path)
+    if tool is None:
+        raise FreeroutingError(
+            "Freerouting was not found. Use Tools ▸ Set Up Freerouting… (install it, or "
+            "choose freerouting.exe / a .jar)."
+        )
+    ctx.backend = BackendInfo("Freerouting", "Freerouting (CPU)", tool.text())
+    ctx.reporter.update(backend=replace(ctx.backend), total_passes=job.passes)
+
+    def progress(phase: str, info: dict[str, Any]) -> None:
+        fields: dict[str, Any] = {"phase": phase, "message": info.get("message", "")}
+        if info.get("current_pass") is not None:
+            fields["current_pass"] = info["current_pass"]
+        if info.get("unrouted") is not None:
+            fields["message"] = f"{info['unrouted']} unrouted · " + fields["message"]
+        ctx.reporter.update(**fields)
+
+    try:
+        return freeroute(wb, job.source_path, tool, job.passes, progress, ctx.cancel)
+    except FreeroutingError as exc:
+        if ctx.cancel.is_set():
+            raise JobCancelled() from exc
+        raise
 
 
 def _fake(job: FakeJob, ctx: JobContext) -> Any:

@@ -302,6 +302,19 @@ class ExportJob(JobBase):
 
 
 @dataclass
+class FreeroutingJob(JobBase):
+    """Route the board with the external Freerouting engine (see routing/freerouting)."""
+
+    snapshot: WorkingSnapshot
+    source_path: Path
+    tool_path: str | None = None
+    passes: int = 100
+
+    def __post_init__(self) -> None:
+        self.kind, self.title = "freerouting", "Routing board with Freerouting…"
+
+
+@dataclass
 class FakeJob(JobBase):
     """Diagnostics and tests: a synthetic long job with real progress messages.
     ``outcome``: success | fail | crash | hang | flood."""

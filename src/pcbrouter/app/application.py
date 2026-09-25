@@ -128,6 +128,22 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="detect the GPU, install the matching GPU library (pip) and test it",
     )
     parser.add_argument(
+        "--setup-freerouting",
+        action="store_true",
+        help="check KiCad's Python and Freerouting; with BOARD, also run one Freerouting "
+        "pass on a copy of it",
+    )
+    parser.add_argument(
+        "--freeroute",
+        action="store_true",
+        help="route BOARD with Freerouting, validate every net and export the result to "
+        "--output (a new file; the source is never changed)",
+    )
+    parser.add_argument("--output", type=Path, metavar="OUT", help="output .kicad_pcb")
+    parser.add_argument(
+        "--passes", type=int, metavar="N", help="maximum Freerouting passes (--freeroute)"
+    )
+    parser.add_argument(
         "--worker-selftest",
         action="store_true",
         help="start the routing worker process, run a synthetic job (and route BOARD "
@@ -264,6 +280,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report["library_loads"] else 1
     if args.setup_gpu:
         return setup_gpu_cli()
+    if args.setup_freerouting or args.freeroute:
+        from pcbrouter.app.freeroute_cli import freeroute_cli, setup_freerouting_cli
+
+        if args.setup_freerouting:
+            return setup_freerouting_cli(args.board)
+        if args.board is None:
+            print("--freeroute needs a BOARD.kicad_pcb")
+            return 2
+        setup_logging(None, logging.WARNING, console=sys.stderr is not None)
+        return freeroute_cli(args.board, args.output, args.passes)
     if args.worker_selftest:
         from pcbrouter.jobs.selftest import run_worker_selftest
 

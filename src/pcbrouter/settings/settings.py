@@ -126,6 +126,9 @@ class RoutingSettings(_Model):
     ] = "critical_first"  # fmt: skip
     max_passes: int = Field(default=3, ge=1, le=5)
     allow_ripup: bool = True
+    #: external Freerouting engine: freerouting.exe (installer build) or a .jar
+    freerouting_path: str | None = None
+    freerouting_passes: int = Field(default=100, ge=1, le=10_000)
 
 
 class GeometrySettings(_Model):

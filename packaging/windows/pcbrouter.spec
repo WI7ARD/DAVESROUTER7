@@ -30,7 +30,11 @@ OPTIONAL = ("openai", "anthropic", "keyring", "tiktoken")
 # The routing worker process imports job code lazily (by name, after spawn): bundle
 # every pcbrouter module so the frozen worker can unpickle any job.
 hiddenimports = collect_submodules("pcbrouter")
-datas = [(str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources")]
+datas = [
+    (str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources"),
+    # run by KiCad's own Python as a file (Specctra DSN/SES bridge for Freerouting)
+    (str(SRC / "pcbrouter" / "kicad" / "resources"), "pcbrouter/kicad/resources"),
+]
 for name in OPTIONAL:
     if importlib.util.find_spec(name) is None:
         continue

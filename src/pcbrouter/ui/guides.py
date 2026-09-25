@@ -97,6 +97,33 @@ GUIDES: tuple[Guide, ...] = (
         (("Route Board", "_guide_route_board"),),
     ),
     Guide(
+        "freerouting",
+        "Route with Freerouting (recommended for real boards)",
+        "<h2>Route with Freerouting</h2>"
+        "<p>Freerouting is the mature open-source autorouter many KiCad users rely on. "
+        "The app runs it as a separate program, then checks every net it routed with the "
+        "exact validator before you accept anything.</p>"
+        + _steps(
+            "Install KiCad 7–10 (its Python converts the board to Freerouting's format).",
+            "<b>Tools ▸ Set Up Freerouting…</b> → <b>Open download page</b> → run the "
+            "Windows installer (<code>freerouting-…-windows-x64.msi</code>, includes Java) "
+            "→ <b>Check again</b>. Or <b>Download .jar</b> + <b>Install Java</b>.",
+            "Open your board, then <b>Test on open board</b> (one pass, nothing changes).",
+            "<b>Router ▸ Route Board with Freerouting…</b>. Progress (pass, unrouted "
+            "count) shows in the routing overlay; Cancel stops Freerouting.",
+            "Review the result in <b>Routing Jobs</b>: accept all or per net. Nets the "
+            "validator rejects are listed with the reason and are never added.",
+            "<b>File ▸ Export Routed Board…</b> writes a new file (the source is untouched).",
+        )
+        + "<p>Command line: <code>pcbrouter --freeroute board.kicad_pcb --output "
+        "routed.kicad_pcb</code>. Existing copper is locked, so Freerouting only adds "
+        "routes. Freerouting is GPL-3.0 and is not included in this app.</p>",
+        (
+            ("Set Up Freerouting…", "open_freerouting_setup"),
+            ("Route with Freerouting", "_guide_freeroute"),
+        ),
+    ),
+    Guide(
         "workbench",
         "Review, locks and constraints",
         "<h2>Review, locks, constraints</h2>"

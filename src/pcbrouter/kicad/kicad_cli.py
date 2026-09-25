@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 LABEL = "KiCad DRC"
 DRC_TIMEOUT_S = 300.0
 _WINDOWS_CANDIDATES = (
+    r"C:\Program Files\KiCad\10.0\bin\kicad-cli.exe",
     r"C:\Program Files\KiCad\9.0\bin\kicad-cli.exe",
     r"C:\Program Files\KiCad\8.0\bin\kicad-cli.exe",
     r"C:\Program Files\KiCad\7.0\bin\kicad-cli.exe",

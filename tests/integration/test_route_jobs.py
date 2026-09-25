@@ -265,6 +265,7 @@ def test_guides_cover_features_and_buttons_work(window: MainWindow) -> None:
         "start",
         "route_net",
         "route_board",
+        "freerouting",
         "export",
         "gpu",
         "ollama",

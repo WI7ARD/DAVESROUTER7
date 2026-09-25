@@ -103,6 +103,12 @@ class RoutingController(QObject):
             "review and accept per net"
         )
         self.act_route_board.triggered.connect(self.route_board)
+        self.act_route_freerouting = QAction("Route Board with &Freerouting…", window)
+        self.act_route_freerouting.setStatusTip(
+            "Route every incomplete net with the external Freerouting engine (existing copper "
+            "stays fixed); review, validate and accept per net"
+        )
+        self.act_route_freerouting.triggered.connect(lambda: self.route_board_freerouting())
         self.optimize_actions: dict[str, QAction] = {}
         from pcbrouter.routing.optimize import OptimizeGoal
 
@@ -177,6 +183,7 @@ class RoutingController(QObject):
         idle = has and not self.route_jobs.busy  # one routing job at a time
         self.act_route_net.setEnabled(idle)
         self.act_route_board.setEnabled(idle)
+        self.act_route_freerouting.setEnabled(idle)
         self.act_gpu_check.setEnabled(idle)
         for act in self.optimize_actions.values():
             act.setEnabled(idle)
@@ -379,6 +386,35 @@ class RoutingController(QObject):
         dock.show()
         dock.raise_()
         self.w.engine_ui.lbl_routing.setText("Routing: board job running…")
+        return True
+
+    def route_board_freerouting(self) -> bool:
+        """Route with Freerouting in the worker; results land in Routing Jobs."""
+        from pcbrouter.jobs.protocol import FreeroutingJob
+        from pcbrouter.routing.freerouting import find_freerouting
+
+        working, session = self.project.working, self.project.session
+        if working is None or session is None:
+            return False
+        st = self.w.settings.routing
+        if find_freerouting(st.freerouting_path) is None:
+            self.w.statusBar().showMessage("Freerouting is not set up yet.", 8000)
+            self.w.open_freerouting_setup()
+            return False
+        job = FreeroutingJob(
+            WorkingSnapshot.from_working(working),
+            session.source_path,
+            st.freerouting_path,
+            st.freerouting_passes,
+            timeout_s=4 * 3600.0,
+        )
+        if not self._submit(job, self._board_job_done):
+            return False
+        self.board_panel.set_running("Freerouting: exporting the board…")
+        dock = self.w.docks["jobs"]
+        dock.show()
+        dock.raise_()
+        self.w.engine_ui.lbl_routing.setText("Routing: Freerouting job running…")
         return True
 
     def _board_job_done(self, done: JobDone) -> None:
