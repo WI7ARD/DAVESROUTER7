@@ -65,6 +65,8 @@ class GpuSetupDialog(QDialog):
             row.addWidget(b)
         close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         close.rejected.connect(self.reject)
+        guide = close.addButton("Guide", QDialogButtonBox.ButtonRole.HelpRole)
+        guide.clicked.connect(lambda: self.w.open_guides("gpu"))
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary)
         layout.addLayout(vendor_row)

@@ -251,3 +251,34 @@ def test_every_gpu_setup_button_responds(
     wait(window)
     run_until(lambda: "GPU check" in text() or "GPU works" in text(), 30)
     dlg.reject()
+
+
+def test_guides_cover_features_and_buttons_work(window: MainWindow) -> None:
+    from pcbrouter.ui.guides import GUIDES
+
+    assert window.act_guides.shortcut().toString() == "F1"
+    window.open_guides("gpu")
+    dlg = window._guide_dialog
+    assert dlg.isVisible() and "Set Up GPU" in dlg.text.toPlainText()
+    keys = {g.key for g in GUIDES}
+    assert {
+        "start",
+        "route_net",
+        "route_board",
+        "export",
+        "gpu",
+        "ollama",
+        "ai",
+        "checks",
+        "workbench",
+        "trouble",
+        "keys",
+    } <= keys
+    for row, g in enumerate(GUIDES):
+        dlg.topics.setCurrentRow(row)
+        assert dlg.text.toPlainText().strip()
+        for _label, method in g.actions:
+            assert callable(getattr(window, method, None)), method
+    window._guide_route_board()  # no board: answers instead of failing
+    assert "Open a board first" in window.statusBar().currentMessage()
+    dlg.close()

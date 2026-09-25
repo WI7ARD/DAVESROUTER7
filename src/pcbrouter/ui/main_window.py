@@ -327,6 +327,13 @@ class MainWindow(QMainWindow):
         router = mb.addMenu("&Router")
         self.menu_router = router
         help_menu = mb.addMenu("&Help")
+        act_guides = QAction("&Guides…", self)
+        act_guides.setShortcut(QKeySequence("F1"))
+        act_guides.setStatusTip("Step-by-step guides for every feature")
+        act_guides.triggered.connect(lambda: self.open_guides())
+        help_menu.addAction(act_guides)
+        self.act_guides = act_guides
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
         self.menu_help = help_menu
 
@@ -646,6 +653,35 @@ class MainWindow(QMainWindow):
         self.routing_ui._update_actions()
         self.export_ui.update_actions()
         self.ai_panel.setProperty("routingBusy", busy)
+
+    def open_guides(self, topic: str = "start") -> None:
+        from pcbrouter.ui.guides import GuideDialog
+
+        dlg = getattr(self, "_guide_dialog", None)
+        if dlg is None:
+            dlg = GuideDialog(self, topic)
+            dlg.setModal(False)
+            self._guide_dialog = dlg
+        else:
+            dlg.show_topic(topic)
+        dlg.show()
+        dlg.raise_()
+
+    # guide "do it" buttons that need a board or a small precondition message
+    def _guide_route_board(self) -> None:
+        if self.bus.context.project.session is None:
+            self.statusBar().showMessage("Open a board first (File ▸ Open Board…).", 6000)
+            return
+        self.routing_ui.route_board()
+
+    def _guide_export(self) -> None:
+        if self.bus.context.project.session is None:
+            self.statusBar().showMessage("Open and route a board first.", 6000)
+            return
+        self.export_ui.export_routed()
+
+    def _guide_bundle(self) -> None:
+        self.export_ui.export_bundle()
 
     def open_ollama_setup(self) -> None:
         from pcbrouter.ui.ollama_dialog import OllamaDialog

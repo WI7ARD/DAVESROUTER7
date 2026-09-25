@@ -61,6 +61,8 @@ class OllamaDialog(QDialog):
             row.addWidget(b)
         close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         close.rejected.connect(self.reject)
+        guide = close.addButton("Guide", QDialogButtonBox.ButtonRole.HelpRole)
+        guide.clicked.connect(lambda: self.w.open_guides("ollama"))
         layout = QVBoxLayout(self)
         layout.addWidget(self.status)
         layout.addLayout(model_row)
