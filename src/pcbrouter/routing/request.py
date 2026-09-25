@@ -74,6 +74,10 @@ class RouteRequest:
     routing_style: RoutingStyle = RoutingStyle.OCTILINEAR
     time_limit_s: float = DEFAULT_TIME_LIMIT_S
     node_limit: int = DEFAULT_NODE_LIMIT
+    #: wall-clock budget for the whole net (all candidates, connections, repairs and
+    #: diagnostics); None = only the per-search ``time_limit_s`` applies. Board jobs
+    #: set it from their remaining budget so one net cannot overrun the job budget.
+    total_time_limit_s: float | None = None
     candidates: int = 3
     seed: int = 0
     cost: CostModel = DEFAULT_COST_MODEL
@@ -163,6 +167,8 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
         raise RouteRequestError("grid resolution below 0.01 mm is not supported")
     if request.time_limit_s <= 0 or request.node_limit <= 0:
         raise RouteRequestError("time and node limits must be positive")
+    if request.total_time_limit_s is not None and request.total_time_limit_s <= 0:
+        raise RouteRequestError("the net time budget is exhausted")
     notes: list[str] = []
 
     for layer in (*(request.allowed_layers or ()), *request.forbidden_layers):

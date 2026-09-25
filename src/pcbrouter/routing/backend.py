@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -51,6 +52,17 @@ class HybridSearch:
         self.used: dict[str, int] = {"cpu": 0, "gpu": 0, "fallback": 0}
         self.fallback_reasons: list[str] = []
         self._lock = threading.Lock()
+        #: called as on_select(backend, reason) whenever the choice *changes* (so a
+        #: UI can say "AUTO → CPU: problem too small"); never once per search
+        self.on_select: Callable[[str, str], None] | None = None
+        self.last_selection: tuple[str, str] | None = None
+
+    def _selected(self, backend: str, reason: str) -> None:
+        sel = (backend, reason)
+        if sel != self.last_selection:
+            self.last_selection = sel
+            if self.on_select is not None:
+                self.on_select(backend, reason)
 
     def _gpu_reason(self, problem: SearchProblem) -> str | None:
         """None if the GPU should run this problem, else why not."""
@@ -81,6 +93,7 @@ class HybridSearch:
     ) -> SearchOutcome:
         reason = self._gpu_reason(problem)
         if reason is None and self.gpu is not None:
+            self._selected("gpu", f"{self.mode.value.upper()} mode, grid fits on the device")
             try:
                 out = wavefront_search(
                     problem,
@@ -97,6 +110,8 @@ class HybridSearch:
                 with self._lock:
                     self.used["fallback"] += 1
                     self.fallback_reasons.append(repr(exc))
+                reason = f"GPU error, CPU fallback: {exc!r}"[:200]
+        self._selected("cpu", reason or "CPU")
         with self._lock:
             self.used["cpu"] += 1
         return search(

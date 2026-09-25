@@ -25,14 +25,22 @@ def window(qtbot: QtBot, tmp_path: Path) -> Iterator[MainWindow]:
     w.close()
 
 
-def wait(w: MainWindow) -> None:
+def wait(w: MainWindow, timeout_s: float = 60.0) -> None:
+    """Spin the event loop until background work (incl. the routing worker) is done."""
+    import time
+
     from PySide6.QtCore import QCoreApplication
 
-    for _ in range(600):
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
         QCoreApplication.processEvents()
-        if not w.routing_ui.jobs.is_running() and not w.engine_ui.jobs.is_running():
+        if (
+            not w.routing_ui.jobs.is_running()
+            and not w.engine_ui.jobs.is_running()
+            and not w.route_jobs.busy
+        ):
             break
-        w.routing_ui.jobs.wait(50)
+        time.sleep(0.01)
     QCoreApplication.processEvents()
 
 
@@ -127,47 +135,21 @@ def test_route_board_review_accept_subset_and_undo(
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 
 
-class _SimulatedGpu:
-    """Stands in for an initialised GPU backend: NumPy plays the role of dpnp/CuPy,
-    so the app's real GPU code path (wavefront on ``xp``) runs end to end."""
-
-    def __init__(self) -> None:
-        import numpy as np
-
-        from pcbrouter.compute import GpuDetectionResult, GpuDevice, GpuStatus
-
-        self.xp = np
-        self.available = True
-        self.initialized = True
-        self.last_error = None
-        self.detection = GpuDetectionResult(
-            GpuStatus.ONEAPI_DEVICE_DETECTED, (GpuDevice("Intel(R) Iris(R) Xe Graphics", "Intel"),)
-        )
-
-    def fits(self, cells: int, layers: int) -> tuple[bool, str]:
-        return True, "simulated"
-
-    def device_info(self) -> object:
-        from types import SimpleNamespace
-
-        return SimpleNamespace(name="Intel(R) Iris(R) Xe Graphics (simulated)")
-
-
 def test_gpu_selected_in_app_routes_on_the_gpu(
     window: MainWindow, fixture_path: Callable[[str], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """GPU mode runs the GPU code path in the worker (NumPy simulates the device and
+    is labelled 'simulated' everywhere, so it can never pass for a real GPU)."""
     from pcbrouter.compute import probe
     from pcbrouter.settings.settings import ComputeBackendChoice
 
-    present = probe.GpuProbe(True, "dpnp", ("Intel(R) Iris(R) Xe Graphics",))
-    monkeypatch.setattr(probe, "probe_gpu", lambda: present)
-    window.compute.gpu = _SimulatedGpu()  # type: ignore[assignment]
+    monkeypatch.setenv("PCBROUTER_SIMULATE_GPU", "numpy")
+    window.route_jobs.restart_worker()  # the worker inherits the environment
+    window.gpu_probe = probe.GpuProbe(True, "numpy-simulated", ("simulated",))
     window.settings.default_compute_backend = ComputeBackendChoice.GPU
     assert window.open_board(fixture_path("router_basic.kicad_pcb"))
     wait(window)
     assert window.engine_ui.lbl_routing.text() == "Routing: Ready (GPU)"
-    window._update_backend_label()
-    assert "GPU: ready (dpnp)" in window.lbl_backend.text()
     ui = window.routing_ui
     window._on_net_selected("C")
     assert ui.route_selected_net()
@@ -176,23 +158,25 @@ def test_gpu_selected_in_app_routes_on_the_gpu(
     assert result is not None and result.status is RouteStatus.SUCCESS
     assert result.metrics.backend.startswith("hybrid-gpu")
     assert "gpu 0," not in result.metrics.backend  # the GPU search actually ran
-    # Tools ▸ Test GPU on This Board: CPU vs GPU, every route validated
+    backend = window.route_jobs.last_done.backend
+    assert backend.requested == "GPU" and "simulated" in backend.selected
     assert ui.act_gpu_check.isEnabled() and ui.test_gpu()
     wait(window)
     check = ui.last_gpu_check
     assert check is not None and check.status == "RAN", check.verdict
     assert {r.backend for r in check.rows} == {"cpu", "gpu"}
     assert check.verdict.startswith("GPU works on"), check.text()
+    monkeypatch.delenv("PCBROUTER_SIMULATE_GPU")
+    window.route_jobs.restart_worker()
 
 
 def test_gpu_selected_without_device_is_skipped_in_app(
-    window: MainWindow, fixture_path: Callable[[str], Path], monkeypatch: pytest.MonkeyPatch
+    window: MainWindow, fixture_path: Callable[[str], Path]
 ) -> None:
     from pcbrouter.compute import probe
     from pcbrouter.settings.settings import ComputeBackendChoice
 
-    absent = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
-    monkeypatch.setattr(probe, "probe_gpu", lambda: absent)
+    window.gpu_probe = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
     window.settings.default_compute_backend = ComputeBackendChoice.GPU
     assert window.open_board(fixture_path("router_basic.kicad_pcb"))
     wait(window)
@@ -203,7 +187,9 @@ def test_gpu_selected_without_device_is_skipped_in_app(
     wait(window)
     result = ui.panel.result
     assert result is not None and result.status is RouteStatus.SUCCESS  # CPU did the work
-    assert "SKIPPED" in result.metrics.backend
+    backend = window.route_jobs.last_done.backend
+    assert backend.requested == "GPU" and backend.selected == "CPU fallback"
+    assert "GPU skipped" in backend.reason
     assert ui.test_gpu()
     wait(window)
     assert ui.last_gpu_check.status == "SKIPPED"

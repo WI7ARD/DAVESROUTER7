@@ -14,12 +14,84 @@ Wording is deliberate: "Internal checks passed" / "KiCad DRC passed" — never
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
 from pcbrouter.kicad.writer import ExportReport, ExportStatus, export_board
+
+if TYPE_CHECKING:
+    from pcbrouter.routing.working_board import WorkingBoard
+
+
+def perform_export(
+    working: WorkingBoard,
+    source_path: Path,
+    source_sha256: str,
+    out_path: Path,
+    *,
+    backup_dir: Path,
+    allow_unverified: bool = False,
+    run_kicad_drc: bool = False,
+    overwrite_source: bool = False,
+    phase: Callable[[str], None] | None = None,
+    cancel: threading.Event | None = None,
+) -> ExportReport:
+    """The export pipeline shared by :class:`ExportBoardCommand` and the routing
+    worker process: Internal Geometry Check (DRC gate) → append-only write with
+    reload self-check and atomic replace → optional KiCad DRC."""
+
+    def at(name: str) -> None:
+        if phase is not None:
+            phase(name)
+
+    at("VALIDATING")
+    drc = working.engine.run_drc()
+    errors, warnings = len(drc.errors), len(drc.warnings)
+    verified = errors == 0
+    verification = (
+        f"Internal checks passed ({warnings} warning(s))"
+        if verified
+        else f"UNVERIFIED — Internal Geometry Check found {errors} error(s)"
+    )
+    if not verified and not allow_unverified:
+        return ExportReport(
+            ExportStatus.EXPORT_BLOCKED_DRC,
+            messages=[
+                verification + "; export an unverified copy explicitly or fix the errors first"
+            ],
+        )
+    if cancel is not None and cancel.is_set():
+        return ExportReport(ExportStatus.ERROR, messages=["export canceled; nothing was written"])
+    at("EXPORTING")
+    report = export_board(
+        source_path,
+        source_sha256,
+        working.source,
+        working.board,
+        out_path,
+        overwrite_source=overwrite_source,
+        backup_dir=backup_dir,
+        provenance={k: v.value for k, v in working.provenance.items()},
+        verification=(verified, verification),
+        extra_metadata={
+            "internal_drc": drc.summary(),
+            "board_fingerprint": working.board.fingerprint,
+        },
+    )
+    if report.ok and run_kicad_drc and report.path is not None:
+        from pcbrouter.kicad.kicad_cli import run_kicad_drc as kicad_drc
+
+        at("RUNNING_DRC")
+        kicad = kicad_drc(report.path)
+        report.messages.append(kicad.summary())
+        if kicad.ran:
+            report.verification += "; " + kicad.summary()
+            report.verified = report.verified and kicad.passed
+    return report
 
 
 @dataclass
@@ -32,49 +104,19 @@ class ExportBoardCommand(BaseCommand):
 
     def execute(self, ctx: CommandContext) -> CommandResult:
         project = ctx.project
-        session, working, engine = project.session, project.working, project.engine
-        if session is None or working is None or engine is None:
+        session, working = project.session, project.working
+        if session is None or working is None or project.engine is None:
             return CommandResult.fail("Open a board first.")
-        drc = engine.run_drc()
-        errors, warnings = len(drc.errors), len(drc.warnings)
-        verified = errors == 0
-        verification = (
-            f"Internal checks passed ({warnings} warning(s))"
-            if verified
-            else f"UNVERIFIED — Internal Geometry Check found {errors} error(s)"
-        )
-        if not verified and not self.allow_unverified:
-            report = ExportReport(
-                ExportStatus.EXPORT_BLOCKED_DRC,
-                messages=[
-                    verification + "; export an unverified copy "
-                    "explicitly or fix the errors first"
-                ],
-            )
-            return CommandResult(False, report.summary(), report)
-        report = export_board(
+        report = perform_export(
+            working,
             session.source_path,
             session.source_sha256,
-            working.source,
-            working.board,
             self.out_path,
-            overwrite_source=self.overwrite,
             backup_dir=session.workspace.root / "backups",
-            provenance={k: v.value for k, v in working.provenance.items()},
-            verification=(verified, verification),
-            extra_metadata={
-                "internal_drc": drc.summary(),
-                "board_fingerprint": working.board.fingerprint,
-            },
+            allow_unverified=self.allow_unverified,
+            run_kicad_drc=self.run_kicad_drc,
+            overwrite_source=self.overwrite,
         )
-        if report.ok and self.run_kicad_drc and report.path is not None:
-            from pcbrouter.kicad.kicad_cli import run_kicad_drc
-
-            kicad = run_kicad_drc(report.path)
-            report.messages.append(kicad.summary())
-            if kicad.ran:
-                report.verification += "; " + kicad.summary()
-                report.verified = report.verified and kicad.passed
         return CommandResult(report.ok, report.summary(), report)
 
     def describe(self) -> str:

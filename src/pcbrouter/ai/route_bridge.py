@@ -16,6 +16,7 @@ router results are fed back to the planner as ``ROUTER RESULT`` facts.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -70,6 +71,8 @@ class ExecutionOutcome:
     route_results: list[RouteResult] = field(default_factory=list)
     board_result: BoardRoutingResult | None = None
     optimize_reports: list[OptimizeReport] = field(default_factory=list)
+    #: the fork's board after an optimisation plan (applied by the user as one commit)
+    optimized_board: Any = None
 
     @property
     def success(self) -> bool:
@@ -186,17 +189,35 @@ def execute_plan(
     working: WorkingBoard,
     compute: ComputeManager | None = None,
     cancel: threading.Event | None = None,
+    *,
+    router_factory: Callable[[Any], Any] | None = None,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> ExecutionOutcome:
     """Run the router(s). Never commits: results are proposals for user review
-    (optimisations run on a fork and come back as a report)."""
+    (optimisations run on a fork and come back as a report).
+
+    ``router_factory`` (engine → Router) lets the routing worker process supply its
+    own backend selection; default: :func:`router_for` with ``compute``."""
     from pcbrouter.routing.backend import router_for
 
+    if router_factory is None:
+        router_factory = lambda engine: router_for(engine, compute)  # noqa: E731
     out = ExecutionOutcome(plan)
     if plan.kind == "route_nets":
-        for req in plan.requests:
-            out.route_results.append(
-                router_for(working.engine, compute).route_net(req, cancel=cancel)
-            )
+        for i, req in enumerate(plan.requests):
+            if cancel is not None and cancel.is_set():
+                break
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "ROUTING",
+                        "net": req.net,
+                        "index": i + 1,
+                        "total_nets": len(plan.requests),
+                        "completed_nets": i,
+                    }
+                )
+            out.route_results.append(router_factory(working.engine).route_net(req, cancel=cancel))
         return out
     if plan.kind == "route_board":
         from pcbrouter.routing.board_router import (
@@ -214,14 +235,20 @@ def execute_plan(
             for t in board_plan.tasks
         ]
         control = BoardRoutingControl()
-        if cancel is not None and cancel.is_set():
-            control.cancel()
-        out.board_result = BoardRouter(working, settings).run(board_plan, control)
+        if cancel is not None:
+            control.cancel_event = cancel  # cancellation reaches every net and search
+        router = BoardRouter(working, settings, router_factory=router_factory)
+        out.board_result = router.run(board_plan, control, progress)
         return out
+    from pcbrouter.routing.board_router import BoardRoutingControl
     from pcbrouter.routing.optimize import optimize_nets
 
+    control = BoardRoutingControl()
+    if cancel is not None:
+        control.cancel_event = cancel
     fork = working.fork()
-    out.optimize_reports.append(optimize_nets(fork, plan.nets, plan.goal))
+    out.optimize_reports.append(optimize_nets(fork, plan.nets, plan.goal, control=control))
+    out.optimized_board = fork.board
     return out
 
 

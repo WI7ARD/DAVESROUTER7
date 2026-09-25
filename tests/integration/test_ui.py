@@ -584,8 +584,7 @@ def test_gpu_mode_without_device_shows_skipped(
     from pcbrouter.compute import probe
     from pcbrouter.settings.settings import ComputeBackendChoice
 
-    absent = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
-    monkeypatch.setattr(probe, "probe_gpu", lambda: absent)
+    window.gpu_probe = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
     window.settings.default_compute_backend = ComputeBackendChoice.AUTO
     window._update_backend_label()
     assert "GPU: SKIPPED" in window.lbl_backend.text()

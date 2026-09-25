@@ -378,6 +378,8 @@ class BoardRouter:
         self.settings = settings or BoardRouterSettings()
         self.router_factory = router_factory or (lambda engine: Router(engine))
         self._all_tasks: list[RouteTask] = []
+        self._deadline: float | None = None
+        self._emit: Callable[..., None] = lambda **_kw: None
 
     def run(
         self,
@@ -398,11 +400,15 @@ class BoardRouter:
         }
         job_log: list[str] = []
         deadline = t0 + s.budget_s
+        self._deadline = deadline
         cancelled = False
 
         def emit(**kw: Any) -> None:
             if progress is not None:
-                progress({"metrics": metrics.to_dict(), **kw})
+                progress({"metrics": metrics.to_dict(), "total_passes": s.max_passes, **kw})
+
+        self._emit = emit
+        emit(state="planning", phase="PLANNING", total_nets=len(plan.tasks))
 
         failed = [t for t in plan.tasks]
         for pass_no in range(1, max(1, s.max_passes) + 1):
@@ -414,7 +420,18 @@ class BoardRouter:
                 if not control.checkpoint() or time.perf_counter() > deadline:
                     cancelled = True
                     break
-                emit(net=task.net, index=i + 1, total=len(failed), pass_no=pass_no, state="routing")
+                emit(
+                    net=task.net,
+                    index=i + 1,
+                    total=len(failed),
+                    pass_no=pass_no,
+                    state="routing",
+                    phase="ROUTING",
+                    total_nets=len(plan.tasks),
+                    completed_nets=sum(
+                        1 for o in outcomes.values() if o.status is RouteStatus.SUCCESS
+                    ),
+                )
                 ok = self._route_task(fork, task, pass_no, outcomes, metrics, control, job_log)
                 if not ok:
                     still.append(task)
@@ -433,7 +450,10 @@ class BoardRouter:
             from pcbrouter.routing.optimize import OptimizeGoal, optimize_nets
 
             done_nets = [n for n, o in outcomes.items() if o.status is RouteStatus.SUCCESS]
-            report = optimize_nets(fork, done_nets, OptimizeGoal.FEWER_VIAS, control=control)
+            emit(state="optimizing", phase="OPTIMIZING", total_nets=len(done_nets))
+            report = optimize_nets(
+                fork, done_nets, OptimizeGoal.FEWER_VIAS, control=control, deadline=deadline
+            )
             job_log += report.log
         # final bookkeeping from the fork's diff to the base
         base_ids = {t.id for t in base_board.tracks} | {v.id for v in base_board.vias}
@@ -449,6 +469,7 @@ class BoardRouter:
             o.length_nm = sum(t.length for t in added_tracks if t.net_name == o.net)
             o.vias = sum(1 for v in added_vias if v.net_name == o.net)
             o.removed_ids = [i for i in o.removed_ids if i in removed]
+        emit(state="validating", phase="VALIDATING")
         geo = fork.engine.geometry
         completed = 0
         for net, o in outcomes.items():
@@ -498,6 +519,11 @@ class BoardRouter:
         req = replace(base, net=task.net, candidates=1, request_id=f"board-{task.net}-p{pass_no}")
         if pass_no >= 2:  # retries search harder
             req = replace(req, node_limit=req.node_limit * 2, time_limit_s=req.time_limit_s * 1.5)
+        if self._deadline is not None:
+            # the job budget also bounds the work *inside* one net
+            left = max(0.001, self._deadline - time.perf_counter())
+            total = req.total_time_limit_s
+            req = replace(req, total_time_limit_s=left if total is None else min(total, left))
         return req
 
     def _route_task(
@@ -582,6 +608,9 @@ class BoardRouter:
                 remaining.append(task)
                 continue
             tries[task.net] = tries.get(task.net, 0) + 1
+            self._emit(
+                state="ripup", phase="RIPUP_REROUTE", net=task.net, ripup_try=tries[task.net]
+            )
             if not self._try_ripup(fork, task, outcomes, metrics, control, job_log):
                 remaining.append(task)
         return remaining

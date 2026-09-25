@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import multiprocessing
 import sys
 import threading
 import traceback
@@ -58,7 +59,12 @@ def build_services(
         BackendKind.GPU if settings.default_compute_backend is ComputeBackendChoice.GPU
         else BackendKind.CPU
     )  # fmt: skip
-    compute.select(preferred)
+    compute.select(preferred if detect_gpu_now else BackendKind.CPU)
+    if not detect_gpu_now and preferred is BackendKind.GPU:
+        compute.fallback_reason = "GPU routing runs in the routing worker process"
+    # The GUI never initialises a GPU in its own process: GPU routing (and the
+    # device probe it needs) runs in the routing worker process, chosen per job
+    # from ``settings.default_compute_backend``.
     project = ProjectManager()
     history = HistoryManager()
     # No network, thread or SDK import happens here: the AI runner starts lazily on
@@ -100,6 +106,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "packages, credential store) and exit",
     )
     parser.add_argument(
+        "--worker-selftest",
+        action="store_true",
+        help="start the routing worker process, run a synthetic job (and route BOARD "
+        "if given), print a JSON report and exit",
+    )
+    parser.add_argument(
         "--forget-api-keys",
         action="store_true",
         help="delete the stored API key of every configured AI provider profile from the "
@@ -109,12 +121,21 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # The routing worker is a spawned copy of this program: in a frozen build that
+    # invocation must become the worker, never a second application window.
+    multiprocessing.freeze_support()
     args = parse_args(argv)
     # print() is used for output because the windowed Windows executable has no console:
     # there sys.stdout/sys.stderr are None, and print() then silently does nothing.
     if args.version:
         print(f"{APP_NAME} {__version__}")
         return 0
+    if args.worker_selftest:
+        from pcbrouter.jobs.selftest import run_worker_selftest
+
+        report = run_worker_selftest(args.board)
+        print(json.dumps(report, indent=2))
+        return 0 if report["ok"] else 1
     if args.diagnostics or args.forget_api_keys:
         # Utility commands: no log file, no board, no GUI.
         from pcbrouter.app import maintenance

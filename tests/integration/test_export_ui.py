@@ -59,7 +59,8 @@ def test_export_menu_gate_and_source_safety(window: MainWindow, tmp_path: Path) 
     route_and_accept(window, "A")
     out = tmp_path / "router_basic_routed.kicad_pcb"
     ui.save_path = lambda *_: out
-    assert ui.export_routed()
+    assert ui.export_routed()  # runs in the routing worker
+    wait(window)
     assert out.exists() and ui.last_export.ok and sha(src) == before
     # exporting onto the source is refused from the export action
     assert not ui.export_routed(src) and sha(src) == before
@@ -82,9 +83,13 @@ def test_export_menu_gate_and_source_safety(window: MainWindow, tmp_path: Path) 
     )
     bad = tmp_path / "bad.kicad_pcb"
     ui.ask = lambda *_: False
-    assert not ui.export_routed(bad) and not bad.exists()
+    assert ui.export_routed(bad)
+    wait(window)
+    assert not bad.exists() and ui.last_export.status.value == "EXPORT_BLOCKED_DRC"
     ui.ask = lambda *_: True
-    assert ui.export_routed(bad) and bad.exists()
+    assert ui.export_routed(bad)
+    wait(window)  # blocked → confirmed → second (unverified) export job
+    assert bad.exists()
     assert "UNVERIFIED" in ui.last_export.verification
 
 
@@ -99,6 +104,7 @@ def test_overwrite_when_allowed_makes_backup(window: MainWindow, tmp_path: Path)
     route_and_accept(window, "A")
     window.export_ui.ask = lambda *_: True
     assert window.export_ui.overwrite_source()
+    wait(window)
     report = window.export_ui.last_export
     assert report.backup is not None and report.backup.read_bytes() == original
     assert src.read_bytes() != original
@@ -139,6 +145,7 @@ def test_session_save_load_and_crash_recovery(window: MainWindow, tmp_path: Path
     route_and_accept(window, "A")
     ui.save_path = lambda *_: tmp_path / "exp.kicad_pcb"
     assert ui.export_routed()
+    wait(window)
     window.close_board()
     assert not rec.exists()
 

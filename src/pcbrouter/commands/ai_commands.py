@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pcbrouter.ai.command_schema import RoutingConstraints
 from pcbrouter.ai.proposals import CommandState, ProposalStateError
@@ -72,6 +72,27 @@ class EditProposalCommand(BaseCommand):
         return CommandResult.ok(f"Constraints updated; re-validated: {status}.", p)
 
 
+def approved_plan(ctx: CommandContext, proposal_id: str) -> Any:
+    """The router plan of an *approved* AI routing proposal (checks autonomy, state
+    and category). Raises ValueError/BridgeError with a user-facing message."""
+    from pcbrouter.ai.command_schema import OperationCategory
+    from pcbrouter.ai.route_bridge import AutonomyMode, plan_from_command
+
+    session = _session(ctx)
+    if session is None or ctx.project.working is None:
+        raise ValueError("No AI session / board is open.")
+    if session.config.autonomy == AutonomyMode.ADVISORY.value:
+        raise ValueError("AI autonomy is set to Advisory: routing commands do not run.")
+    p = session.proposals.get(proposal_id)
+    if p is None:
+        raise ValueError(f"Unknown proposal {proposal_id}.")
+    if p.state is not CommandState.APPROVED:
+        raise ValueError(f"Proposal is {p.state.value}; only approved commands run.")
+    if p.category is not OperationCategory.ROUTING:
+        raise ValueError("Only routing operations run through the router.")
+    return plan_from_command(p.current)
+
+
 @dataclass
 class ExecuteAIProposalCommand(BaseCommand):
     """Run an *approved* AI routing command through the deterministic router.
@@ -86,33 +107,14 @@ class ExecuteAIProposalCommand(BaseCommand):
     name: ClassVar[str] = "execute_ai_proposal"
 
     def execute(self, ctx: CommandContext) -> CommandResult:
-        from pcbrouter.ai.command_schema import OperationCategory
-        from pcbrouter.ai.route_bridge import (
-            AutonomyMode,
-            BridgeError,
-            execute_plan,
-            plan_from_command,
-        )
+        from pcbrouter.ai.route_bridge import BridgeError, execute_plan
 
-        session = _session(ctx)
         working = ctx.project.working
-        if session is None or working is None:
-            return CommandResult.fail("No AI session / board is open.")
-        if session.config.autonomy == AutonomyMode.ADVISORY.value:
-            return CommandResult.fail(
-                "AI autonomy is set to Advisory: routing commands do not run."
-            )
-        p = session.proposals.get(self.proposal_id)
-        if p is None:
-            return CommandResult.fail(f"Unknown proposal {self.proposal_id}.")
-        if p.state is not CommandState.APPROVED:
-            return CommandResult.fail(f"Proposal is {p.state.value}; only approved commands run.")
-        if p.category is not OperationCategory.ROUTING:
-            return CommandResult.fail("Only routing operations run through the router.")
         try:
-            plan = plan_from_command(p.current)
-        except BridgeError as exc:
+            plan = approved_plan(ctx, self.proposal_id)
+        except (BridgeError, ValueError) as exc:
             return CommandResult.fail(str(exc))
+        assert working is not None
         outcome = execute_plan(plan, working, ctx.compute, self.cancel)
         return CommandResult(True, outcome.summary(), outcome)
 

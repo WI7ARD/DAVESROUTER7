@@ -63,6 +63,11 @@ Check ($diag.credential_store.secure_available) "secure key storage: $($diag.cre
 $inspect = ((& $cli $Board --inspect --no-log-file) -join "`n") | ConvertFrom-Json
 Check ($LASTEXITCODE -eq 0 -and $inspect.counts.nets -eq 7) "CLI inspects a board ($($inspect.counts.nets) nets)"
 
+# Routing worker process in the frozen build: spawn + freeze_support must turn the
+# child invocation into the worker (not a second app), and a real route must run.
+$selftest = ((& $cli $Board --worker-selftest) -join "`n") | ConvertFrom-Json
+Check ($LASTEXITCODE -eq 0 -and $selftest.ok) "routing worker process runs in the installed app (fake: $($selftest.fake_job.status), board: $($selftest.board_job.status))"
+
 # ---------------------------------------------------------------- GUI
 $gui = Start-Process -FilePath (Join-Path $dir 'AI PCB Router.exe') -ArgumentList "`"$Board`"" -PassThru
 Start-Sleep -Seconds 12

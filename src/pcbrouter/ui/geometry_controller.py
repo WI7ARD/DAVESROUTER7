@@ -338,9 +338,10 @@ class GeometryController(QObject):
         choice = self.w.settings.default_compute_backend
         if choice is ComputeBackendChoice.CPU:
             return ROUTING_STATUS
-        from pcbrouter.compute.probe import gpu_gate
-
-        if not gpu_gate("ui-status").available:
+        probe = getattr(self.w, "gpu_probe", None)  # probed in the background
+        if probe is None:
+            return f"Routing: Ready ({choice.value.upper()} requested; checking GPU…)"
+        if not probe.available:
             return "Routing: Ready (CPU — GPU skipped: no device)"
         return f"Routing: Ready ({'GPU' if choice is ComputeBackendChoice.GPU else 'AUTO'})"
 

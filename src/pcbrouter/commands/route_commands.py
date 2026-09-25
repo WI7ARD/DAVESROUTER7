@@ -15,13 +15,16 @@ from __future__ import annotations
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
 from pcbrouter.history.history import UndoableAction
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteCandidate
 from pcbrouter.routing.working_board import Commit, CommitError, Provenance, WorkingBoard
+
+if TYPE_CHECKING:
+    from pcbrouter.jobs.protocol import OptimizationPlan
 
 
 class WorkingUndoAction(UndoableAction):
@@ -188,6 +191,88 @@ class AcceptBoardRoutingCommand(BaseCommand):
         return CommandResult.ok(f"{commit.label}: {commit.diff_summary()}", commit)
 
 
+def plan_optimization(
+    working: WorkingBoard, net: str, goal: Any, control: Any = None
+) -> OptimizationPlan:
+    """Compute a net optimisation on a fork (never touches ``working``). Used by
+    :class:`OptimizeNetCommand` and by the routing worker process."""
+    from pcbrouter.jobs.protocol import OptimizationPlan
+    from pcbrouter.routing.optimize import optimize_nets
+
+    fork = working.fork()
+    report = optimize_nets(fork, [net], goal, control=control)
+    base = {t.id for t in working.board.tracks} | {v.id for v in working.board.vias}
+    final = {t.id for t in fork.board.tracks} | {v.id for v in fork.board.vias}
+    improved = net in report.improved
+    return OptimizationPlan(
+        working.board.fingerprint,
+        net,
+        goal,
+        [t for t in fork.board.tracks if t.id not in base] if improved else [],
+        [v for v in fork.board.vias if v.id not in base] if improved else [],
+        sorted(base - final) if improved else [],
+        report,
+        improved,
+    )
+
+
+def apply_optimization(ctx: CommandContext, plan: OptimizationPlan) -> CommandResult:
+    """Apply a computed optimisation as one validated, undoable commit. ``plan.net``
+    is one net, or a comma-separated label for a batch (AI tweak)."""
+    working = _working(ctx)
+    if working is None:
+        return CommandResult.fail("Open a board first.")
+    report, net, goal = plan.report, plan.net, plan.goal
+    what = goal.value.replace("_", " ")
+    if net in report.skipped:
+        return CommandResult.fail(f"{net}: {report.skipped[net]}")
+    if not plan.improved:
+        return CommandResult.ok(f"{net}: no {what} improvement found; route kept", report)
+    if working.board.fingerprint != plan.base_fingerprint:
+        return CommandResult.fail(
+            f"{net}: the board changed while the optimisation ran; run it again"
+        )
+    if net in report.improved:
+        before, after = report.improved[net]
+        metadata: dict[str, Any] = {"before": before.to_dict(), "after": after.to_dict()}
+        summary = f"{before.to_dict()} → {after.to_dict()}"
+    else:
+        metadata = {
+            "nets": {
+                n: {"before": b.to_dict(), "after": a.to_dict()}
+                for n, (b, a) in sorted(report.improved.items())
+            }
+        }
+        summary = f"{len(report.improved)} net(s) improved"
+    try:
+        commit = working.commit_objects(
+            plan.add_tracks,
+            plan.add_vias,
+            plan.remove_ids,
+            f"Optimize {net}: {what}",
+            Provenance.OPTIMIZER,
+            metadata=metadata,
+        )
+    except CommitError as exc:
+        return CommandResult.fail(str(exc))
+    ctx.history.push(WorkingUndoAction(working, commit), already_applied=True)
+    return CommandResult.ok(f"{commit.label}: {summary}", report)
+
+
+@dataclass
+class ApplyOptimizationCommand(BaseCommand):
+    """Apply an optimisation computed by the routing worker (validated commit)."""
+
+    plan: Any  # OptimizationPlan
+    name: ClassVar[str] = "apply_optimization"
+
+    def execute(self, ctx: CommandContext) -> CommandResult:
+        return apply_optimization(ctx, self.plan)
+
+    def describe(self) -> str:
+        return f"apply optimisation of {self.plan.net}"
+
+
 @dataclass
 class OptimizeNetCommand(BaseCommand):
     """Deterministic tweak of one net's generated copper (one undoable commit)."""
@@ -197,36 +282,7 @@ class OptimizeNetCommand(BaseCommand):
     name: ClassVar[str] = "optimize_net"
 
     def execute(self, ctx: CommandContext) -> CommandResult:
-        from pcbrouter.routing.optimize import optimize_nets
-
         working = _working(ctx)
         if working is None:
             return CommandResult.fail("Open a board first.")
-        fork = working.fork()
-        report = optimize_nets(fork, [self.net], self.goal)
-        if self.net in report.skipped:
-            return CommandResult.fail(f"{self.net}: {report.skipped[self.net]}")
-        if self.net not in report.improved:
-            return CommandResult.ok(
-                f"{self.net}: no {self.goal.value.replace('_', ' ')} improvement found; "
-                "route kept",
-                report,
-            )
-        base = {t.id for t in working.board.tracks} | {v.id for v in working.board.vias}
-        final = {t.id for t in fork.board.tracks} | {v.id for v in fork.board.vias}
-        add_t = [t for t in fork.board.tracks if t.id not in base]
-        add_v = [v for v in fork.board.vias if v.id not in base]
-        before, after = report.improved[self.net]
-        try:
-            commit = working.commit_objects(
-                add_t,
-                add_v,
-                sorted(base - final),
-                f"Optimize {self.net}: {self.goal.value.replace('_', ' ')}",
-                Provenance.OPTIMIZER,
-                metadata={"before": before.to_dict(), "after": after.to_dict()},
-            )
-        except CommitError as exc:
-            return CommandResult.fail(str(exc))
-        ctx.history.push(WorkingUndoAction(working, commit), already_applied=True)
-        return CommandResult.ok(f"{commit.label}: {before.to_dict()} → {after.to_dict()}", report)
+        return apply_optimization(ctx, plan_optimization(working, self.net, self.goal))

@@ -27,7 +27,9 @@ APP_NAME = "AI PCB Router"
 # them explicitly so the bundle does not depend on bytecode scanning, and only when
 # they are installed in the build environment (the app works without them).
 OPTIONAL = ("openai", "anthropic", "keyring", "tiktoken")
-hiddenimports = []
+# The routing worker process imports job code lazily (by name, after spawn): bundle
+# every pcbrouter module so the frozen worker can unpickle any job.
+hiddenimports = collect_submodules("pcbrouter")
 datas = [(str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources")]
 for name in OPTIONAL:
     if importlib.util.find_spec(name) is None:

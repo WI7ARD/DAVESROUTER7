@@ -8,6 +8,7 @@ ends up on the CPU.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from pcbrouter.compute.backend import BackendKind, BackendUnavailableError, ComputeBackend
 from pcbrouter.compute.cpu_backend import CPUBackend
@@ -30,6 +31,8 @@ class ComputeManager:
         self.gpu = GPUBackend(gpu_detection if gpu_detection is not None else detect_gpu())
         self._active: ComputeBackend = self.cpu
         self.fallback_reason: str | None = None
+        #: background GPU hardware probe (set by the GUI; never probed on its thread)
+        self.probe_result: Any = None
 
     @property
     def active(self) -> ComputeBackend:

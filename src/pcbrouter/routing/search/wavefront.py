@@ -35,7 +35,7 @@ import numpy as np
 from pcbrouter.routing.search.astar import SQRT2, SearchOutcome, SearchProblem, SearchStatus
 
 INF = 3.0e38  # plain Python float: a portable scalar for every array library
-_CHECK_EVERY = 8
+_CHECK_EVERY = 1  # every sweep: one check is negligible next to a full-grid relaxation
 
 
 def _shift(xp: Any, a: Any, dy: int, dx: int, fill: float) -> Any:

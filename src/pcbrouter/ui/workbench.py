@@ -490,12 +490,11 @@ class WorkbenchController(QObject):
             )
             return False
         track = wb.board.index.tracks_by_id[sel[1]]
-        fork = wb.fork()
-        fork.commit_objects((), (), ids, "reroute section (preview)", validate=False)
         net = track.net_name or ""
         req = self.w.routing_ui.request_for(net)
         self.w.statusBar().showMessage(f"Rerouting {len(ids)} segment(s) of {net}…", 6000)
-        return self.w.routing_ui.route_net(req, engine=fork.engine, remove_ids=tuple(ids))
+        # the worker removes the section from its own copy and routes around it
+        return self.w.routing_ui.route_net(req, remove_ids=tuple(ids))
 
     # ------------------------------------------------------------ route inspector
     def on_object_selected(self, kind: ItemKind, obj_id: str) -> None:

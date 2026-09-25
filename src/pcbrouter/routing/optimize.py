@@ -25,6 +25,7 @@ MERGE_COLLINEAR    join collinear generated segments      segment count down
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
@@ -176,12 +177,19 @@ def optimize_nets(
     control: Any = None,
     allow_user_accepted: bool = True,
     max_nets: int = 200,
+    deadline: float | None = None,
 ) -> OptimizeReport:
-    """Optimise ``nets`` in place on ``wb`` (use a fork for undoable batches)."""
+    """Optimise ``nets`` in place on ``wb`` (use a fork for undoable batches).
+    ``control`` (pause/cancel) and ``deadline`` (``time.perf_counter()`` value) are
+    checked between nets and passed into every reroute search."""
     report = OptimizeReport(goal)
+    cancel = getattr(control, "cancel_event", None)
     for net in sorted(nets)[:max_nets]:
         if control is not None and not control.checkpoint():
             report.log.append("optimisation cancelled")
+            break
+        if deadline is not None and time.perf_counter() > deadline:
+            report.log.append("optimisation stopped: time budget reached")
             break
         ids = _rippable(wb, net, allow_user_accepted)
         if not ids:
@@ -194,7 +202,7 @@ def optimize_nets(
             if goal is OptimizeGoal.MERGE_COLLINEAR:
                 changed = _merge_collinear(wb, net, ids)
             else:
-                changed = _reroute(wb, net, ids, goal)
+                changed = _reroute(wb, net, ids, goal, cancel)
         except CommitError as exc:
             changed = False
             report.log.append(f"{net}: {exc}")
@@ -219,12 +227,14 @@ def optimize_nets(
     return report
 
 
-def _reroute(wb: WorkingBoard, net: str, ids: list[str], goal: OptimizeGoal) -> bool:
+def _reroute(
+    wb: WorkingBoard, net: str, ids: list[str], goal: OptimizeGoal, cancel: Any = None
+) -> bool:
     wb.commit_objects((), (), ids, f"optimize {net}: remove", Provenance.OPTIMIZER, validate=False)
     req = RouteRequest(
         net, request_id=f"opt-{goal.value}-{net}", candidates=3, cost=_GOAL_COST[goal]
     )
-    res = Router(wb.engine).route_net(req)
+    res = Router(wb.engine).route_net(req, cancel=cancel)
     if not res.candidates:
         return False
     best = res.candidates[0]

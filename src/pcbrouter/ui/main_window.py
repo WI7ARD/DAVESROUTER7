@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
@@ -49,10 +50,13 @@ from pcbrouter.ui.log_panel import LogPanel
 from pcbrouter.ui.nets_panel import NetsPanel
 from pcbrouter.ui.pcb_canvas import ItemKind, PcbCanvas
 from pcbrouter.ui.project_panel import ProjectPanel
+from pcbrouter.ui.route_jobs import JobState, RouteJobController
 from pcbrouter.ui.routing_controller import RoutingController
+from pcbrouter.ui.routing_overlay import RoutingOverlay
 from pcbrouter.ui.settings_dialog import SettingsDialog
 from pcbrouter.ui.theme import apply_theme
 from pcbrouter.ui.workbench import WorkbenchController
+from pcbrouter.ui.workers import JobRunner
 
 log = logging.getLogger(__name__)
 
@@ -136,6 +140,13 @@ class MainWindow(QMainWindow):
         # Stage 3: geometry + rule engine UI (docks, tools, overlays, status fields).
         self.engine_ui = GeometryController(self)
         self.engine_ui.install(self.menu_view, self.menu_tools, self.menu_help, self.toolbar_main)
+        # Routing runs in a worker process; the GUI only submits jobs and displays
+        # state (see ui/route_jobs.py). The overlay shows phase, backend, progress.
+        self.route_jobs = RouteJobController(self)
+        self.routing_overlay = RoutingOverlay(self.canvas)
+        #: GPU hardware probe, run in the background (never on the GUI thread)
+        self.gpu_probe: Any = None
+        self._bg_jobs = JobRunner(self)
         # Stage 4: routing (route, preview, accept/reject, undo via the history stack).
         self.routing_ui = RoutingController(self)
         self.routing_ui.install()
@@ -353,6 +364,13 @@ class MainWindow(QMainWindow):
         self._update_backend_label()
 
     def _connect_signals(self) -> None:
+        rj, ov = self.route_jobs, self.routing_overlay
+        rj.jobStarted.connect(ov.show_starting)
+        rj.progress.connect(ov.update_progress)
+        rj.progress.connect(self.routing_ui.on_job_progress)
+        rj.heartbeat.connect(lambda _hb: ov.set_heartbeat_age(rj.seconds_since_progress))
+        rj.stateChanged.connect(self._on_route_job_state)
+        ov.cancel_button.clicked.connect(self.routing_ui.cancel)
         c = self.canvas
         c.cursorMoved.connect(self._on_cursor)
         c.zoomChanged.connect(lambda z: self.lbl_zoom.setText(f"Zoom {z:.2f} px/mm"))
@@ -603,25 +621,52 @@ class MainWindow(QMainWindow):
     def on_gpu_detected(self, result: GpuDetectionResult) -> None:
         self.compute.update_gpu_detection(result)
         self._update_backend_label()
+        if self.gpu_probe is None:
+            self.start_gpu_probe()
+
+    def _on_route_job_state(self, state: str) -> None:
+        if state == JobState.CANCELING.value:
+            self.routing_overlay.show_canceling()
+        elif state == JobState.IDLE.value:
+            self.routing_overlay.finish()
+            self.engine_ui.lbl_routing.setText(self.engine_ui.routing_status())
+        busy = state != JobState.IDLE.value
+        self.routing_ui._update_actions()
+        self.export_ui.update_actions()
+        self.ai_panel.setProperty("routingBusy", busy)
+
+    def start_gpu_probe(self) -> None:
+        """Probe for a GPU device in the background (nvidia-smi/PowerShell can take
+        seconds); the status bar says "checking…" until the answer arrives."""
+        from pcbrouter.compute.probe import probe_gpu
+
+        def done(result: object, _secs: float) -> None:
+            self.gpu_probe = result
+            self.compute.probe_result = result
+            self._update_backend_label()
+            self.engine_ui.lbl_routing.setText(self.engine_ui.routing_status())
+
+        self._bg_jobs.start("gpu-probe", probe_gpu, done, lambda _m, _d: None)
 
     def _update_backend_label(self) -> None:
         det = self.compute.gpu.detection
         gpu_text = det.status.short_label
         gate_note = ""
         if self.settings.default_compute_backend is not ComputeBackendChoice.CPU:
-            # a GPU mode is selected: the hardware gate decides whether it can run
-            from pcbrouter.compute.probe import gpu_gate
-
-            gate = gpu_gate("ui-status")
-            if not gate.available:
+            # a GPU mode is selected: the (background) hardware probe decides
+            gate = self.gpu_probe
+            if gate is None:
+                gpu_text = "checking…"
+                gate_note = "\nChecking for a GPU device…"
+            elif not gate.available:
                 gpu_text = "SKIPPED"
                 gate_note = f"\nGPU routing SKIPPED ({gate.reason}); searches run on the CPU."
-            elif self.compute.gpu.initialized:
-                gpu_text = f"ready ({gate.library})"
-                gate_note = "\nGPU routing is active for the selected mode."
             else:
                 gpu_text = f"{gate.library} found"
-                gate_note = "\nThe GPU is initialised on the first routing job."
+                gate_note = (
+                    "\nThe GPU is initialised in the routing worker on the first job; the "
+                    "routing card shows which backend each job actually used."
+                )
         self.lbl_backend.setText(f"{self.compute.active.name} · GPU: {gpu_text}")
         self.lbl_backend.setToolTip(
             f"Active compute backend: {self.compute.active.name}\nGPU: {det.summary()}"
@@ -630,7 +675,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.ai_controller.cancel()
-        self.routing_ui.shutdown()
+        self.routing_ui.shutdown()  # stops a running routing worker; never waits
+        self.routing_overlay.finish()
         self.workbench.shutdown()
         self.engine_ui.shutdown()  # finish background work, close tool dialogs
         self.save_settings()

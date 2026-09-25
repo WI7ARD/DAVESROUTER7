@@ -26,6 +26,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -104,6 +105,10 @@ class Router:
         self.backend_name = backend_name
         #: record the cells a failed search explored (debug overlay / playback)
         self.record_explored = False
+        #: optional progress sink (phase/candidate/connection dicts); called a few
+        #: times per net, never per search node. Must be cheap and thread-safe.
+        self.progress: Callable[[dict[str, Any]], None] | None = None
+        self._deadline: float | None = None
 
     # ------------------------------------------------------------ public API
     def route_net(
@@ -116,6 +121,9 @@ class Router:
     ) -> RouteResult:
         """Route ``request.net``. Never raises for routing problems: see status."""
         t0 = time.perf_counter()
+        self._deadline = (
+            None if request.total_time_limit_s is None else t0 + request.total_time_limit_s
+        )
         result = RouteResult(request.request_id, request.net, RouteStatus.NO_ROUTE)
         result.metrics.backend = self.backend_name
         try:
@@ -163,6 +171,15 @@ class Router:
         if windows[0] is not None:
             windows.append(None)
         for window in windows:
+            if cancel is not None and cancel.is_set():
+                result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
+                result.message = "cancelled by the user"
+                return
+            self._report(
+                phase="BUILDING_GRID",
+                net=norm.net,
+                window="net neighbourhood" if window is not None else "whole board",
+            )
             grid = compile_grid(
                 self.engine,
                 norm.net,
@@ -174,6 +191,12 @@ class Router:
             )
             self._apply_costs(grid, norm, penalties, avoid_uids)
             result.metrics.grid_cells = grid.n * len(grid.layers)
+            self._report(
+                phase="ROUTING",
+                net=norm.net,
+                grid=(grid.nx, grid.ny, len(grid.layers)),
+                connections_total=len(groups) - 1,
+            )
             if not grid.rules_complete:
                 result.details.append("some rules are unknown: grid may be optimistic")
             done = self._candidates(grid, norm, groups, result, cancel)
@@ -194,6 +217,12 @@ class Router:
     ) -> bool:
         seen: set[tuple[object, ...]] = set()
         for k in range(norm.request.candidates):
+            self._report(
+                phase="ROUTING",
+                net=norm.net,
+                candidates_completed=k,
+                candidates_total=norm.request.candidates,
+            )
             attempt = self._attempt(grid, norm, groups, result, cancel)
             if attempt.failure is not None and not attempt.connections:
                 if k == 0:
@@ -205,6 +234,7 @@ class Router:
                 self._penalise(grid, attempt, norm)
                 continue
             seen.add(key)
+            self._report(phase="VALIDATING", net=norm.net)
             validation = self.engine.validator.validate_route(proposal)
             label = "Best" if not result.candidates else f"Alternative {len(result.candidates)}"
             cand = RouteCandidate(
@@ -290,7 +320,7 @@ class Router:
                 outcome = self.search_fn(
                     problem,
                     node_limit=norm.request.node_limit,
-                    time_limit_s=norm.request.time_limit_s,
+                    time_limit_s=self._search_time(norm.request.time_limit_s),
                     cancel=cancel,
                     record_explored=self.record_explored,
                 )
@@ -318,6 +348,12 @@ class Router:
                 return attempt
             attempt.connections.append(connection)
             vias_used += len(connection.vias)
+            self._report(
+                phase="ROUTING",
+                net=norm.net,
+                connection=len(attempt.connections),
+                connections_total=attempt.total,
+            )
             end_li, end_idx = connection.cells[-1]
             reached = next(
                 (i for i, gc in enumerate(group_cells) if end_idx in set(gc[end_li].tolist())), 0
@@ -663,13 +699,28 @@ class Router:
                 result.reason = FailureReason.LAYER_RESTRICTION
                 result.message = f"a route exists using {used}, outside the allowed layers"
 
+    def _search_time(self, per_search: float) -> float:
+        """Per-search limit, capped by what is left of the net's total budget."""
+        if self._deadline is None:
+            return per_search
+        return max(0.001, min(per_search, self._deadline - time.perf_counter()))
+
+    def _report(self, **info: Any) -> None:
+        if self.progress is not None:
+            self.progress(info)
+
     def _diagnose(
         self, request: RouteRequest, cancel: threading.Event | None
     ) -> RouteResult | None:
+        if self._deadline is not None and time.perf_counter() >= self._deadline:
+            return None  # the net's budget is spent: skip optional diagnostics
         probe = replace(
             request,
             node_limit=min(request.node_limit, DIAGNOSE_NODE_LIMIT),
             time_limit_s=min(request.time_limit_s, 10.0),
+            total_time_limit_s=(
+                None if self._deadline is None else max(0.001, self._deadline - time.perf_counter())
+            ),
         )
         sub = Router(self.engine, self.search_fn, self.backend_name)
         res = sub.route_net(probe, cancel=cancel)

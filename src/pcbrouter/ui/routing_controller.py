@@ -1,9 +1,12 @@
 """Stage 4+ routing in the desktop UI: route, preview, accept, reject, undo.
 
-The router runs on a background thread (:class:`~pcbrouter.ui.workers.JobRunner`)
-against the working-board engine at the moment of the request. Accepting goes
-through the command bus on the GUI thread; results computed for an older working
-board are re-validated by the commit (stale proposals are refused, never forced).
+Every routing computation (single net, whole board, AI plans, optimisation, GPU
+check) runs in the routing **worker process** through
+:class:`~pcbrouter.ui.route_jobs.RouteJobController`: the GUI sends a snapshot of
+the working board and receives progress and the result asynchronously. The Qt
+thread never routes and never waits for the worker. Accepting goes through the
+command bus on the GUI thread; results computed for an older working board are
+re-validated by the commit (stale proposals are refused, never forced).
 """
 
 from __future__ import annotations
@@ -15,16 +18,23 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction
 
-from pcbrouter.board_engine import BoardEngine
 from pcbrouter.commands import AcceptRouteCommand
 from pcbrouter.geometry.shapes import Shape, capsule, circle
-from pcbrouter.routing.backend import router_for
+from pcbrouter.jobs.protocol import (
+    AIPlanJob,
+    GpuCheckJob,
+    JobDone,
+    JobStatus,
+    OptimizationPlan,
+    OptimizeJob,
+    RouteBoardJob,
+    RouteNetJob,
+    WorkingSnapshot,
+)
 from pcbrouter.routing.board_router import (
-    BoardRouter,
     BoardRouterSettings,
     BoardRoutingControl,
     BoardRoutingResult,
-    make_plan,
 )
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteCandidate, RouteResult
@@ -40,6 +50,24 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 PREVIEW_GROUP = "route_preview"
+#: board jobs: the watchdog cancels at the routing budget plus this margin
+BOARD_TIMEOUT_GRACE_S = 60.0
+
+
+def optimization_between(base: Any, final: Any, report: Any) -> OptimizationPlan:
+    """The copper difference base → final (an optimised fork) as one plan."""
+    base_ids = {t.id for t in base.tracks} | {v.id for v in base.vias}
+    final_ids = {t.id for t in final.tracks} | {v.id for v in final.vias}
+    return OptimizationPlan(
+        base.fingerprint,
+        ", ".join(sorted(report.improved)),
+        report.goal,
+        [t for t in final.tracks if t.id not in base_ids],
+        [v for v in final.vias if v.id not in base_ids],
+        sorted(base_ids - final_ids),
+        report,
+        bool(report.improved),
+    )
 
 
 def candidate_shapes(cand: RouteCandidate) -> list[Shape]:
@@ -94,12 +122,8 @@ class RoutingController(QObject):
         self.last_board_result: BoardRoutingResult | None = None
         self.bridge = ProgressBridge()
         self.bridge.progress.connect(self.board_panel.on_progress)
-        self.board_panel.pauseRequested.connect(
-            lambda: self.board_control and self.board_control.pause()
-        )
-        self.board_panel.resumeRequested.connect(
-            lambda: self.board_control and self.board_control.resume()
-        )
+        self.board_panel.pauseRequested.connect(lambda: self.route_jobs.pause())
+        self.board_panel.resumeRequested.connect(lambda: self.route_jobs.resume())
         self.board_panel.cancelRequested.connect(self.cancel)
         self.board_panel.acceptRequested.connect(self.accept_board)
         self.board_panel.rejectRequested.connect(self.reject_board)
@@ -110,6 +134,7 @@ class RoutingController(QObject):
         )
         self.act_gpu_check.triggered.connect(self.test_gpu)
         self.last_gpu_check: Any = None
+        self.last_optimize: Any = None
         self.gpu_box: Any = None
         self.act_reset = QAction("Reset &Working Board…", window)
         self.act_reset.setStatusTip("Remove all routed copper (back to the source board)")
@@ -137,8 +162,7 @@ class RoutingController(QObject):
         return self.w.bus.context.project
 
     def on_board_changed(self) -> None:
-        self.cancel()
-        self.jobs.wait(5000)
+        self.cancel()  # a result for the previous board is discarded on arrival
         self.panel.set_result(None)
         self.last_result = None
         working = self.project.working
@@ -150,18 +174,56 @@ class RoutingController(QObject):
 
     def _update_actions(self) -> None:
         has = self.project.session is not None
-        self.act_route_net.setEnabled(has)
-        self.act_route_board.setEnabled(has)
-        self.act_gpu_check.setEnabled(has)
+        idle = has and not self.route_jobs.busy  # one routing job at a time
+        self.act_route_net.setEnabled(idle)
+        self.act_route_board.setEnabled(idle)
+        self.act_gpu_check.setEnabled(idle)
         for act in self.optimize_actions.values():
-            act.setEnabled(has)
-        self.act_reset.setEnabled(has and bool(self._working and self._working.modified))
+            act.setEnabled(idle)
+        self.act_reset.setEnabled(idle and bool(self._working and self._working.modified))
 
     def shutdown(self) -> None:
-        self.cancel()
-        self.jobs.wait(10_000)
+        self.route_jobs.shutdown()  # never waits: a running worker is stopped
         if self.gpu_box is not None:
             self.gpu_box.close()
+
+    # ------------------------------------------------------------ worker jobs
+    @property
+    def route_jobs(self) -> Any:
+        return self.w.route_jobs
+
+    def _mode(self) -> str:
+        return str(self.search_mode().value)
+
+    def _submit(self, job: Any, handler: Any) -> bool:
+        """Submit to the worker; the handler runs on the GUI thread when the result
+        arrives, and only if the same board is still open."""
+        token = self.project.working
+
+        def on_done(done: JobDone) -> None:
+            if self.project.working is not token:
+                log.info("[route:%d] result discarded: the board was closed", done.job_id)
+                return
+            handler(done)
+
+        if self.route_jobs.submit(job, on_done) is None:
+            self.w.statusBar().showMessage(
+                "A routing job is already running: wait for it or cancel it.", 5000
+            )
+            return False
+        return True
+
+    def _job_failed(self, done: JobDone, title: str = "Routing failed") -> None:
+        self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
+        self.panel.set_result(None)
+        if done.status == JobStatus.CANCELED.value:
+            self.panel.status.setText("Routing canceled. Nothing was changed.")
+            self.w.statusBar().showMessage("Routing canceled. Nothing was changed.", 8000)
+            return
+        message = done.error or f"Routing {done.status.lower()}"
+        if done.status == JobStatus.TIMED_OUT.value:
+            message = f"Timed out: {message}"
+        self._failed(message, done.traceback)
 
     # ------------------------------------------------------------ routing
     def selected_net(self) -> str | None:
@@ -212,74 +274,72 @@ class RoutingController(QObject):
             base_request=base,
         )
 
-    def route_net(
-        self,
-        request: RouteRequest,
-        engine: BoardEngine | None = None,
-        remove_ids: tuple[str, ...] = (),
-    ) -> bool:
-        engine = engine or self.project.engine
-        if engine is None:
-            return False
+    def route_net(self, request: RouteRequest, remove_ids: tuple[str, ...] = ()) -> bool:
+        """Route one net in the worker. ``remove_ids``: local reroute (that generated
+        copper is removed in the worker's copy before routing; applied on accept)."""
         wb = self.project.working
-        if wb is not None and wb.is_locked("", request.net):
+        if wb is None:
+            return False
+        if wb.is_locked("", request.net):
             self.w.statusBar().showMessage(f"Net {request.net} is locked.", 5000)
             return False
-        self.pending_remove_ids = remove_ids
-        if self.jobs.is_running("route"):
-            self.w.statusBar().showMessage("A routing job is already running.", 4000)
+        job = RouteNetJob(
+            WorkingSnapshot.from_working(wb),
+            request,
+            record_explored=self.record_search,
+            remove_ids=tuple(remove_ids),
+            mode=self._mode(),
+        )
+        if not self._submit(job, self._route_done):
             return False
-        self.cancel_event = threading.Event()
-        cancel = self.cancel_event
-        compute = self.w.compute
-        mode = self.search_mode()
-
-        record = self.record_search
-
-        def job(e: BoardEngine = engine) -> RouteResult:
-            router = router_for(e, compute, mode)
-            router.record_explored = record
-            return router.route_net(request, cancel=cancel)
-
+        self.pending_remove_ids = tuple(remove_ids)
         self.panel.set_running(
-            f"Routing {request.net}… (CPU search, {request.candidates} candidate(s))"
+            f"Routing {request.net}… ({job.mode.upper()} requested, "
+            f"{request.candidates} candidate(s))"
         )
         self.overlays.clear(PREVIEW_GROUP)
         dock = self.w.docks["route"]
         dock.show()
         dock.raise_()
         self.w.engine_ui.lbl_routing.setText(f"Routing: {request.net}…")
-        return self.jobs.start("route", job, self._done, self._failed)
+        return True
+
+    def _route_done(self, done: JobDone) -> None:
+        if isinstance(done.value, RouteResult):
+            self._done(done.value, done.elapsed_s)
+        else:
+            self._job_failed(done)
 
     def test_gpu(self) -> bool:
-        """Tools ▸ Test GPU: gated CPU-vs-GPU comparison on the open board."""
+        """Tools ▸ Test GPU: gated CPU-vs-GPU comparison on the open board, run in
+        the worker (the GPU is initialised there, never in the GUI process)."""
         from pcbrouter.routing.connectivity import NetStatus
-        from pcbrouter.routing.gpu_check import run_gpu_check
 
         wb = self.project.working
-        if wb is None:
+        if wb is None or self.route_jobs.busy:
             return False
-        if self.jobs.is_running("gpu_check"):
-            return False
-        engine = wb.engine
         nets = sorted(
             name
-            for name, c in engine.connectivity.nets.items()
+            for name, c in wb.engine.connectivity.nets.items()
             if c.status in (NetStatus.UNROUTED, NetStatus.PARTIALLY_CONNECTED)
         )
         if not nets:
             self.w.statusBar().showMessage("GPU check: no incomplete nets to route.", 6000)
             return False
-        gpu = self.w.compute.gpu
-        base = self.request_for(nets[0])
-        cancel = threading.Event()
-        self.cancel_event = cancel
+        job = GpuCheckJob(
+            WorkingSnapshot.from_working(wb), nets, self.request_for(nets[0]), mode="gpu"
+        )
 
-        def job() -> Any:
-            return run_gpu_check(engine, gpu, nets, cancel=cancel, base_request=base)
+        def done(d: JobDone) -> None:
+            if d.value is None:
+                self._job_failed(d, "GPU check failed")
+                return
+            self._gpu_check_done(d.value, d.elapsed_s)
 
+        if not self._submit(job, done):
+            return False
         self.w.statusBar().showMessage("GPU check running…")
-        return self.jobs.start("gpu_check", job, self._gpu_check_done, self._failed)
+        return True
 
     def _gpu_check_done(self, result: Any, _secs: float) -> None:
         self.last_gpu_check = result
@@ -298,37 +358,45 @@ class RoutingController(QObject):
         self.gpu_box = box
 
     def cancel(self) -> None:
-        if self.cancel_event is not None:
-            self.cancel_event.set()
-        if self.board_control is not None:
-            self.board_control.cancel()
+        self.route_jobs.cancel()
 
     # ------------------------------------------------------------ board routing
     def route_board(self, settings: BoardRouterSettings | None = None) -> bool:
         working = self.project.working
-        if working is None or self.jobs.is_running("board"):
+        if working is None:
             return False
-        control = BoardRoutingControl()
-        self.board_control = control
-        bridge = self.bridge
-        fork_source = working
         plan_settings = settings or self.board_settings()
-        compute = self.w.compute
-        mode = self.search_mode()
-
-        def job() -> BoardRoutingResult:
-            plan = make_plan(fork_source, plan_settings)
-            router = BoardRouter(
-                fork_source, plan_settings, router_factory=lambda e: router_for(e, compute, mode)
-            )
-            return router.run(plan, control, lambda info: bridge.progress.emit(info))
-
+        job = RouteBoardJob(
+            WorkingSnapshot.from_working(working),
+            plan_settings,
+            mode=self._mode(),
+            timeout_s=plan_settings.budget_s + BOARD_TIMEOUT_GRACE_S,
+        )
+        if not self._submit(job, self._board_job_done):
+            return False
         self.board_panel.set_running("Planning board routing…")
         dock = self.w.docks["jobs"]
         dock.show()
         dock.raise_()
         self.w.engine_ui.lbl_routing.setText("Routing: board job running…")
-        return self.jobs.start("board", job, self._board_done, self._failed)
+        return True
+
+    def _board_job_done(self, done: JobDone) -> None:
+        if isinstance(done.value, BoardRoutingResult):
+            self._board_done(done.value, done.elapsed_s)
+            return
+        self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
+        self.board_panel.set_result(None)
+        if done.status == JobStatus.CANCELED.value:
+            self.board_panel.status.setText("Board routing canceled. Nothing was changed.")
+            return
+        self.board_panel.status.setText(f"Board routing {done.status.lower()}: {done.error}")
+        self._job_failed(done)
+
+    def on_job_progress(self, progress: Any) -> None:
+        """Worker progress (already throttled) → the Routing Jobs panel."""
+        if progress.board_info:
+            self.board_panel.on_progress(progress.board_info)
 
     def _board_done(self, result: object, _secs: float) -> None:
         self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
@@ -372,53 +440,50 @@ class RoutingController(QObject):
 
     # ------------------------------------------------------------ AI commands (Stage 7)
     def execute_ai_proposals(self, proposal_ids: object) -> bool:
-        """Run approved AI routing command(s) through the router in the background.
+        """Run approved AI routing command(s) through the router in the worker.
         One command → Route Review (or an optimisation); several (batch approval) →
         one board-routing job in Routing Jobs. Nothing is committed here."""
-        from pcbrouter.ai.route_bridge import BridgeError, execute_plan, plan_from_commands
-        from pcbrouter.commands import ExecuteAIProposalCommand
+        from pcbrouter.ai.route_bridge import BridgeError, plan_from_commands
+        from pcbrouter.commands.ai_commands import approved_plan
 
         ids = list(proposal_ids) if isinstance(proposal_ids, (list, tuple)) else []
         session = self.w.ai_service.session
         working = self.project.working
-        if not ids or session is None or working is None or self.jobs.is_running("ai"):
+        if not ids or session is None or working is None or self.route_jobs.busy:
             return False
-        cancel = threading.Event()
-        self.cancel_event = cancel
-        bus = self.w.bus
-        compute = self.w.compute
-        if len(ids) == 1:
-            pid = ids[0]
-
-            def job() -> object:
-                return bus.dispatch(ExecuteAIProposalCommand(pid, cancel))
-
-        else:
-            try:
+        try:
+            if len(ids) == 1:
+                plan = approved_plan(self.w.bus.context, ids[0])
+            else:
                 plan = plan_from_commands([session.proposals[i].current for i in ids])
-            except (BridgeError, KeyError) as exc:
-                self.w.statusBar().showMessage(str(exc), 8000)
-                return False
+        except (BridgeError, KeyError, ValueError) as exc:
+            self.panel.set_result(None)
+            self.panel.status.setText(f"Not run: {exc}")
+            self.w.statusBar().showMessage(str(exc), 8000)
+            return False
+        snapshot = WorkingSnapshot.from_working(working)
+        job = AIPlanJob(snapshot, plan, mode=self._mode())
+        if plan.kind == "route_board":
+            job.timeout_s = BoardRouterSettings().budget_s + BOARD_TIMEOUT_GRACE_S
 
-            def job() -> object:
-                return execute_plan(plan, working, compute, cancel)
+        def done(d: JobDone) -> None:
+            if d.value is None:
+                self._job_failed(d)
+                return
+            self._ai_done(ids, d.value, snapshot.board)
 
+        if not self._submit(job, done):
+            return False
         self.panel.set_running("Running the approved AI command with the deterministic router…")
         self.w.engine_ui.lbl_routing.setText("Routing: AI command running…")
-        return self.jobs.start("ai", job, lambda r, _s: self._ai_done(ids, r), self._failed)
+        return True
 
-    def _ai_done(self, ids: list[str], result: object) -> None:
+    def _ai_done(self, ids: list[str], result: object, base_board: Any = None) -> None:
         from pcbrouter.ai.route_bridge import ExecutionOutcome, router_facts
-        from pcbrouter.commands import CommandResult, OptimizeNetCommand
+        from pcbrouter.commands.route_commands import ApplyOptimizationCommand
 
         self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
         session = self.w.ai_service.session
-        if isinstance(result, CommandResult):
-            if not result.success:
-                self.panel.set_result(None)
-                self.panel.status.setText(f"Not run: {result.message}")
-                return
-            result = result.data
         if not isinstance(result, ExecutionOutcome) or session is None:
             return
         facts = router_facts(result)
@@ -439,9 +504,11 @@ class RoutingController(QObject):
         elif result.optimize_reports:
             # the user approved this tweak: apply it as one validated, undoable commit
             rep = result.optimize_reports[0]
-            for net in sorted(rep.improved):
-                res = self.w.bus.dispatch(OptimizeNetCommand(net, rep.goal))
+            if rep.improved and base_board is not None and result.optimized_board is not None:
+                plan = optimization_between(base_board, result.optimized_board, rep)
+                res = self.w.bus.dispatch(ApplyOptimizationCommand(plan))
                 self.w.statusBar().showMessage(res.message, 10000)
+                self.w._update_undo_actions()
             self.panel.set_result(None)
             self.panel.status.setText(
                 f"AI tweak ({rep.goal.value}): {len(rep.improved)} improved, "
@@ -451,16 +518,29 @@ class RoutingController(QObject):
         self.w.ai_history.refresh()
 
     def optimize_selected(self, goal: Any) -> bool:
-        from pcbrouter.commands import OptimizeNetCommand
-
+        """Optimise the selected net in the worker; applied as one validated commit
+        when the result arrives (refused if the board changed meanwhile)."""
         net = self.selected_net()
-        if net is None:
+        wb = self.project.working
+        if net is None or wb is None:
             self.w.statusBar().showMessage("Select a routed net first.", 5000)
             return False
-        res = self.w.bus.dispatch(OptimizeNetCommand(net, goal))
+        job = OptimizeJob(WorkingSnapshot.from_working(wb), net, goal, mode=self._mode())
+        if not self._submit(job, self._optimize_done):
+            return False
+        self.w.statusBar().showMessage(f"Optimising {net}…")
+        return True
+
+    def _optimize_done(self, done: JobDone) -> None:
+        from pcbrouter.commands.route_commands import ApplyOptimizationCommand
+
+        if not isinstance(done.value, OptimizationPlan):
+            self._job_failed(done, "Optimisation failed")
+            return
+        res = self.w.bus.dispatch(ApplyOptimizationCommand(done.value))
+        self.last_optimize = res
         self.w.statusBar().showMessage(res.message, 10000)
         self.w._update_undo_actions()
-        return res.success
 
     @property
     def overlays(self) -> overlays.OverlayManager:

@@ -120,7 +120,9 @@ class SettingsDialog(QDialog):
         w = QWidget()
         form = QFormLayout(w)
         self.backend_combo = QComboBox()
-        gpu_ok = bool(compute is not None and compute.gpu.available)
+        # never initialise the GPU here (GUI thread): use the background probe
+        probe = getattr(compute, "probe_result", None)
+        gpu_ok = bool(probe is not None and probe.available)
         gpu_name = compute.gpu.name if compute is not None else "GPU"
         self.backend_combo.addItem("CPU (reference A* search)", ComputeBackendChoice.CPU)
         self.backend_combo.addItem(

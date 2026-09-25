@@ -27,12 +27,12 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QFileDialog, QMenu, QMessageBox
 
 from pcbrouter.commands import (
-    ExportBoardCommand,
     OverwriteSourceCommand,
     RestoreSessionCommand,
     SaveSessionCommand,
 )
-from pcbrouter.kicad.writer import ExportStatus, default_export_path
+from pcbrouter.jobs.protocol import ExportJob, JobDone, WorkingSnapshot
+from pcbrouter.kicad.writer import ExportReport, ExportStatus, default_export_path
 from pcbrouter.project.session_store import SessionError, load_session, recovery_path
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ class ExportController:
         self.w = window
         self._working: WorkingBoard | None = None
         self.last_export: Any = None
+        self.export_running = False
         #: working-board fingerprint last written to disk (export or saved session)
         self._saved_fingerprint: str | None = None
         # dialog hooks (replaced in tests)
@@ -107,9 +108,12 @@ class ExportController:
 
     def update_actions(self) -> None:
         has = self.project.session is not None
-        for act in (self.act_export, self.act_save_session, self.act_load_session):
-            act.setEnabled(has)
-        self.act_overwrite.setEnabled(has and self.w.settings.export.allow_overwrite_source)
+        route_jobs = getattr(self.w, "route_jobs", None)
+        idle = has and not (route_jobs is not None and route_jobs.busy)
+        self.act_export.setEnabled(idle)
+        for act in (self.act_save_session, self.act_load_session):
+            act.setEnabled(idle)
+        self.act_overwrite.setEnabled(idle and self.w.settings.export.allow_overwrite_source)
 
     @property
     def project(self) -> Any:
@@ -212,13 +216,13 @@ class ExportController:
                 "Overwrite Source Board (must be enabled in Settings ▸ Export).",
             )
             return False
-        return self._export(ExportBoardCommand, path)
+        return self._export(path, overwrite=False)
 
     def overwrite_source(self) -> bool:
         session = self.project.session
         if session is None:
             return False
-        if not self.w.settings.export.allow_overwrite_source:
+        if not self.w.settings.export.allow_overwrite_source or self.w.bus.read_only:
             self.inform(
                 "Overwrite disabled",
                 self.w.bus.dispatch(OverwriteSourceCommand(session.source_path)).message,
@@ -230,34 +234,68 @@ class ExportController:
             "copy is written to the workspace first. Continue?",
         ):
             return False
-        return self._export(OverwriteSourceCommand, session.source_path)
+        return self._export(session.source_path, overwrite=True)
 
-    def _export(self, cls: type[ExportBoardCommand], path: Path) -> bool:
-        kicad = self.w.settings.export.run_kicad_drc
-        res = self.w.bus.dispatch(cls(path, run_kicad_drc=kicad))
-        report = res.data
-        if report is not None and report.status is ExportStatus.EXPORT_BLOCKED_DRC:
-            if not self.ask(
+    def _export(self, path: Path, overwrite: bool, allow_unverified: bool = False) -> bool:
+        """Export in the routing worker (internal check, write + reload self-check,
+        optional KiCad DRC): the GUI stays responsive. Returns True when the job was
+        started; the outcome arrives in :meth:`_export_done` (``last_export``)."""
+        session, working = self.project.session, self.project.working
+        if session is None or working is None:
+            return False
+        job = ExportJob(
+            WorkingSnapshot.from_working(working),
+            session.source_path,
+            session.source_sha256,
+            path,
+            session.workspace.root / "backups",
+            allow_unverified=allow_unverified,
+            run_kicad_drc=self.w.settings.export.run_kicad_drc,
+            overwrite_source=overwrite,
+        )
+        fingerprint = working.fingerprint
+
+        def done(d: JobDone) -> None:
+            self._export_done(d, path, overwrite, fingerprint)
+
+        if self.w.route_jobs.submit(job, done) is None:
+            self.w.statusBar().showMessage("Another routing job is running.", 6000)
+            return False
+        self.export_running = True
+        self.w.statusBar().showMessage(f"Exporting {path.name}…")
+        return True
+
+    def _export_done(self, done: JobDone, path: Path, overwrite: bool, fingerprint: str) -> None:
+        self.export_running = False
+        report = done.value
+        if not isinstance(report, ExportReport):
+            msg = done.error or f"export {done.status.lower()}; nothing was written"
+            self.last_export = None
+            self.w.statusBar().showMessage(f"Export failed: {msg}", 15000)
+            if done.status != "CANCELED":
+                self.inform(
+                    "Export failed", msg + (f"\n\n{done.traceback}" if done.traceback else "")
+                )
+            return
+        if report.status is ExportStatus.EXPORT_BLOCKED_DRC:
+            if self.ask(
                 "Export an UNVERIFIED board?",
-                f"{res.message}\n\nThe exported file would contain these errors. Export "
+                f"{report.summary()}\n\nThe exported file would contain these errors. Export "
                 "it anyway, labelled UNVERIFIED?",
             ):
-                self.w.statusBar().showMessage("Export cancelled (internal check errors).", 8000)
-                return False
-            res = self.w.bus.dispatch(cls(path, allow_unverified=True, run_kicad_drc=kicad))
-            report = res.data
+                self._export(path, overwrite, allow_unverified=True)
+                return
+            self.last_export = report
+            self.w.statusBar().showMessage("Export cancelled (internal check errors).", 8000)
+            return
         self.last_export = report
-        self.w.statusBar().showMessage(res.message, 15000)
-        if res.success:
-            self.clean_close_if_saved()
+        self.w.statusBar().showMessage(report.summary(), 15000)
+        if report.ok:
+            working = self.project.working
+            if working is not None and working.fingerprint == fingerprint:
+                self._saved_fingerprint = fingerprint
         else:
-            self.inform("Export failed", res.message)
-        return res.success
-
-    def clean_close_if_saved(self) -> None:
-        """After a successful export the routed copper is safe on disk."""
-        working = self.project.working
-        self._saved_fingerprint = working.fingerprint if working is not None else None
+            self.inform("Export failed", report.summary())
 
     # ------------------------------------------------------------ sessions
     def save_session(self, path: Path | None = None) -> bool:
