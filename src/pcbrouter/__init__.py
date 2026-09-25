@@ -13,10 +13,10 @@ from __future__ import annotations
 __all__ = ["APP_NAME", "APP_SLUG", "STAGE", "__version__"]
 
 #: Human-facing application version. Package metadata uses the PEP 440
-#: equivalent ``0.7.0+stage7`` (see pyproject.toml).
-__version__ = "0.7.0-stage7"
+#: equivalent ``0.8.0+stage8`` (see pyproject.toml).
+__version__ = "0.8.0-stage8"
 
 APP_NAME = "AI PCB Router"
 #: Filesystem-safe identifier used for config/log directory names.
 APP_SLUG = "ai-pcb-router"
-STAGE = 7
+STAGE = 8

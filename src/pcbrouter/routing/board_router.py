@@ -37,7 +37,7 @@ from pcbrouter.domain.track import Track
 from pcbrouter.domain.via import Via
 from pcbrouter.routing.connectivity import NetStatus, net_connectivity
 from pcbrouter.routing.occupancy import GridSpec
-from pcbrouter.routing.request import RouteRequest
+from pcbrouter.routing.request import RouteRequest, with_user_constraints
 from pcbrouter.routing.result import FailureReason, RouteStatus
 from pcbrouter.routing.router import Router
 from pcbrouter.routing.working_board import CommitError, Provenance, WorkingBoard
@@ -305,9 +305,14 @@ def make_plan(
         else:
             kind = TaskKind.SIGNAL
         prio = settings.priorities.get(net, group_prio.get(group_of.get(net) or "", 0))
+        user = wb.net_constraints.get(net)
+        req = with_user_constraints(replace(settings.base_request, net=net), user) if user else None
+        user_prio = user.get("priority") if user else None
+        if isinstance(user_prio, int):
+            prio = max(prio, user_prio)
         tasks.append(
             RouteTask(
-                net, kind, prio, partner.get(net) or group_of.get(net), None, pads, length, escapes
+                net, kind, prio, partner.get(net) or group_of.get(net), req, pads, length, escapes
             )
         )
     if pairs:

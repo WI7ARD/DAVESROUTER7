@@ -51,6 +51,7 @@ from pcbrouter.ui.project_panel import ProjectPanel
 from pcbrouter.ui.routing_controller import RoutingController
 from pcbrouter.ui.settings_dialog import SettingsDialog
 from pcbrouter.ui.theme import apply_theme
+from pcbrouter.ui.workbench import WorkbenchController
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +147,9 @@ class MainWindow(QMainWindow):
             tweak.addAction(act)
         self.menu_router.addSeparator()
         self.menu_router.addAction(self.routing_ui.act_reset)
+        # Stage 8: workbench (view modes, locks, constraints, reroute, inspector, debug).
+        self.workbench = WorkbenchController(self)
+        self.workbench.install(self.menu_view, self.menu_router, self.menu_edit)
         self.menu_view.addAction(self.docks["route"].toggleViewAction())
         self.menu_view.addAction(self.docks["jobs"].toggleViewAction())
         self.toolbar_main.addAction(self.act_route_net)
@@ -261,6 +265,7 @@ class MainWindow(QMainWindow):
         edit = mb.addMenu("&Edit")
         edit.addAction(self.act_undo)
         edit.addAction(self.act_redo)
+        self.menu_edit = edit
 
         view = mb.addMenu("&View")
         view.addAction(self.act_fit)
@@ -367,6 +372,7 @@ class MainWindow(QMainWindow):
 
         self.ai_panel.configureRequested.connect(self.open_ai_settings)
         self.ai_panel.runRequested.connect(self.routing_ui.execute_ai_proposals)
+        self.ai_panel.targetNetsChanged.connect(self._on_ai_targets)
         self.ai_panel.historyChanged.connect(self.ai_history.refresh)
         self.ai_panel.historyChanged.connect(self._update_undo_actions)
         self.ai_panel.statusIndicatorChanged.connect(self._on_ai_indicator)
@@ -430,6 +436,7 @@ class MainWindow(QMainWindow):
         self.project_panel.set_session(session, self.canvas.render_stats if board else None)
         self.engine_ui.on_board_changed()
         self.routing_ui.on_board_changed()
+        self.workbench.on_board_changed()
         self.refresh_statistics()
         self._apply_viewer_settings()
         has = board is not None
@@ -564,6 +571,7 @@ class MainWindow(QMainWindow):
         board = self.canvas.board
         if board is not None:
             self.inspector.show_object(board, kind, obj_id)
+            self.workbench.on_object_selected(kind, obj_id)  # Stage 8 route facts
 
     def _on_net_selected(self, name: str) -> None:
         board = self.canvas.board
@@ -599,6 +607,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self.ai_controller.cancel()
         self.routing_ui.shutdown()
+        self.workbench.shutdown()
         self.engine_ui.shutdown()  # finish background work, close tool dialogs
         self.save_settings()
         if self.bus.context.project.is_open:
@@ -690,6 +699,12 @@ class MainWindow(QMainWindow):
             net = idx.vias_by_id[obj_id].net_name
             return ((net,) if net else ()), ()
         return (), ()
+
+    def _on_ai_targets(self, nets: object) -> None:
+        """Highlight the nets an AI proposal targets (display only)."""
+        names = [n for n in nets if isinstance(n, str)] if isinstance(nets, list) else []
+        if names and self.canvas.board is not None:
+            self.canvas.highlight_net(names[0])
 
     def _on_ai_indicator(self, text: str, color: str) -> None:
         self.lbl_ai.setText(f"<span style='color:{color}'>●</span> {text}")

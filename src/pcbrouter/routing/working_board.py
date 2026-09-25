@@ -29,6 +29,7 @@ from typing import Any
 
 from pcbrouter.board_engine import BoardEngine, EngineConfig
 from pcbrouter.domain.board import Board
+from pcbrouter.domain.geometry import BoundingBox
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.via import Via, ViaType
 from pcbrouter.geometry.board import BoardGeometry, CopperItem, HoleItem
@@ -110,7 +111,15 @@ class WorkingBoard:
         self.overrides = overrides or RuleOverrides()
         self.config = config or EngineConfig()
         self.provenance: dict[str, Provenance] = {}
-        self.locks: set[str] = set()  # track/via ids and net names ("net:<name>")
+        #: locks: track/via ids, "net:<name>", "comp:<reference>" (Stage 8)
+        self.locks: set[str] = set()
+        #: locked regions: new routes may not enter; copper inside is protected
+        self.locked_regions: list[BoundingBox] = []
+        #: per-net routing preferences set by the user (Stage 8 constraints panel)
+        self.net_constraints: dict[str, dict[str, Any]] = {}
+        #: user corridors (soft cost fields): prefer / avoid regions
+        self.corridors: list[Any] = []
+        self._protected_cache: tuple[Any, frozenset[str]] | None = None
         self.commits: list[Commit] = []  # applied, oldest first
         self._geometry: BoardGeometry | None = None
         self._engine: BoardEngine | None = None
@@ -159,6 +168,9 @@ class WorkingBoard:
             other.board = self.board
             other.provenance = dict(self.provenance)
             other.locks = set(self.locks)
+            other.locked_regions = list(self.locked_regions)
+            other.net_constraints = dict(self.net_constraints)
+            other.corridors = list(self.corridors)
             other._geometry = self.geometry.copy()
             other._rules = self._rules
             return other
@@ -185,7 +197,54 @@ class WorkingBoard:
         return self.provenance.get(obj_id, Provenance.SOURCE_EXISTING)
 
     def is_locked(self, obj_id: str, net: str | None = None) -> bool:
-        return obj_id in self.locks or (net is not None and f"net:{net}" in self.locks)
+        if obj_id in self.locks or (net is not None and f"net:{net}" in self.locks):
+            return True
+        return bool(obj_id) and obj_id in self.protected_ids()
+
+    def protected_ids(self) -> frozenset[str]:
+        """Track/via ids protected by component or region locks (cached per state)."""
+        comps = sorted(lk[5:] for lk in self.locks if lk.startswith("comp:"))
+        key = (self.board.fingerprint, tuple(comps), tuple(self.locked_regions))
+        if self._protected_cache is not None and self._protected_cache[0] == key:
+            return self._protected_cache[1]
+        out: set[str] = set()
+        if comps or self.locked_regions:
+            geo = self.geometry
+            for t in self.board.tracks:
+                if any(r.intersects(t.bounds) for r in self.locked_regions):
+                    out.add(t.id)
+            for v in self.board.vias:
+                if any(r.intersects(v.bounds) for r in self.locked_regions):
+                    out.add(v.id)
+            from pcbrouter.geometry.clearance import touches
+
+            for pad in self.board.pads:
+                if pad.footprint_ref not in comps:
+                    continue
+                item = geo.copper.get(f"pad:{pad.id}")
+                if item is None:
+                    continue
+                for layer in item.layers:
+                    for other in geo.copper_near(layer, item.bounds.expanded(1)):
+                        if other.kind.value in ("track", "via") and any(
+                            touches(a, b) for a in item.shapes for b in other.shapes
+                        ):
+                            out.add(other.source_id)
+        result = frozenset(out)
+        self._protected_cache = (key, result)
+        return result
+
+    def lock_state(self) -> dict[str, Any]:
+        return {
+            "locks": sorted(self.locks),
+            "regions": [[r.min_x, r.min_y, r.max_x, r.max_y] for r in self.locked_regions],
+        }
+
+    def restore_lock_state(self, state: dict[str, Any]) -> None:
+        self.locks = set(state.get("locks", []))
+        self.locked_regions = [BoundingBox(*r) for r in state.get("regions", [])]
+        self._protected_cache = None
+        self._notify(None)
 
     def generated_ids(self, net: str | None = None) -> list[str]:
         idx = self.board.index
@@ -221,9 +280,17 @@ class WorkingBoard:
                 for v_i, via in enumerate(prop.vias):
                     vid = stable_id(prop.proposal_id, seq, p_i, "v", v_i)
                     vias.append(
-                        Via(vid, via.position, via.diameter, via.drill, prop.net,
-                            via.start_layer, via.end_layer, ViaType.THROUGH)
-                    )  # fmt: skip
+                        Via(
+                            vid,
+                            via.position,
+                            via.diameter,
+                            via.drill,
+                            prop.net,
+                            via.start_layer,
+                            via.end_layer,
+                            ViaType.THROUGH,
+                        )
+                    )
             return self.commit_objects(
                 tracks, vias, remove_ids, label, provenance, metadata, validate
             )

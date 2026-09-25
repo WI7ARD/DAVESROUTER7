@@ -86,6 +86,8 @@ class AcceptRouteCommand(BaseCommand):
     candidate: RouteCandidate
     label: str = ""
     provenance: Provenance = Provenance.USER_ACCEPTED
+    #: generated copper replaced by this route (local reroute); validated together
+    remove_ids: tuple[str, ...] = ()
     name: ClassVar[str] = "accept_route"
 
     def execute(self, ctx: CommandContext) -> CommandResult:
@@ -100,6 +102,7 @@ class AcceptRouteCommand(BaseCommand):
                 [self.candidate.proposal],
                 label,
                 self.provenance,
+                remove_ids=self.remove_ids,
                 metadata={
                     "score": self.candidate.score.to_dict(),
                     "proposal": self.candidate.proposal.proposal_id,

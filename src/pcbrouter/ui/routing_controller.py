@@ -56,6 +56,9 @@ class RoutingController(QObject):
         self.jobs = JobRunner(self)
         self.panel = RoutePanel()
         self.cancel_event: threading.Event | None = None
+        self.pending_remove_ids: tuple[str, ...] = ()
+        #: debug: record the cells a failed search explored (heat map / playback)
+        self.record_search = False
         self.last_result: RouteResult | None = None
         self._working: WorkingBoard | None = None
         self.act_route_net = QAction("Route &Selected Net", window)
@@ -162,13 +165,20 @@ class RoutingController(QObject):
     def request_for(self, net: str) -> RouteRequest:
         """A request built from the user's routing settings (rules still decide values)."""
         from pcbrouter.domain.units import mm_to_internal
+        from pcbrouter.routing.request import with_user_constraints
 
         st = self.w.settings
-        return RouteRequest(
+        req = RouteRequest(
             net,
             candidates=st.routing.candidates,
             time_limit_s=st.routing.time_limit_s,
             grid_resolution=mm_to_internal(st.geometry.grid_resolution_mm),
+        )
+        wb = self.project.working
+        if wb is None:
+            return req
+        return with_user_constraints(
+            req, wb.net_constraints.get(net), wb.locked_regions, wb.corridors
         )
 
     def search_mode(self) -> Any:
@@ -190,10 +200,20 @@ class RoutingController(QObject):
             base_request=base,
         )
 
-    def route_net(self, request: RouteRequest) -> bool:
-        engine = self.project.engine
+    def route_net(
+        self,
+        request: RouteRequest,
+        engine: BoardEngine | None = None,
+        remove_ids: tuple[str, ...] = (),
+    ) -> bool:
+        engine = engine or self.project.engine
         if engine is None:
             return False
+        wb = self.project.working
+        if wb is not None and wb.is_locked("", request.net):
+            self.w.statusBar().showMessage(f"Net {request.net} is locked.", 5000)
+            return False
+        self.pending_remove_ids = remove_ids
         if self.jobs.is_running("route"):
             self.w.statusBar().showMessage("A routing job is already running.", 4000)
             return False
@@ -202,8 +222,12 @@ class RoutingController(QObject):
         compute = self.w.compute
         mode = self.search_mode()
 
+        record = self.record_search
+
         def job(e: BoardEngine = engine) -> RouteResult:
-            return router_for(e, compute, mode).route_net(request, cancel=cancel)
+            router = router_for(e, compute, mode)
+            router.record_explored = record
+            return router.route_net(request, cancel=cancel)
 
         self.panel.set_running(
             f"Routing {request.net}… (CPU search, {request.candidates} candidate(s))"
@@ -391,6 +415,10 @@ class RoutingController(QObject):
         self.last_result = result
         self.panel.set_result(result)
         self.w.statusBar().showMessage(result.summary(), 10000)
+        if result.explored is not None:
+            self.w.workbench.show_explored(result.explored)
+        if result.best is not None:
+            self.w.workbench.compute_diff(result.best, self.pending_remove_ids)
 
     def _failed(self, message: str, detail: str) -> None:
         self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
@@ -415,7 +443,9 @@ class RoutingController(QObject):
     def accept(self, cand: object) -> bool:
         if not isinstance(cand, RouteCandidate):
             return False
-        result = self.w.bus.dispatch(AcceptRouteCommand(cand))
+        result = self.w.bus.dispatch(AcceptRouteCommand(cand, remove_ids=self.pending_remove_ids))
+        if result.success:
+            self.pending_remove_ids = ()
         if not result.success:
             self.w.statusBar().showMessage(f"Not accepted: {result.message}", 10000)
             self.panel.status.setText(f"Not accepted: {result.message}")
@@ -428,6 +458,7 @@ class RoutingController(QObject):
         return True
 
     def reject(self) -> None:
+        self.pending_remove_ids = ()
         self.overlays.clear(PREVIEW_GROUP)
         self.panel.set_result(None)
         self.panel.status.setText("Candidate rejected. Nothing was changed.")
@@ -455,6 +486,7 @@ class RoutingController(QObject):
         self.w.engine_ui.refresh_engine()
         self._update_actions()
         self.w.refresh_statistics()
+        self.w.workbench.on_working_changed()
 
 
 __all__ = ["RoutingController", "candidate_shapes"]

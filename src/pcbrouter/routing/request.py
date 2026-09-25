@@ -80,6 +80,8 @@ class RouteRequest:
     soft_regions: tuple[SoftRegion, ...] = ()
     via_diameter: Nm | None = None
     via_drill: Nm | None = None
+    #: hard: new copper may not enter (user region locks); never board keepouts
+    blocked_regions: tuple[BoundingBox, ...] = ()
     #: extra per-cell congestion (Stage 5 feedback), keyed by layer; values 0..1
     constraints_note: str = ""
 
@@ -106,6 +108,46 @@ class NormalisedRequest:
             and len(self.layers) > 1
             and self.max_vias != 0
         )
+
+
+def with_user_constraints(
+    request: RouteRequest,
+    constraints: dict[str, object] | None,
+    locked_regions: list[BoundingBox] | tuple[BoundingBox, ...] = (),
+    corridors: list[SoftRegion] | tuple[SoftRegion, ...] = (),
+) -> RouteRequest:
+    """Apply the user's per-net constraints, region locks and corridors (Stage 8).
+    Values are still validated by :func:`normalise` against the hard rules."""
+    from dataclasses import replace
+
+    from pcbrouter.domain.units import mm_to_internal
+
+    c = constraints or {}
+    width = c.get("width_mm")
+    layers = c.get("allowed_layers")
+    max_vias = c.get("max_vias")
+    regions = list(request.soft_regions) + list(corridors)
+    for key, kind in (("prefer_box", SoftRegionKind.PREFER), ("avoid_box", SoftRegionKind.AVOID)):
+        box = c.get(key)
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            regions.append(SoftRegion(kind, BoundingBox(*(mm_to_internal(float(v)) for v in box))))
+    return replace(
+        request,
+        preferred_width=(
+            mm_to_internal(float(width))
+            if isinstance(width, (int, float))
+            else request.preferred_width
+        ),
+        allowed_layers=(
+            tuple(layers)
+            if isinstance(layers, (list, tuple)) and layers
+            else request.allowed_layers
+        ),
+        max_vias=int(max_vias) if isinstance(max_vias, int) else request.max_vias,
+        preserve_existing_routes=bool(c.get("preserve_existing", request.preserve_existing_routes)),
+        soft_regions=tuple(regions),
+        blocked_regions=tuple(request.blocked_regions) + tuple(locked_regions),
+    )
 
 
 def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:

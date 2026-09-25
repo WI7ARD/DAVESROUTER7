@@ -94,6 +94,7 @@ SelectionProvider = Callable[[], tuple[tuple[str, ...], tuple[str, ...]]]
 class AIEngineeringPanel(QWidget):
     configureRequested = Signal()
     runRequested = Signal(object)  # list[str] proposal ids (one, or a batch plan)
+    targetNetsChanged = Signal(object)  # list[str]: nets of the selected proposal
     historyChanged = Signal()
     statusIndicatorChanged = Signal(str, str)  # (text, colour)
 
@@ -599,6 +600,7 @@ class AIEngineeringPanel(QWidget):
             )
         else:
             self.proposal_view.setHtml(proposal_html(p, BoardFactService(session.board)))
+            self.targetNetsChanged.emit(session._command_nets(p.current))
         self._update_buttons()
 
     def _dispatch_decision(self, command: object) -> None:

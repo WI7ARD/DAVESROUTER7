@@ -190,6 +190,7 @@ class PcbCanvas(QGraphicsView):
         self._pan_last = QPointF()
         self._hover_key: tuple[ItemKind, str] | None = None
         self._generated: set[str] = set()
+        self._view_mode = "working"
 
     # ================================================================ public API
     @property
@@ -422,6 +423,7 @@ class PcbCanvas(QGraphicsView):
             self._set_overlay(self._selection_overlay, self._by_net.get(net, []))
         else:
             self._selection_overlay.setPath(QPainterPath())
+            self._apply_view_opacity()
 
     def select_object(self, kind: ItemKind, obj_id: str, *, center: bool = False) -> bool:
         """Highlight one object. Returns False if it is not on the canvas."""
@@ -663,6 +665,12 @@ class PcbCanvas(QGraphicsView):
             )
         if r.layers and not any(self._layer_visible.get(layer, True) for layer in r.layers):
             return False
+        if (
+            self._view_mode == "original"
+            and r.kind in (ItemKind.TRACK, ItemKind.VIA)
+            and r.obj_id in self._generated
+        ):
+            return False  # "Original": copper as in the file only
         if r.net is not None:
             if r.net in self._hidden_nets:
                 return False
@@ -677,7 +685,39 @@ class PcbCanvas(QGraphicsView):
             if r.kind in (ItemKind.LABEL, ItemKind.OUTLINE):
                 continue
             r.item.setVisible(self._record_visible(r))
+        self._apply_view_opacity()
         self._update_label_lod()
+
+    VIEW_MODES = ("working", "original", "overlay", "difference")
+
+    def set_view_mode(self, mode: str) -> None:
+        """Before/after views (Stage 8): working (everything), original (file copper
+        only), overlay (file copper dimmed), difference (only added copper at full
+        strength). Display only; never changes data."""
+        if mode not in self.VIEW_MODES:
+            raise ValueError(mode)
+        self._view_mode = mode
+        self._apply_visibility()
+
+    @property
+    def view_mode(self) -> str:
+        return self._view_mode
+
+    def _apply_view_opacity(self) -> None:
+        if self._highlight_net is not None:
+            return  # net highlighting owns opacity while active
+        mode = self._view_mode
+        for r in self._records:
+            if r.kind in (ItemKind.LABEL, ItemKind.OUTLINE):
+                continue
+            generated = r.kind in (ItemKind.TRACK, ItemKind.VIA) and r.obj_id in self._generated
+            if mode == "overlay":
+                opacity = 1.0 if generated else 0.35
+            elif mode == "difference":
+                opacity = 1.0 if generated else 0.12
+            else:
+                opacity = 1.0
+            r.item.setOpacity(opacity)
 
     def _update_label_lod(self) -> None:
         show = self._show_labels and self._show_footprints and self.px_per_mm >= LABEL_MIN_PX_PER_MM

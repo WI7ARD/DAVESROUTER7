@@ -102,6 +102,8 @@ class Router:
         self.engine = engine
         self.search_fn: SearchFn = search_fn or search
         self.backend_name = backend_name
+        #: record the cells a failed search explored (debug overlay / playback)
+        self.record_explored = False
 
     # ------------------------------------------------------------ public API
     def route_net(
@@ -290,11 +292,15 @@ class Router:
                     node_limit=norm.request.node_limit,
                     time_limit_s=norm.request.time_limit_s,
                     cancel=cancel,
+                    record_explored=self.record_explored,
                 )
                 result.metrics.expanded_nodes += outcome.expanded
                 result.metrics.searches += 1
                 if outcome.status is not SearchStatus.FOUND:
                     attempt.failure, attempt.message = self._search_failure(outcome, result)
+                    if outcome.explored is not None:
+                        result.explored = {"spec": grid.spec, "cells": outcome.explored,
+                                           "layers": grid.layers}  # fmt: skip
                     return attempt
                 connection, bad = self._geometry(grid, norm, outcome)
                 if not bad:
@@ -506,6 +512,12 @@ class Router:
                         fac = np.ones((grid.ny, grid.nx), dtype=np.float64)
                         grid.factor[li] = fac
                     fac.reshape(-1)[cells] = cm.corridor_prefer_factor
+        from pcbrouter.geometry.shapes import rectangle as _rect
+
+        for box in norm.request.blocked_regions:  # user region locks: hard for new copper
+            cells = grid.cells_within(_rect(box.center, box.width, box.height), norm.width / 2)
+            for li in range(len(grid.layers)):
+                grid.block(li, cells)
         geo = self.engine.geometry
         for uid in sorted(avoid_uids):  # e.g. generated routes the caller wants avoided
             item = geo.copper.get(uid)

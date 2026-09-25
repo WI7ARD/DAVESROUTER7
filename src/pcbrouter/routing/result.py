@@ -122,6 +122,8 @@ class RouteResult:
     connections_routed: int = 0
     #: approximate blocking statistics for failure explanations
     blockers: dict[str, int] = field(default_factory=dict)
+    #: failed-search explored cells (debug heat map; only when requested)
+    explored: dict[str, Any] | None = None
 
     @property
     def best(self) -> RouteCandidate | None:

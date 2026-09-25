@@ -183,6 +183,20 @@ class InspectorPanel(QWidget):
             return
         self.show_rows(*found)
 
+    def add_rows(self, section: str, rows: Rows) -> None:
+        """Append a titled block (e.g. the Stage 8 Route Inspector facts)."""
+        head = QTreeWidgetItem([section, ""])
+        font = head.font(0)
+        font.setBold(True)
+        head.setFont(0, font)
+        head.setFlags(head.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self._tree.addTopLevelItem(head)
+        for label, value in rows:
+            item = QTreeWidgetItem([label, value if value is not None else UNKNOWN])
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            head.addChild(item)
+        head.setExpanded(True)
+
     def row_values(self) -> dict[str, str]:
         """Displayed rows as a dict (used by tests and diagnostics)."""
         out = {}

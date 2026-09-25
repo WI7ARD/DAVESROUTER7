@@ -129,6 +129,7 @@ class RoutePanel(QWidget):
 
     def set_result(self, result: RouteResult | None) -> None:
         self.result = result
+        self._diff: list[str] = []
         self.cancel_button.setEnabled(False)
         self.list.blockSignals(True)
         self.list.clear()
@@ -163,6 +164,12 @@ class RoutePanel(QWidget):
             self.view.setHtml(candidate_html(result, None))
             self.candidateChanged.emit(None)
 
+    def set_diff(self, lines: list[str]) -> None:
+        """Before/after summary for the current candidate (computed in the background)."""
+        self._diff = lines
+        if self.result is not None:
+            self._on_row(self.list.currentRow())
+
     def next_alternative(self) -> None:
         n = self.list.count()
         if n > 1:
@@ -172,7 +179,15 @@ class RoutePanel(QWidget):
         if self.result is None:
             return
         cand = self.current
-        self.view.setHtml(candidate_html(self.result, cand))
+        html = candidate_html(self.result, cand)
+        diff = getattr(self, "_diff", [])
+        if diff and cand is not None and cand.label == "Best":
+            html += (
+                "<p><b>Change preview</b> (best candidate vs. working board):<br>"
+                + "<br>".join(d.replace("<", "&lt;") for d in diff)
+                + "</p>"
+            )
+        self.view.setHtml(html)
         self.candidateChanged.emit(cand)
 
     def _accept(self) -> None:
