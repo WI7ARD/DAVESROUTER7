@@ -73,3 +73,19 @@ def can_board(load_fixture: Callable[[str], LoadResult]):  # type: ignore[no-unt
 
 # Shared fixtures from test support modules.
 from tests.support.keyrings import memory_keyring, no_secure_keyring  # noqa: E402, F401
+
+
+def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+    """Hardware gate for GPU tests: probe once; without a device every ``gpu`` test
+    is reported SKIPPED (with the probe's reason), never failed."""
+    gpu_items = [item for item in items if item.get_closest_marker("gpu") is not None]
+    if not gpu_items:
+        return
+    from pcbrouter.compute.probe import gpu_gate
+
+    gate = gpu_gate("pytest-gpu-tests")
+    if gate.available:
+        return
+    marker = pytest.mark.skip(reason=f"GPU SKIPPED: {gate.reason}")
+    for item in gpu_items:
+        item.add_marker(marker)

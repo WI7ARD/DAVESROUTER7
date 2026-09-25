@@ -35,6 +35,7 @@ import numpy as np  # noqa: E402
 from pcbrouter import __version__  # noqa: E402
 from pcbrouter.compute.detection import detect_gpu  # noqa: E402
 from pcbrouter.compute.gpu_backend import GPUBackend  # noqa: E402
+from pcbrouter.compute.probe import SKIPPED, gpu_gate  # noqa: E402
 from pcbrouter.domain.units import mm_to_internal  # noqa: E402
 from pcbrouter.kicad.loader import load_board  # noqa: E402
 from pcbrouter.kicad.rule_adapter import load_project_rules  # noqa: E402
@@ -60,6 +61,22 @@ def main() -> int:
         "os": platform.platform(),
         "cpu": platform.processor() or platform.machine(),
     }
+    # Hardware gate first: no GPU device -> the self-test is SKIPPED (exit 0), not failed.
+    gate = gpu_gate("gpu-selftest")
+    report["gpu_probe"] = {"status": gate.status, "library": gate.library,
+                           "devices": list(gate.devices), "reason": gate.reason,
+                           "checks": list(gate.checks)}  # fmt: skip
+    print(gate.summary())
+    for check in gate.checks:
+        print(f"  probe: {check}")
+    if not gate.available:
+        report["status"] = SKIPPED
+        report["verdict"] = f"GPU self-test SKIPPED: {gate.reason}"
+        out = Path("gpu_selftest_result.json")
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"\n{report['verdict']}\nWrote {out.resolve()}")
+        return 0
+    report["status"] = "RAN"
     det = detect_gpu()
     report["gpu_detection"] = {
         "status": det.status.value,

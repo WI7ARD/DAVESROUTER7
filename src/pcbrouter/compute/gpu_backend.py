@@ -12,6 +12,7 @@ every route still passes the CPU exact validator (see docs/stage6.md).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from pcbrouter.compute.backend import (
@@ -22,6 +23,7 @@ from pcbrouter.compute.backend import (
     DeviceInfo,
 )
 from pcbrouter.compute.detection import GpuDetectionResult
+from pcbrouter.compute.probe import GpuProbe, gpu_gate, probe_gpu
 
 log = logging.getLogger(__name__)
 
@@ -46,9 +48,16 @@ def import_array_module(name: str) -> Any:
 
 
 class GPUBackend(ComputeBackend):
-    def __init__(self, detection: GpuDetectionResult, loader: Any = import_array_module) -> None:
+    def __init__(
+        self,
+        detection: GpuDetectionResult,
+        loader: Any = import_array_module,
+        probe: Callable[[], GpuProbe] | None = None,
+    ) -> None:
         self._detection = detection
         self._loader = loader
+        #: hardware gate: with no device the GPU is never initialised (job SKIPPED)
+        self._probe = probe or probe_gpu
         self._xp: Any = None
         self._error: str | None = None
         self._free_bytes: int | None = None
@@ -67,7 +76,7 @@ class GPUBackend(ComputeBackend):
     def available(self) -> bool:
         if self._xp is not None:
             return True
-        if self._detection.array_module is None:
+        if self._detection.array_module is None or not self._probe().available:
             return False
         try:
             self.initialize()
@@ -157,7 +166,11 @@ class GPUBackend(ComputeBackend):
     def initialize(self) -> None:
         if self._xp is not None:
             return
-        module = self._detection.array_module
+        gate = gpu_gate("gpu-backend-init", self._probe())
+        if not gate.available:
+            self._error = gate.summary()
+            raise BackendUnavailableError(f"{self._error} {GPU_NOT_IMPLEMENTED_NOTE}")
+        module = self._detection.array_module or gate.library
         if module is None:
             self._error = f"GPU backend unavailable ({self._detection.status.description})."
             raise BackendUnavailableError(f"{self._error} {GPU_NOT_IMPLEMENTED_NOTE}")

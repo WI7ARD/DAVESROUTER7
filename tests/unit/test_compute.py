@@ -134,12 +134,22 @@ class TestBackendsAndManager:
         def missing(name: str) -> object:
             raise ImportError(f"No module named {name!r}")
 
-        gpu = GPUBackend(
-            GpuDetectionResult(
-                GpuStatus.CUDA_DEVICE_DETECTED, (GpuDevice("RTX", "NVIDIA", "550", "8 GiB"),)
-            ),
-            loader=missing,
+        from pcbrouter.compute.probe import GpuProbe
+
+        det = GpuDetectionResult(
+            GpuStatus.CUDA_DEVICE_DETECTED, (GpuDevice("RTX", "NVIDIA", "550", "8 GiB"),)
         )
+        # 1) hardware gate: no device -> SKIPPED, the GPU library is never touched
+        calls: list[str] = []
+        absent = GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
+        skipped = GPUBackend(det, loader=lambda n: calls.append(n), probe=lambda: absent)
+        assert not skipped.available and calls == []
+        with pytest.raises(BackendUnavailableError, match="SKIPPED"):
+            skipped.initialize()
+        assert calls == []
+        # 2) device present but the array library missing -> unavailable, explained
+        present = GpuProbe(True, "cupy", ("RTX",))
+        gpu = GPUBackend(det, loader=missing, probe=lambda: present)
         assert not gpu.available  # hardware alone is not enough: the kernel must run
         assert gpu.capabilities == frozenset()
         info = gpu.device_info()
@@ -173,7 +183,10 @@ class TestBackendsAndManager:
                 return type("Pool", (), {"free_all_blocks": lambda self: None})()
 
         det = GpuDetectionResult(GpuStatus.CUDA_DEVICE_DETECTED, (GpuDevice("RTX", "NVIDIA"),))
-        gpu = GPUBackend(det, loader=lambda _name: FakeXp)
+        from pcbrouter.compute.probe import GpuProbe
+
+        present = GpuProbe(True, "cupy", ("RTX",))
+        gpu = GPUBackend(det, loader=lambda _name: FakeXp, probe=lambda: present)
         assert gpu.available and gpu.initialized
         assert gpu.device_info().name == "Fake GPU"
         ok, why = gpu.fits(cells=100_000, layers=2)
@@ -208,7 +221,9 @@ class TestBackendsAndManager:
         mgr = ComputeManager(gpu_detection=GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE))
         active = mgr.select(BackendKind.GPU)
         assert active is mgr.cpu and mgr.cpu.initialized
-        assert mgr.fallback_reason is not None and "unavailable" in mgr.fallback_reason
+        assert mgr.fallback_reason is not None and (
+            "unavailable" in mgr.fallback_reason or "SKIPPED" in mgr.fallback_reason
+        )
         assert mgr.select(BackendKind.CPU) is mgr.cpu
         assert mgr.fallback_reason is None
         mgr.shutdown()

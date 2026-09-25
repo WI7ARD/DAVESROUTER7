@@ -21,6 +21,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from pcbrouter.board_engine import BoardEngine
+from pcbrouter.compute.probe import SKIPPED, gpu_gate
 from pcbrouter.routing.router import Router
 from pcbrouter.routing.search.astar import SearchOutcome, SearchProblem, search
 from pcbrouter.routing.search.wavefront import wavefront_search
@@ -126,5 +127,9 @@ def router_for(
     mode = mode or mode_from_settings(compute)
     if mode is SearchMode.CPU or compute is None:
         return Router(engine, backend_name="cpu")
+    # Hardware gate: GPU acceleration is only scheduled when a device exists.
+    gate = gpu_gate("routing-acceleration")
+    if not gate.available:
+        return Router(engine, backend_name=f"cpu (GPU {SKIPPED}: {gate.reason})")
     hybrid = HybridSearch(mode, compute.gpu)
     return Router(engine, search_fn=hybrid, backend_name=f"hybrid-{mode.value}")

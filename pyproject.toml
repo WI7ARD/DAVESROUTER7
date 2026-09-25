@@ -130,5 +130,6 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers"
 markers = [
     "gui: tests that construct Qt widgets (run with QT_QPA_PLATFORM=offscreen in CI)",
+    "gpu: needs a real GPU device; auto-SKIPPED when the hardware probe finds none",
 ]
 qt_api = "pyside6"

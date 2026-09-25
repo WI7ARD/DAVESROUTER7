@@ -47,3 +47,33 @@ timings: NOT RUN** — no CUDA or oneAPI device was available. On an integrated 
 such as Iris Xe, expect modest gains at best for boards of this size; the benefit
 grows with grid size. Occupancy and cost-field generation stay on the CPU (NumPy),
 which is already ~12 ms for a 40 × 30 mm board at 0.1 mm.
+
+## Hardware gate (mandatory for every GPU-dependent job)
+Nothing GPU-related is scheduled until a **hardware probe** says a device exists
+(`compute/probe.py`):
+
+1. CUDA: `nvidia-smi -L` lists devices, and CuPy's `getDeviceCount()` confirms them
+   when CuPy is installed;
+2. Intel oneAPI: an Intel display adapter is present, and dpctl can create a SYCL
+   GPU device when dpctl is installed;
+3. the matching array library (CuPy / dpnp) must be importable.
+
+No device → the job is **SKIPPED** with a reason (never FAILED) and the work runs on
+the CPU. Where the gate is applied today:
+
+| job | behaviour without a device |
+|---|---|
+| `GPUBackend.available` / `initialize()` | False / `BackendUnavailableError("GPU SKIPPED: …")`; the array library is never imported |
+| routing acceleration (`routing/backend.router_for`) | CPU router named `cpu (GPU SKIPPED: …)` |
+| `tools/gpu_selftest.py` | writes `{"status": "SKIPPED", …}`, exit 0 |
+| `tools/bench_router.py` | prints `GPU benchmark: SKIPPED (reason)` |
+| pytest `@pytest.mark.gpu` | auto-skipped with reason `GPU SKIPPED: …` |
+| CI `.github/workflows/gpu.yml` | probe step (`tools/gpu_probe.py`) sets `available`; GPU steps have `if: available == 'true'`, otherwise a `GPU SKIPPED` notice and the job succeeds |
+
+**Rule for any future GPU stage:** call `gpu_gate(job)` (returns the probe) or
+`require_gpu(job)` (raises `GpuJobSkipped`) *before* scheduling GPU work; mark
+tests `@pytest.mark.gpu`; in CI, condition the steps on the probe output.
+`tests/unit/test_gpu_gate.py` enforces part of this statically: GPU libraries may
+be imported only in `gpu_backend.py`/`probe.py`, and every tool that touches the GPU
+backend must call `gpu_gate(`. The probe is cached; `reset_probe()` re-runs it after
+installing drivers or libraries.

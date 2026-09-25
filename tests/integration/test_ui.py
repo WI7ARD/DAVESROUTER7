@@ -567,3 +567,17 @@ def test_dimmed_objects_remain_clickable(
     click(qtbot, window.canvas, 113.0, 100.0)  # a /SIG via, dimmed by the GND highlight
     assert window.inspector.title == "Via"
     assert window.canvas.highlighted_net is None
+
+
+def test_gpu_mode_without_device_shows_skipped(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pcbrouter.compute import probe
+    from pcbrouter.settings.settings import ComputeBackendChoice
+
+    absent = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
+    monkeypatch.setattr(probe, "probe_gpu", lambda: absent)
+    window.settings.default_compute_backend = ComputeBackendChoice.AUTO
+    window._update_backend_label()
+    assert "GPU: SKIPPED" in window.lbl_backend.text()
+    assert "no CUDA or oneAPI GPU device found" in window.lbl_backend.toolTip()

@@ -12,7 +12,10 @@ from pcbrouter.kicad.errors import KiCadLoadError
 
 log = logging.getLogger(__name__)
 
-READ_ONLY_MESSAGE = "Board modification is disabled: this build is read-only (Stage 1)."
+READ_ONLY_MESSAGE = (
+    "Overwriting the source board is disabled (default policy): export a new file, or "
+    "enable overwriting in Settings (a backup is made first)."
+)
 
 Listener = Callable[[BaseCommand, CommandResult], None]
 

@@ -35,7 +35,7 @@ from pcbrouter.compute.detection import GpuDetectionResult
 from pcbrouter.compute.manager import ComputeManager
 from pcbrouter.kicad.adapter import WarningSeverity
 from pcbrouter.project.manager import ProjectSession
-from pcbrouter.settings.settings import AppSettings, SettingsStore
+from pcbrouter.settings.settings import AppSettings, ComputeBackendChoice, SettingsStore
 from pcbrouter.ui import dialogs
 from pcbrouter.ui.ai_controller import AIRequestController
 from pcbrouter.ui.ai_dialogs import UsageDialog
@@ -598,10 +598,20 @@ class MainWindow(QMainWindow):
 
     def _update_backend_label(self) -> None:
         det = self.compute.gpu.detection
-        self.lbl_backend.setText(f"{self.compute.active.name} · GPU: {det.status.short_label}")
+        gpu_text = det.status.short_label
+        gate_note = ""
+        if self.settings.default_compute_backend is not ComputeBackendChoice.CPU:
+            # a GPU mode is selected: the hardware gate decides whether it can run
+            from pcbrouter.compute.probe import gpu_gate
+
+            gate = gpu_gate("ui-status")
+            if not gate.available:
+                gpu_text = "SKIPPED"
+                gate_note = f"\nGPU routing SKIPPED ({gate.reason}); searches run on the CPU."
+        self.lbl_backend.setText(f"{self.compute.active.name} · GPU: {gpu_text}")
         self.lbl_backend.setToolTip(
-            f"Active compute backend: {self.compute.active.name}\nGPU: {det.summary()}\n"
-            "Details: Tools ▸ Compute Backend Information"
+            f"Active compute backend: {self.compute.active.name}\nGPU: {det.summary()}"
+            f"{gate_note}\nDetails: Tools ▸ Compute Backend Information"
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:

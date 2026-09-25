@@ -22,6 +22,7 @@ import numpy as np
 
 from pcbrouter.compute.detection import detect_gpu
 from pcbrouter.compute.gpu_backend import GPUBackend
+from pcbrouter.compute.probe import gpu_gate
 from pcbrouter.domain.units import mm_to_internal
 from pcbrouter.kicad.loader import load_board
 from pcbrouter.kicad.rule_adapter import load_project_rules
@@ -42,8 +43,9 @@ def main(argv: list[str]) -> int:
     assert box is not None
     cell = mm_to_internal(0.1)
     cells = (box.width // cell + 1) * (box.height // cell + 1)
+    gate = gpu_gate("gpu-benchmark")  # hardware gate before any GPU work
     gpu = GPUBackend(detect_gpu())
-    gpu_ok = gpu.available
+    gpu_ok = gate.available and gpu.available
     print(
         f"machine: {platform.machine()} {platform.processor()} · Python {platform.python_version()}"
     )
@@ -85,7 +87,7 @@ def main(argv: list[str]) -> int:
     res = BoardRouter(wb, BoardRouterSettings()).run()
     print(f"board routing (CPU): {res.summary()} [{time.perf_counter() - t0:.1f} s]")
     if not gpu_ok:
-        print("GPU benchmark: NOT RUN (no usable GPU backend on this machine)")
+        print(f"GPU benchmark: SKIPPED ({gate.reason or gpu.last_error or 'backend unavailable'})")
     return 0
 
 
