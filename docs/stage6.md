@@ -77,3 +77,39 @@ tests `@pytest.mark.gpu`; in CI, condition the steps on the probe output.
 be imported only in `gpu_backend.py`/`probe.py`, and every tool that touches the GPU
 backend must call `gpu_gate(`. The probe is cached; `reset_probe()` re-runs it after
 installing drivers or libraries.
+
+## Using the GPU in the app (e.g. Intel Iris Xe on a laptop)
+1. Install the latest Intel graphics driver (it provides the Level Zero/OpenCL
+   GPU compute runtime dpnp needs).
+2. Run the app from a Python install, not the Setup.exe build (see the limitation
+   below):
+   ```
+   git clone -b claude/vigilant-cray-pghyx8 https://github.com/WI7ARD/DAVESROUTER7
+   cd DAVESROUTER7
+   py -3.12 -m venv .venv
+   .venv\Scripts\activate
+   pip install -e ".[gpu-intel]"      # NVIDIA instead: pip install -e ".[gpu-cuda]"
+   python tools\gpu_probe.py          # should print "status": "AVAILABLE"
+   pcbrouter
+   ```
+3. Settings ▸ Compute ▸ Default backend: **GPU** (every search on the GPU) or
+   **Auto** (GPU only for grids ≥ 2 M cells — on typical small boards Auto stays on
+   the CPU). The status bar shows `GPU: ready (dpnp)` once the device initialised
+   and `Routing: Ready (GPU)`.
+4. Open a board and use **Tools ▸ Test GPU on This Board…**: it routes up to 8
+   incomplete nets with the CPU A* and with the GPU wavefront, validates every
+   route with the exact engine and shows timings (nothing is added to the board).
+5. Route as usual (Route Selected Net, Route Board, AI "Run with Router"): the
+   Route Review panel's backend line shows `hybrid-gpu (cpu N, gpu M, …)`, i.e.
+   how many searches actually ran on the GPU.
+
+Honest expectations: every GPU route still goes through the same simplifier and
+exact CPU validator, so the GPU can never make an illegal route legal. The
+wavefront has no bend penalties, so GPU routes may have more bends than CPU A*
+routes. On an integrated GPU with small boards the GPU is often *not* faster
+(transfer/launch overhead); the in-app test tells you which is faster on your
+board.
+
+**Limitation:** the Windows installer (Setup.exe) does not bundle dpnp/CuPy (the
+GPU runtimes are large and hardware-specific), so the installed app always shows
+GPU SKIPPED/unavailable. GPU routing needs the Python install above.

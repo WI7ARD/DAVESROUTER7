@@ -608,6 +608,12 @@ class MainWindow(QMainWindow):
             if not gate.available:
                 gpu_text = "SKIPPED"
                 gate_note = f"\nGPU routing SKIPPED ({gate.reason}); searches run on the CPU."
+            elif self.compute.gpu.initialized:
+                gpu_text = f"ready ({gate.library})"
+                gate_note = "\nGPU routing is active for the selected mode."
+            else:
+                gpu_text = f"{gate.library} found"
+                gate_note = "\nThe GPU is initialised on the first routing job."
         self.lbl_backend.setText(f"{self.compute.active.name} · GPU: {gpu_text}")
         self.lbl_backend.setToolTip(
             f"Active compute backend: {self.compute.active.name}\nGPU: {det.summary()}"

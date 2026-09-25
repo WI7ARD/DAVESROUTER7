@@ -145,7 +145,13 @@ class SettingsDialog(QDialog):
                 "The CPU A* router is the reference and always available. A GPU "
                 "(NVIDIA via CuPy, Intel via dpnp) accelerates the wavefront search when "
                 "installed; every route is still checked by the CPU exact validator, and "
-                "any GPU problem falls back to the CPU."
+                "any GPU problem falls back to the CPU. Choose GPU to use it for every "
+                "search; Auto uses it only for large grids (at least 2 million cells), "
+                "where it is likely faster. Via-limited searches always use the CPU. "
+                "Check it with Tools ▸ Test GPU on This Board. If the GPU entries are "
+                "disabled, no usable device/library was found: for Intel Iris Xe/Arc, "
+                "install the Intel graphics driver and 'pip install dpnp'; for NVIDIA, "
+                "'pip install cupy-cuda12x'."
             )
         )
         return w

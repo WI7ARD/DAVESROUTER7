@@ -293,7 +293,7 @@ class GeometryController(QObject):
             geo.build_seconds * 1e3, secs * 1e3,
         )  # fmt: skip
         self.lbl_geometry.setText("Geometry: Ready")
-        self.lbl_routing.setText(ROUTING_STATUS)
+        self.lbl_routing.setText(self.routing_status())
         self.lbl_geometry.setToolTip(
             f"{len(geo.copper)} copper objects, {len(geo.holes)} holes, {len(geo.keepouts)} "
             f"keepout areas · {geo.hole_index.kind} index · board region {geo.region.status.value}"
@@ -331,7 +331,18 @@ class GeometryController(QObject):
         self._refresh_debug_overlays()
 
     def routing_status(self) -> str:
-        return ROUTING_STATUS if self.engine is not None else "Routing: —"
+        if self.engine is None:
+            return "Routing: —"
+        from pcbrouter.settings.settings import ComputeBackendChoice
+
+        choice = self.w.settings.default_compute_backend
+        if choice is ComputeBackendChoice.CPU:
+            return ROUTING_STATUS
+        from pcbrouter.compute.probe import gpu_gate
+
+        if not gpu_gate("ui-status").available:
+            return "Routing: Ready (CPU — GPU skipped: no device)"
+        return f"Routing: Ready ({'GPU' if choice is ComputeBackendChoice.GPU else 'AUTO'})"
 
     def _job_failed(self, message: str, detail: str) -> None:
         self.last_error = message

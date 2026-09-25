@@ -103,6 +103,14 @@ class RoutingController(QObject):
         self.board_panel.cancelRequested.connect(self.cancel)
         self.board_panel.acceptRequested.connect(self.accept_board)
         self.board_panel.rejectRequested.connect(self.reject_board)
+        self.act_gpu_check = QAction("Test &GPU on This Board…", window)
+        self.act_gpu_check.setStatusTip(
+            "Route a few incomplete nets with the CPU and with the GPU, validate every "
+            "route, and compare (nothing is added to the board)"
+        )
+        self.act_gpu_check.triggered.connect(self.test_gpu)
+        self.last_gpu_check: Any = None
+        self.gpu_box: Any = None
         self.act_reset = QAction("Reset &Working Board…", window)
         self.act_reset.setStatusTip("Remove all routed copper (back to the source board)")
         self.act_reset.triggered.connect(self.reset_working)
@@ -122,6 +130,7 @@ class RoutingController(QObject):
         )
         w.tabifyDockWidget(w.docks["log"], w.docks["jobs"])
         w.docks["log"].raise_()
+        w.menu_tools.addAction(self.act_gpu_check)
 
     @property
     def project(self) -> Any:
@@ -143,6 +152,7 @@ class RoutingController(QObject):
         has = self.project.session is not None
         self.act_route_net.setEnabled(has)
         self.act_route_board.setEnabled(has)
+        self.act_gpu_check.setEnabled(has)
         for act in self.optimize_actions.values():
             act.setEnabled(has)
         self.act_reset.setEnabled(has and bool(self._working and self._working.modified))
@@ -150,6 +160,8 @@ class RoutingController(QObject):
     def shutdown(self) -> None:
         self.cancel()
         self.jobs.wait(10_000)
+        if self.gpu_box is not None:
+            self.gpu_box.close()
 
     # ------------------------------------------------------------ routing
     def selected_net(self) -> str | None:
@@ -238,6 +250,52 @@ class RoutingController(QObject):
         dock.raise_()
         self.w.engine_ui.lbl_routing.setText(f"Routing: {request.net}…")
         return self.jobs.start("route", job, self._done, self._failed)
+
+    def test_gpu(self) -> bool:
+        """Tools ▸ Test GPU: gated CPU-vs-GPU comparison on the open board."""
+        from pcbrouter.routing.connectivity import NetStatus
+        from pcbrouter.routing.gpu_check import run_gpu_check
+
+        wb = self.project.working
+        if wb is None:
+            return False
+        if self.jobs.is_running("gpu_check"):
+            return False
+        engine = wb.engine
+        nets = sorted(
+            name
+            for name, c in engine.connectivity.nets.items()
+            if c.status in (NetStatus.UNROUTED, NetStatus.PARTIALLY_CONNECTED)
+        )
+        if not nets:
+            self.w.statusBar().showMessage("GPU check: no incomplete nets to route.", 6000)
+            return False
+        gpu = self.w.compute.gpu
+        base = self.request_for(nets[0])
+        cancel = threading.Event()
+        self.cancel_event = cancel
+
+        def job() -> Any:
+            return run_gpu_check(engine, gpu, nets, cancel=cancel, base_request=base)
+
+        self.w.statusBar().showMessage("GPU check running…")
+        return self.jobs.start("gpu_check", job, self._gpu_check_done, self._failed)
+
+    def _gpu_check_done(self, result: Any, _secs: float) -> None:
+        self.last_gpu_check = result
+        self.w.statusBar().showMessage(result.verdict, 15000)
+        self.w._update_backend_label()
+        from PySide6.QtWidgets import QMessageBox
+
+        if self.gpu_box is not None:
+            self.gpu_box.close()
+        box = QMessageBox(self.w)  # non-modal: routing stays usable
+        box.setWindowTitle("GPU Check")
+        box.setText(result.verdict)
+        box.setDetailedText(result.text())
+        box.setModal(False)
+        box.show()
+        self.gpu_box = box
 
     def cancel(self) -> None:
         if self.cancel_event is not None:
