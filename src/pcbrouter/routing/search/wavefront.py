@@ -105,6 +105,8 @@ def wavefront_search(
                     xp, passable[li], 0, dx, False
                 )
     via_cost = float(problem.via_cost)
+    step_diag = [s * SQRT2 for s in step]  # constant: computed once, not per sweep
+    has_target = [bool(t.any()) for t in targets]  # constant: checked once, not per sweep
     iterations = 0
     status = SearchStatus.NO_PATH
     deadline = t0 + time_limit_s
@@ -116,12 +118,17 @@ def wavefront_search(
         new_dist = []
         for li in range(nl):
             d = dist[li]
+            # one padded copy per layer per sweep; each neighbour is a zero-copy view
+            # (the old per-direction shifted copies cost two device ops each)
+            pad = xp.full((ny + 2, nx + 2), INF, dtype=d.dtype)
+            pad[1:-1, 1:-1] = d
             cand = d
             for dy, dx in dirs:
-                mult = SQRT2 if (dy and dx) else 1.0
-                arrived = _shift(xp, d, dy, dx, INF) + step[li] * mult
+                view = pad[1 - dy : 1 - dy + ny, 1 - dx : 1 - dx + nx]
                 if dy and dx:
-                    arrived = xp.where(diag_ok[(li, dy, dx)], arrived, INF)
+                    arrived = xp.where(diag_ok[(li, dy, dx)], view + step_diag[li], INF)
+                else:
+                    arrived = view + step[li]
                 cand = xp.minimum(cand, arrived)
             new_dist.append(xp.where(passable[li], cand, INF))
         if via_ok is not None:
@@ -131,15 +138,28 @@ def wavefront_search(
             for li in range(nl):
                 viad = xp.where(via_ok & passable[li], best + via_cost, INF)
                 new_dist[li] = xp.minimum(new_dist[li], viad)
+        # Stop test with ONE device→host transfer per sweep (no boolean-mask
+        # gathers): on a GPU every float()/bool() is a synchronisation, and the old
+        # per-layer checks cost ~4 of them per layer per sweep. Same values: an
+        # improved cell always has a finite new distance, so "changed" ⇔ min < INF.
+        mins = []
         for li in range(nl):
             improved = new_dist[li] < dist[li]
-            if bool(improved.any()):
-                changed_any = True
-                min_changed = min(min_changed, float(new_dist[li][improved].min()))
+            mins.append(xp.min(xp.where(improved, new_dist[li], INF)))
             dist[li] = new_dist[li]
-            t = targets[li]
-            if bool(t.any()):
-                best_target = min(best_target, float(dist[li][t].min()))
+            if has_target[li]:
+                mins.append(xp.min(xp.where(targets[li], dist[li], INF)))
+        host_mins = np.asarray(_to_host(xp, xp.stack(mins)), dtype=np.float64)
+        k = 0
+        for li in range(nl):
+            m = float(host_mins[k])
+            k += 1
+            if m < INF:
+                changed_any = True
+                min_changed = min(min_changed, m)
+            if has_target[li]:
+                best_target = min(best_target, float(host_mins[k]))
+                k += 1
         if not changed_any or (best_target < INF and min_changed >= best_target):
             status = SearchStatus.FOUND if best_target < INF else SearchStatus.NO_PATH
             break
