@@ -10,7 +10,7 @@ and formatting stay exactly as KiCad wrote them.
 
 1. The source SHA-256 must still match the file opened. Otherwise the export is
    refused with `EXPORT_BLOCKED_SOURCE_CHANGED`.
-2. The file version must be 20211014–20251231 (KiCad 6–9). Otherwise
+2. The file version must be 20211014–20261231 (KiCad 6–10). Otherwise
    `EXPORT_BLOCKED_UNSUPPORTED_CONSTRUCT`, and nothing is written.
 3. The working board must contain all source copper, because export only adds.
    Otherwise `EXPORT_BLOCKED_UNSUPPORTED_CONSTRUCT`.

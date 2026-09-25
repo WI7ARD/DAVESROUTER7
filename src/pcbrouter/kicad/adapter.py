@@ -8,7 +8,7 @@ This is the *only* module that understands KiCad board semantics. It must:
   that cannot be understood are skipped and reported as :class:`LoadWarning` —
   never silently dropped and never guessed at.
 
-Supported format range: KiCad 5 (format 20171130) up to KiCad 9 (20241229). Newer
+Supported format range: KiCad 5 (format 20171130) up to KiCad 10 (20260206). Newer
 formats are loaded best-effort with a warning.
 """
 
@@ -65,10 +65,11 @@ log = logging.getLogger(__name__)
 
 #: KiCad 5.0 file format. Older (KiCad 4 "version 4") files use different syntax.
 MIN_SUPPORTED_VERSION = 20171130
-#: Newest format this adapter has been written against (KiCad 9.0).
-NEWEST_KNOWN_VERSION = 20241229
+#: Newest format this adapter has been checked against (KiCad 10.0).
+NEWEST_KNOWN_VERSION = 20260206
 
 _KICAD_MAJOR_BY_VERSION: tuple[tuple[int, str], ...] = (
+    (20260206, "10"),
     (20241229, "9"),
     (20240108, "8"),
     (20221018, "7"),

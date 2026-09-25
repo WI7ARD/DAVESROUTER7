@@ -49,6 +49,11 @@ pcbrouter --freeroute BOARD.kicad_pcb --output OUT.kicad_pcb [--passes N]
 `--freeroute` refuses to overwrite the source and exports through the same
 validated pipeline as the app.
 
+## KiCad versions
+Boards from KiCad 6–10 (file format up to 20261231) can be routed and exported.
+KiCad 10 references nets by name (`(net "GND")`); new copper is written the same
+way. Newer formats are refused until tested.
+
 ## Testing status
 - Automated tests use stand-ins for KiCad's Python and for Freerouting
   (`tests/support/fake_pcbnew`, `tests/support/fake_freerouting.py`).

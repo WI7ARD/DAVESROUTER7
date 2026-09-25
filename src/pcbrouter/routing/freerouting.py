@@ -333,7 +333,7 @@ def freeroute(
     """The whole pipeline (worker job and ``--freeroute`` CLI)."""
     from pcbrouter.kicad.loader import load_board
     from pcbrouter.kicad.specctra_bridge import export_dsn, find_kicad_python, import_ses
-    from pcbrouter.kicad.writer import compose
+    from pcbrouter.kicad.writer import ExportError, compose
 
     def tell(phase: str, **info: Any) -> None:
         if progress is not None:
@@ -353,15 +353,18 @@ def freeroute(
         src_ids = {t.id for t in working.source.tracks} | {v.id for v in working.source.vias}
         codes = {n.name: n.code for n in working.source.nets if n.code is not None}
         board_file = d / "working.kicad_pcb"
-        board_file.write_text(
-            compose(
-                src_text,
-                [t for t in working.board.tracks if t.id not in src_ids],
-                [v for v in working.board.vias if v.id not in src_ids],
-                codes,
-            ),
-            encoding="utf-8",
-        )
+        added_t = [t for t in working.board.tracks if t.id not in src_ids]
+        added_v = [v for v in working.board.vias if v.id not in src_ids]
+        if not added_t and not added_v:
+            shutil.copy2(source_path, board_file)  # nothing accepted yet: the file as is
+        else:
+            try:
+                text = compose(src_text, added_t, added_v, codes)
+            except ExportError as exc:
+                raise FreeroutingError(
+                    f"could not prepare the board for Freerouting: {exc}"
+                ) from exc
+            board_file.write_text(text, encoding="utf-8")
         pro = source_path.with_suffix(".kicad_pro")
         if pro.exists():  # KiCad reads net classes/rules from the project file
             shutil.copy2(pro, d / "working.kicad_pro")

@@ -9,7 +9,7 @@ Every construct we do not understand is therefore preserved verbatim.
 Safety gates, in order (any failure blocks the export and writes nothing):
 
 1. the source file must still have the SHA-256 recorded when it was opened;
-2. the file format version must be one this writer supports (KiCad 6 … 9);
+2. the file format version must be one this writer supports (KiCad 6 … 10);
 3. the working board may only *add* copper to the source (never remove any);
 4. every new object's net must resolve to the file's net reference style;
 5. the result is parsed again and must contain exactly the source objects plus
@@ -44,9 +44,9 @@ from pcbrouter.domain.via import Via
 
 log = logging.getLogger(__name__)
 
-#: KiCad 6.0 (20211014) … KiCad 9 (20241229). Newer formats are refused until tested.
+#: KiCad 6.0 (20211014) … KiCad 10 (20260206). Newer formats are refused until tested.
 MIN_EXPORT_VERSION = 20211014
-MAX_EXPORT_VERSION = 20251231
+MAX_EXPORT_VERSION = 20261231
 ROUTED_SUFFIX = "_routed"
 SIDECAR_SUFFIX = ".pcbrouter.json"
 SIDECAR_FORMAT = "pcbrouter-export-provenance/1"
@@ -125,7 +125,7 @@ def detect_style(text: str) -> FileStyle:
         raise ExportError(
             ExportStatus.EXPORT_BLOCKED_UNSUPPORTED_CONSTRUCT,
             f"file format version {version} is outside the supported export range "
-            f"{MIN_EXPORT_VERSION}–{MAX_EXPORT_VERSION} (KiCad 6–9). Open and save the "
+            f"{MIN_EXPORT_VERSION}–{MAX_EXPORT_VERSION} (KiCad 6–10). Open and save the "
             "board in a supported KiCad version first; nothing was written.",
         )
     quoted = re.search(r'\(layer\s+"', text) is not None or version >= 20211014
