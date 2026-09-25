@@ -8,17 +8,19 @@ both run on the same services.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import logging
 import multiprocessing
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pcbrouter import APP_NAME, APP_SLUG, __version__
 from pcbrouter.ai.service import AIService
@@ -56,9 +58,10 @@ def build_services(
         gpu_detection=None if detect_gpu_now else GpuDetectionResult(GpuStatus.PENDING)
     )
     preferred = (
-        BackendKind.GPU if settings.default_compute_backend is ComputeBackendChoice.GPU
+        BackendKind.GPU
+        if settings.default_compute_backend is ComputeBackendChoice.GPU
         else BackendKind.CPU
-    )  # fmt: skip
+    )
     compute.select(preferred if detect_gpu_now else BackendKind.CPU)
     if not detect_gpu_now and preferred is BackendKind.GPU:
         compute.fallback_reason = "GPU routing runs in the routing worker process"
@@ -106,6 +109,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "packages, credential store) and exit",
     )
     parser.add_argument(
+        "--setup-gpu",
+        action="store_true",
+        help="detect the GPU, install the matching GPU library (pip) and test it",
+    )
+    parser.add_argument(
         "--worker-selftest",
         action="store_true",
         help="start the routing worker process, run a synthetic job (and route BOARD "
@@ -120,6 +128,66 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def setup_gpu_cli() -> int:
+    """``--setup-gpu``: detect → pip install the right library → deep probe in a
+    fresh process (where the new library can be imported)."""
+    import subprocess
+
+    from pcbrouter.compute.detection import detect_gpu
+    from pcbrouter.compute.gpu_setup import pip_command, plan_setup
+
+    plan = plan_setup(detect_gpu())
+    print(plan.text())
+    if plan.package is None:
+        return 0
+    if not plan.installed:
+        if not plan.can_install:
+            return 1
+        cmd = pip_command(plan.package)
+        print("$ " + " ".join(cmd))
+        if subprocess.run(cmd, check=False, timeout=1800).returncode != 0:
+            print("pip install failed; see the output above.")
+            return 1
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pcbrouter.compute.probe import probe_gpu; " "print(probe_gpu().summary())",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    print(probe.stdout.strip() or probe.stderr.strip()[-500:])
+    ok = "GPU available" in probe.stdout
+    print(
+        "GPU ready: choose GPU in Settings ▸ Compute (or Tools ▸ Set Up GPU…)."
+        if ok
+        else "GPU not usable yet: update the graphics driver, then run --setup-gpu again."
+    )
+    return 0 if ok else 1
+
+
+_CRASH_LOG: Any = None
+
+
+def enable_crash_log(log_file: Path | None) -> None:
+    """Native crashes (e.g. inside a GPU driver or Qt) kill Python without an
+    exception; faulthandler still writes every thread's stack to crash.log next to
+    the log file, so the cause can be found afterwards."""
+    global _CRASH_LOG
+    if log_file is None:
+        return
+    try:
+        _CRASH_LOG = open(log_file.with_name("crash.log"), "a", encoding="utf-8")  # noqa: SIM115
+        _CRASH_LOG.write(f"--- {APP_NAME} {__version__} started {time.ctime()} ---\n")
+        _CRASH_LOG.flush()
+        faulthandler.enable(file=_CRASH_LOG, all_threads=True)
+    except OSError as exc:
+        log.warning("app.crash_log_unavailable error=%s", exc)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # The routing worker is a spawned copy of this program: in a frozen build that
     # invocation must become the worker, never a second application window.
@@ -130,6 +198,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(f"{APP_NAME} {__version__}")
         return 0
+    if args.setup_gpu:
+        return setup_gpu_cli()
     if args.worker_selftest:
         from pcbrouter.jobs.selftest import run_worker_selftest
 
@@ -152,6 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     log_startup_banner()
     log.info("app.log_file path=%s", log_file)
+    enable_crash_log(log_file)
     if headless:
         from pcbrouter.app.cli import run_cli
 

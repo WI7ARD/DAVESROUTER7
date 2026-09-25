@@ -49,7 +49,7 @@ class GpuProbe:
         return f"GPU {SKIPPED}: {self.reason}"
 
 
-def _cuda_devices() -> tuple[list[str], list[str]]:
+def _cuda_devices(deep: bool = True) -> tuple[list[str], list[str]]:
     checks: list[str] = []
     exe = shutil.which("nvidia-smi")
     if exe is None:
@@ -68,7 +68,7 @@ def _cuda_devices() -> tuple[list[str], list[str]]:
         if ln.startswith("GPU ") and ":" in ln
     ]
     checks.append(f"nvidia-smi: {len(names)} device(s)")
-    if names and importlib.util.find_spec("cupy") is not None:
+    if deep and names and importlib.util.find_spec("cupy") is not None:
         try:
             cp = importlib.import_module("cupy")
             count = int(cp.cuda.runtime.getDeviceCount())
@@ -81,7 +81,7 @@ def _cuda_devices() -> tuple[list[str], list[str]]:
     return names, checks
 
 
-def _oneapi_devices() -> tuple[list[str], list[str]]:
+def _oneapi_devices(deep: bool = True) -> tuple[list[str], list[str]]:
     checks: list[str] = []
     det = detect_gpu()
     intel = [d.name for d in det.devices if d.vendor == "Intel"]
@@ -89,7 +89,7 @@ def _oneapi_devices() -> tuple[list[str], list[str]]:
         checks.append("no Intel GPU adapter found")
         return [], checks
     checks.append(f"Intel adapter(s): {', '.join(intel)}")
-    if importlib.util.find_spec("dpctl") is not None:
+    if deep and importlib.util.find_spec("dpctl") is not None:
         try:
             dpctl = importlib.import_module("dpctl")
             devices = dpctl.get_devices(device_type="gpu")
@@ -105,9 +105,23 @@ def _oneapi_devices() -> tuple[list[str], list[str]]:
 
 @lru_cache(maxsize=1)
 def probe_gpu() -> GpuProbe:
-    """Cached probe (call :func:`reset_probe` after installing drivers/libraries)."""
+    """Cached full probe (imports CuPy/dpctl to confirm devices). Use it only where
+    GPU work will run — the routing worker process. Call :func:`reset_probe` after
+    installing drivers/libraries."""
+    return _probe(deep=True)
+
+
+@lru_cache(maxsize=1)
+def probe_gpu_light() -> GpuProbe:
+    """Probe for the GUI process: driver-level checks and "is the package
+    installed" only. Never imports CuPy/dpnp/dpctl, so no GPU runtime is ever
+    initialised in the GUI (a vendor runtime crash cannot take the window down)."""
+    return _probe(deep=False)
+
+
+def _probe(deep: bool) -> GpuProbe:
     try:
-        cuda, checks = _cuda_devices()
+        cuda, checks = _cuda_devices(deep)
         if cuda:
             has_lib = importlib.util.find_spec("cupy") is not None
             if not has_lib:
@@ -119,7 +133,7 @@ def probe_gpu() -> GpuProbe:
                     tuple(checks),
                 )
             return GpuProbe(True, "cupy", tuple(cuda), "", tuple(checks))
-        intel, more = _oneapi_devices()
+        intel, more = _oneapi_devices(deep)
         checks += more
         if intel:
             if importlib.util.find_spec("dpnp") is None:
@@ -139,6 +153,7 @@ def probe_gpu() -> GpuProbe:
 
 def reset_probe() -> None:
     probe_gpu.cache_clear()
+    probe_gpu_light.cache_clear()
 
 
 class GpuJobSkipped(RuntimeError):  # noqa: N818 - a skip, not an error

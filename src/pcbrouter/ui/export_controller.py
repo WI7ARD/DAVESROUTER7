@@ -333,7 +333,7 @@ class ExportController:
 
     # ------------------------------------------------------------ diagnostics
     def diagnostics_info(self) -> dict[str, Any]:
-        from pcbrouter.compute.probe import probe_gpu
+        from pcbrouter.compute.probe import probe_gpu_light
         from pcbrouter.kicad.kicad_cli import find_kicad_cli
         from pcbrouter.ui import dialogs
 
@@ -341,7 +341,7 @@ class ExportController:
         settings.pop("recent_boards", None)  # file paths are not needed
         settings.pop("last_open_directory", None)
         settings.pop("window", None)
-        gpu = probe_gpu()
+        gpu = probe_gpu_light()  # never import GPU runtimes in the GUI process
         kicad = find_kicad_cli()
         session = self.project.session
         working = self.project.working

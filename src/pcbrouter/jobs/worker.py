@@ -111,9 +111,32 @@ def memory_info() -> tuple[int | None, int | None]:
         return None, None
 
 
+_CRASH_FILE: Any = None
+
+
+def _enable_worker_crash_log() -> None:
+    """A native crash in the worker (GPU driver, NumPy build…) is caught by the GUI
+    as "worker stopped (exit code …)"; the stack goes to worker-crash.log."""
+    global _CRASH_FILE
+    import faulthandler
+
+    try:
+        from pcbrouter.utils.paths import log_dir
+
+        path = log_dir() / "worker-crash.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _CRASH_FILE = open(path, "a", encoding="utf-8")  # noqa: SIM115
+        _CRASH_FILE.write(f"--- routing worker pid {os.getpid()} {time.ctime()} ---\n")
+        _CRASH_FILE.flush()
+        faulthandler.enable(file=_CRASH_FILE, all_threads=True)
+    except OSError:
+        pass
+
+
 def worker_main(inbox: Any, outbox: Any, cancel_job: Any, paused: Any) -> None:
     """Process entry point (must stay importable at module level for ``spawn``)."""
     install_pickling()
+    _enable_worker_crash_log()
     capture = _LogCapture()
     root = logging.getLogger()
     root.handlers[:] = [capture]

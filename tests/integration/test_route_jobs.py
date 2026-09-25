@@ -196,3 +196,18 @@ def test_export_failure_after_successful_routing(
     assert not bad.exists() and src.read_bytes() == before
     assert window.bus.context.project.working.modified  # routed work kept
     assert ui.act_route_board.isEnabled()
+
+
+def test_gpu_setup_dialog_opens_and_board_load_keeps_gpu_runtimes_out(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    import sys
+
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    window.open_gpu_setup()
+    dlg = window._gpu_setup_dialog
+    assert dlg.isVisible() and dlg.summary.text()
+    dlg.reject()
+    # the GUI process never loads a GPU runtime (they live in the routing worker)
+    assert not {"cupy", "dpnp", "dpctl"} & set(sys.modules)

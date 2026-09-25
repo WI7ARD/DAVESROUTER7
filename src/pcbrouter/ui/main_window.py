@@ -304,6 +304,13 @@ class MainWindow(QMainWindow):
 
         tools = mb.addMenu("&Tools")
         tools.addAction(self.act_compute)
+        act_gpu_setup = QAction("Set Up &GPU…", self)
+        act_gpu_setup.setStatusTip(
+            "Detect your GPU, install the right library, switch routing to GPU"
+        )
+        act_gpu_setup.triggered.connect(self.open_gpu_setup)
+        tools.addAction(act_gpu_setup)
+        self.act_gpu_setup = act_gpu_setup
         self.menu_view = view
         self.menu_tools = tools
         ai = mb.addMenu("&AI")
@@ -635,10 +642,18 @@ class MainWindow(QMainWindow):
         self.export_ui.update_actions()
         self.ai_panel.setProperty("routingBusy", busy)
 
+    def open_gpu_setup(self) -> None:
+        from pcbrouter.ui.gpu_setup_dialog import GpuSetupDialog
+
+        dlg = GpuSetupDialog(self)
+        dlg.setModal(False)
+        dlg.show()
+        self._gpu_setup_dialog = dlg
+
     def start_gpu_probe(self) -> None:
         """Probe for a GPU device in the background (nvidia-smi/PowerShell can take
         seconds); the status bar says "checking…" until the answer arrives."""
-        from pcbrouter.compute.probe import probe_gpu
+        from pcbrouter.compute.probe import probe_gpu_light
 
         def done(result: object, _secs: float) -> None:
             self.gpu_probe = result
@@ -646,7 +661,7 @@ class MainWindow(QMainWindow):
             self._update_backend_label()
             self.engine_ui.lbl_routing.setText(self.engine_ui.routing_status())
 
-        self._bg_jobs.start("gpu-probe", probe_gpu, done, lambda _m, _d: None)
+        self._bg_jobs.start("gpu-probe", probe_gpu_light, done, lambda _m, _d: None)
 
     def _update_backend_label(self) -> None:
         det = self.compute.gpu.detection
