@@ -58,6 +58,14 @@ if all(importlib.util.find_spec(name) is not None for name in GPU_PACKAGES):
         datas += d
         binaries += b
         hiddenimports += h
+        # Also list every compiled extension module by file: collect_all finds them by
+        # importing the package, which silently yields nothing if the import fails at
+        # build time (that shipped an installer without dpctl._sycl_device).
+        pkg_dir = Path(importlib.util.find_spec(name).origin).parent
+        for ext in pkg_dir.rglob("*.pyd"):
+            rel = ext.relative_to(pkg_dir.parent).with_suffix("")
+            mod = ".".join(rel.parts).split(".cp3")[0]
+            hiddenimports.append(mod)
     runtime = Path(_sys.prefix) / "Library" / "bin"
     if runtime.is_dir():
         for dll in runtime.glob("*.dll"):

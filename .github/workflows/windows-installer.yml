@@ -50,8 +50,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install build dependencies
-        # gpu-intel: dpnp + dpctl + Intel SYCL runtime are bundled into the installer
-        run: python -m pip install -e ".[ai,packaging,gpu-intel]"
+        # gpu-intel: dpnp + dpctl + Intel SYCL runtime are bundled into the installer.
+        # A venv on purpose: dpctl only finds its runtime DLLs (<env>\Library\bin) in a
+        # venv, and PyInstaller must import it while building to collect everything.
+        run: |
+          python -m venv .buildenv
+          .buildenv\Scripts\python -m pip install --upgrade pip
+          .buildenv\Scripts\python -m pip install -e ".[ai,packaging,gpu-intel]"
+          .buildenv\Scripts\python -c "import dpnp, dpctl; print('dpnp', dpnp.__version__, 'imports in the build env')"
       - name: Ensure NSIS
         run: |
           $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
@@ -66,7 +72,7 @@ jobs:
             if (-not $ok) { throw "NSIS could not be installed from Chocolatey" }
           }
       - name: Build installer
-        run: python packaging/windows/build_installer.py
+        run: .buildenv\Scripts\python packaging/windows/build_installer.py
       - name: Smoke test (install, run, uninstall)
         run: ./packaging/windows/smoke_test.ps1
       - name: Upload installer
