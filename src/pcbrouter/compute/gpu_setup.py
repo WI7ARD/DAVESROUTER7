@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from pcbrouter.compute.detection import GpuDetectionResult
 
@@ -55,10 +56,29 @@ def can_install_packages() -> tuple[bool, str]:
     return True, ""
 
 
+def installed(package: str) -> bool:
+    module = MODULES.get(package)
+    if module is None:
+        return False
+    importlib.invalidate_caches()  # see packages pip just added
+    return importlib.util.find_spec(module) is not None
+
+
+def console_python() -> str:
+    """The console interpreter: ``pythonw.exe`` (used to start the GUI without a
+    console) has no stdout/stderr, and pip run through it fails silently."""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        candidate = exe.with_name("python.exe")
+        if candidate.exists():
+            return str(candidate)
+    return str(exe)
+
+
 def pip_command(package: str) -> list[str]:
     if package not in MODULES:
         raise ValueError(f"not a supported GPU package: {package!r}")
-    return [sys.executable, "-m", "pip", "install", "--upgrade", package]
+    return [console_python(), "-m", "pip", "install", "--upgrade", package]
 
 
 def plan_setup(detection: GpuDetectionResult) -> GpuSetupPlan:
@@ -79,9 +99,9 @@ def plan_setup(detection: GpuDetectionResult) -> GpuSetupPlan:
             ],
         )
     package = PACKAGES[gpu.vendor]
-    installed = importlib.util.find_spec(MODULES[package]) is not None
+    have = installed(package)
     steps = [f"Driver: install or update {DRIVER_HINT[gpu.vendor]}."]
-    if installed:
+    if have:
         steps.append(f"GPU library '{package}' is installed.")
     elif ok:
         steps.append(f"Click 'Install GPU support' (runs: pip install {package}).")
@@ -91,4 +111,4 @@ def plan_setup(detection: GpuDetectionResult) -> GpuSetupPlan:
         "Choose GPU in Settings ▸ Compute (the button below does it for you).",
         "Open a board and use Tools ▸ Test GPU on This Board to check it works.",
     ]
-    return GpuSetupPlan(gpu.vendor, gpu.name, package, installed, ok, steps)
+    return GpuSetupPlan(gpu.vendor, gpu.name, package, have, ok, steps)

@@ -211,3 +211,43 @@ def test_gpu_setup_dialog_opens_and_board_load_keeps_gpu_runtimes_out(
     dlg.reject()
     # the GUI process never loads a GPU runtime (they live in the routing worker)
     assert not {"cupy", "dpnp", "dpctl"} & set(sys.modules)
+
+
+def test_every_gpu_setup_button_responds(
+    window: MainWindow, fixture_path: Callable[[str], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    import pcbrouter.ui.gpu_setup_dialog as mod
+    from pcbrouter.settings.settings import ComputeBackendChoice
+
+    window.open_gpu_setup()
+    dlg = window._gpu_setup_dialog
+    run_until(lambda: not dlg._jobs.is_running(), 20)  # background re-detection
+    text = lambda: dlg.output.toPlainText()  # noqa: E731
+    # every button is clickable and answers, even with no GPU and no board
+    for b in (dlg.install_button, dlg.use_button, dlg.test_button):
+        assert b.isEnabled()
+    dlg.test_button.click()
+    assert "Open a board first" in text()
+    dlg.install_button.click()
+    assert "No GPU found" in text()
+    # install for a hand-picked vendor (pip replaced by a harmless command)
+    monkeypatch.setattr(
+        mod, "pip_command", lambda pkg: [sys.executable, "-c", f"print('pip {pkg} ok')"]
+    )
+    dlg.vendor.setCurrentText("Intel")
+    dlg.install_button.click()
+    run_until(lambda: dlg.process is None and "pip dpnp ok" in text(), 30)
+    assert dlg.install_button.isEnabled()
+    dlg.use_button.click()
+    assert window.settings.default_compute_backend is ComputeBackendChoice.GPU
+    assert "Routing backend set to GPU" in text()
+    # test on a board: runs in the worker and reports back into the dialog
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    dlg.test_button.click()
+    assert "GPU test running" in text()
+    wait(window)
+    run_until(lambda: "GPU check" in text() or "GPU works" in text(), 30)
+    dlg.reject()
