@@ -366,6 +366,7 @@ class MainWindow(QMainWindow):
         self.project_panel.componentActivated.connect(self._on_component_activated)
 
         self.ai_panel.configureRequested.connect(self.open_ai_settings)
+        self.ai_panel.runRequested.connect(self.routing_ui.execute_ai_proposals)
         self.ai_panel.historyChanged.connect(self.ai_history.refresh)
         self.ai_panel.historyChanged.connect(self._update_undo_actions)
         self.ai_panel.statusIndicatorChanged.connect(self._on_ai_indicator)

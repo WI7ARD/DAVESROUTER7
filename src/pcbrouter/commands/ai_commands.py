@@ -2,16 +2,18 @@
 
 Approving/rejecting/editing a proposal changes the *planning constraint state* of
 the AI session and is recorded in history. None of these commands touch board
-geometry, so ``modifies_board`` stays ``False``; routing execution is Stage 4+.
+geometry, so ``modifies_board`` stays ``False``. Approved routing commands run through
+:class:`ExecuteAIProposalCommand` (router results only; the user accepts separately).
 """
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import ClassVar
 
 from pcbrouter.ai.command_schema import RoutingConstraints
-from pcbrouter.ai.proposals import ProposalStateError
+from pcbrouter.ai.proposals import CommandState, ProposalStateError
 from pcbrouter.ai.session import AISession
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
 
@@ -68,3 +70,51 @@ class EditProposalCommand(BaseCommand):
             return CommandResult.fail(f"Cannot edit: {exc}")
         status = p.validation.status.label if p.validation else p.state.value
         return CommandResult.ok(f"Constraints updated; re-validated: {status}.", p)
+
+
+@dataclass
+class ExecuteAIProposalCommand(BaseCommand):
+    """Run an *approved* AI routing command through the deterministic router.
+
+    Produces router results only (candidates / a board batch / an optimisation
+    report): nothing is committed — the user reviews and accepts separately. Safe
+    to run on a worker thread: it does not mutate the AI session (the caller records
+    the outcome with :meth:`AISession.record_execution` on the GUI thread)."""
+
+    proposal_id: str
+    cancel: threading.Event | None = None
+    name: ClassVar[str] = "execute_ai_proposal"
+
+    def execute(self, ctx: CommandContext) -> CommandResult:
+        from pcbrouter.ai.command_schema import OperationCategory
+        from pcbrouter.ai.route_bridge import (
+            AutonomyMode,
+            BridgeError,
+            execute_plan,
+            plan_from_command,
+        )
+
+        session = _session(ctx)
+        working = ctx.project.working
+        if session is None or working is None:
+            return CommandResult.fail("No AI session / board is open.")
+        if session.config.autonomy == AutonomyMode.ADVISORY.value:
+            return CommandResult.fail(
+                "AI autonomy is set to Advisory: routing commands do not run."
+            )
+        p = session.proposals.get(self.proposal_id)
+        if p is None:
+            return CommandResult.fail(f"Unknown proposal {self.proposal_id}.")
+        if p.state is not CommandState.APPROVED:
+            return CommandResult.fail(f"Proposal is {p.state.value}; only approved commands run.")
+        if p.category is not OperationCategory.ROUTING:
+            return CommandResult.fail("Only routing operations run through the router.")
+        try:
+            plan = plan_from_command(p.current)
+        except BridgeError as exc:
+            return CommandResult.fail(str(exc))
+        outcome = execute_plan(plan, working, ctx.compute, self.cancel)
+        return CommandResult(True, outcome.summary(), outcome)
+
+    def describe(self) -> str:
+        return f"execute AI proposal {self.proposal_id}"

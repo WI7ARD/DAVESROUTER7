@@ -104,9 +104,11 @@ class CommandProposal:
     @property
     def status_note(self) -> str:
         if self.state is CommandState.APPROVED and self.category is OperationCategory.ROUTING:
-            return "Approved. Waiting for routing engine support (Stage 4)."
+            return "Approved. Press Run to route it with the deterministic router."
         if self.state is CommandState.APPROVED:
             return "Approved. Recorded in the session's constraint set (no geometry change)."
+        if self.state is CommandState.EXECUTED and self.category is OperationCategory.ROUTING:
+            return "Router ran. Review the candidates (nothing is applied until you accept)."
         if self.state is CommandState.EXECUTED:
             return "Completed. Read-only operation; the board was not changed."
         if self.state is CommandState.EXPIRED:

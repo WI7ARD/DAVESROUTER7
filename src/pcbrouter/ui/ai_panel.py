@@ -32,10 +32,12 @@ from PySide6.QtWidgets import (
 )
 
 from pcbrouter.ai.board_summary import BoardFactService
+from pcbrouter.ai.command_schema import Operation, OperationCategory
 from pcbrouter.ai.models import ConnectionStatus
 from pcbrouter.ai.profiles import ProviderProfile
 from pcbrouter.ai.proposals import CommandProposal, CommandState
 from pcbrouter.ai.requests import AIMode
+from pcbrouter.ai.route_bridge import MAX_PLANNING_ROUNDS
 from pcbrouter.ai.session import Interaction
 from pcbrouter.ai.usage import format_token_estimate
 from pcbrouter.commands import (
@@ -91,6 +93,7 @@ SelectionProvider = Callable[[], tuple[tuple[str, ...], tuple[str, ...]]]
 
 class AIEngineeringPanel(QWidget):
     configureRequested = Signal()
+    runRequested = Signal(object)  # list[str] proposal ids (one, or a batch plan)
     historyChanged = Signal()
     statusIndicatorChanged = Signal(str, str)  # (text, colour)
 
@@ -208,17 +211,44 @@ class AIEngineeringPanel(QWidget):
         self.approve_button.setToolTip("Accept into the command history. Does NOT modify the PCB.")
         self.reject_button = QPushButton("Reject")
         self.edit_button = QPushButton("Edit Constraints…")
+        self.run_button = QPushButton("Run with Router")
+        self.run_button.setToolTip(
+            "Route this approved command with the deterministic router. Candidates are "
+            "previewed; nothing is applied until you accept."
+        )
+        self.plan_button = QPushButton("Approve && Run Plan")
+        self.plan_button.setToolTip(
+            "Batch approval: approve every valid routing proposal of the latest answer and "
+            "route them as one reviewable job"
+        )
+        self.facts_button = QPushButton("Send Requested Facts")
+        self.facts_button.setToolTip(
+            "The AI asked for deterministic board facts: answer them and ask it to continue"
+        )
+        self.revise_button = QPushButton("Ask AI to Revise")
+        self.revise_button.setToolTip(
+            "Send the router's results back to the AI for a revised plan (bounded rounds)"
+        )
+        self.run_button.clicked.connect(self._run)
+        self.plan_button.clicked.connect(self._run_plan)
+        self.facts_button.clicked.connect(self.send_facts)
+        self.revise_button.clicked.connect(self.ask_revision)
         self.approve_button.clicked.connect(self._approve)
         self.reject_button.clicked.connect(self._reject)
         self.edit_button.clicked.connect(self._edit)
         brow = QHBoxLayout()
-        for b in (self.approve_button, self.reject_button, self.edit_button):
+        for b in (self.approve_button, self.reject_button, self.edit_button, self.run_button):
             brow.addWidget(b)
         brow.addStretch(1)
+        brow2 = QHBoxLayout()
+        for b in (self.plan_button, self.facts_button, self.revise_button):
+            brow2.addWidget(b)
+        brow2.addStretch(1)
         pv = QVBoxLayout(proposals)
         pv.addWidget(self.proposal_combo)
         pv.addWidget(self.proposal_view, 1)
         pv.addLayout(brow)
+        pv.addLayout(brow2)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.conversation, "Conversation")
@@ -411,6 +441,28 @@ class AIEngineeringPanel(QWidget):
             p is not None and p.state in (CommandState.VALID, CommandState.INVALID)
         )
         self.edit_button.setEnabled(p is not None and p.is_open and not p.stale)
+        session = self.service.session
+        autonomy = session.config.autonomy if session is not None else "approval_required"
+        advisory = autonomy == "advisory"
+        self.run_button.setEnabled(
+            p is not None
+            and p.state is CommandState.APPROVED
+            and p.category is OperationCategory.ROUTING
+            and not advisory
+            and not busy
+        )
+        self.run_button.setToolTip(
+            "Advisory mode: routing commands do not run" if advisory else self.run_button.toolTip()
+        )
+        self.plan_button.setVisible(autonomy == "batch_approval")
+        self.plan_button.setEnabled(bool(self._plan_candidates()) and not busy)
+        rounds_left = session is not None and session.planning_rounds < MAX_PLANNING_ROUNDS
+        self.facts_button.setEnabled(
+            bool(session and session.pending_fact_requests) and rounds_left and not busy
+        )
+        self.revise_button.setEnabled(
+            bool(session and session.router_facts) and rounds_left and not busy
+        )
 
     def send_blocker(self) -> str | None:
         """Why Send is disabled, or ``None`` if it is enabled."""
@@ -454,9 +506,11 @@ class AIEngineeringPanel(QWidget):
         profile = self.current_profile()
         ContextPreviewDialog(ctx, profile.name if profile else "provider", self).exec()
 
-    def send(self) -> bool:
+    def send(self, followup: bool = False) -> bool:
         if self.send_blocker() is not None:
             return False
+        if not followup and self.service.session is not None:
+            self.service.session.planning_rounds = 0  # a new user prompt starts a new plan
         session = self.service.session
         profile = self.current_profile()
         assert session is not None and profile is not None
@@ -553,6 +607,65 @@ class AIEngineeringPanel(QWidget):
         self._refresh_proposals()
         self.refresh_board()
         self.historyChanged.emit()
+
+    # ================================================================ Stage 7
+    def _plan_candidates(self) -> list[str]:
+        session = self.service.session
+        if session is None or not session.interactions:
+            return []
+        last = session.interactions[-1]
+        return [
+            pid
+            for pid in last.proposal_ids
+            if (p := session.proposals.get(pid)) is not None
+            and p.state is CommandState.VALID
+            and not p.stale
+            and p.current.operation in (Operation.ROUTE_NET, Operation.ROUTE_GROUP)
+        ]
+
+    def _run(self) -> None:
+        if (p := self._proposal()) is not None:
+            self.runRequested.emit([p.proposal_id])
+
+    def _run_plan(self) -> bool:
+        ids = self._plan_candidates()
+        if not ids:
+            return False
+        for pid in ids:
+            result = self.bus.dispatch(ApproveProposalCommand(pid))
+            if not result.success:
+                self.status_label.setText(result.message)
+                return False
+        self._refresh_proposals()
+        self.historyChanged.emit()
+        self.runRequested.emit(ids)
+        return True
+
+    def send_facts(self) -> bool:
+        session = self.service.session
+        if session is None or not session.pending_fact_requests:
+            return False
+        session.answer_fact_requests()
+        return self._followup(
+            "Here are the deterministic board facts you requested (FACT lines in the session "
+            "state). Continue with the original request."
+        )
+
+    def ask_revision(self) -> bool:
+        return self._followup(
+            "The deterministic router reported the ROUTER_RESULT lines in the session state. "
+            "Propose a revised plan that stays within the board rules, or explain why no "
+            "change is possible."
+        )
+
+    def _followup(self, text: str) -> bool:
+        session = self.service.session
+        if session is None or session.planning_rounds >= MAX_PLANNING_ROUNDS:
+            self.status_label.setText("Planning round limit reached; ask a new question.")
+            return False
+        session.planning_rounds += 1
+        self.prompt.setPlainText(text)
+        return self.send(followup=True)
 
     def _approve(self) -> None:
         if (p := self._proposal()) is not None:

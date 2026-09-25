@@ -55,7 +55,14 @@ jobs:
         run: |
           $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path $nsis)) {
-            choco install nsis -y --no-progress
+            # The Chocolatey feed occasionally times out (HTTP 504): retry with backoff.
+            $ok = $false
+            foreach ($wait in 0, 20, 60) {
+              Start-Sleep -Seconds $wait
+              choco install nsis -y --no-progress
+              if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            }
+            if (-not $ok) { throw "NSIS could not be installed from Chocolatey" }
           }
       - name: Build installer
         run: python packaging/windows/build_installer.py

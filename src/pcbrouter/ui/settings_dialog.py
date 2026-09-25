@@ -196,6 +196,20 @@ class SettingsDialog(QDialog):
         )
         self.route_ripup.setChecked(r.allow_ripup)
         form.addRow(self.route_ripup)
+        self.ai_autonomy = QComboBox()
+        for key, label in (
+            ("advisory", "Advisory — AI analyses only, never runs the router"),
+            ("approval_required", "Approval required — each routing command (default)"),
+            ("batch_approval", "Batch approval — approve a bounded plan at once"),
+        ):
+            self.ai_autonomy.addItem(label, key)
+        self.ai_autonomy.setCurrentIndex(
+            max(0, self.ai_autonomy.findData(self._settings.ai.autonomy_mode))
+        )
+        self.ai_autonomy.setToolTip(
+            "There is no fully autonomous mode: every result is previewed and accepted by you."
+        )
+        form.addRow("AI autonomy:", self.ai_autonomy)
         return w
 
     def _gpu_tab(self, compute: ComputeManager | None) -> QWidget:
@@ -278,6 +292,7 @@ class SettingsDialog(QDialog):
         s.routing.strategy = self.route_strategy.currentData()
         s.routing.max_passes = self.route_passes.value()
         s.routing.allow_ripup = self.route_ripup.isChecked()
+        s.ai.autonomy_mode = self.ai_autonomy.currentData()
         s.geometry.conservative_rules = self.conservative_rules.isChecked()
         s.geometry.grid_resolution_mm = self.grid_resolution.currentData()
         s.geometry.check_on_open = self.check_on_open.isChecked()

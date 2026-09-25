@@ -5,6 +5,7 @@ from __future__ import annotations
 from pcbrouter.commands.ai_commands import (
     ApproveProposalCommand,
     EditProposalCommand,
+    ExecuteAIProposalCommand,
     RejectProposalCommand,
 )
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
@@ -38,6 +39,7 @@ __all__ = [
     "CommandContext",
     "CommandResult",
     "EditProposalCommand",
+    "ExecuteAIProposalCommand",
     "OpenBoardCommand",
     "OptimizeNetCommand",
     "RejectProposalCommand",

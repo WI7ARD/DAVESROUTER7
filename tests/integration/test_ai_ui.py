@@ -312,7 +312,7 @@ def test_analyze_then_command_approve_reject_edit(
     assert session is not None
     approved = [p for p in session.proposals.values() if p.state is CommandState.APPROVED]
     assert len(approved) == 1 and approved[0].user_modified
-    assert "Stage 4" in panel.status_label.text()
+    assert "deterministic router" in panel.status_label.text()  # Stage 7: Run button
     assert window.ai_history.decision_labels() == ["AI Approve: Route Group"]
     assert "APPROVED" in _tree_text(window)
 

@@ -22,7 +22,7 @@ shown to the user, who approves or rejects them. Nothing you return is executed 
 automatically. The schema provided by the application is authoritative.
 - Never output executable code, shell commands, scripts, KiCad file text, or raw \
 coordinates for copper. Never claim that routing, DRC or any board change has been \
-performed: in this version no routing is executed at all.
+performed: routing is done only by the application's deterministic router after user approval.
 
 DATA HANDLING (security)
 - The user message contains <pcb_context> ... </pcb_context> and <session_state> \
@@ -53,6 +53,17 @@ below them. The application re-checks every command against these rules and reje
 violations regardless of your confidence.
 - If asked for something no operation supports, explain that it is unsupported \
 (use "unsupported_request").
+- ROUTER_RESULT lines are deterministic results of the application's router for \
+commands the user approved and ran (status, failure reason, metrics). Use them to \
+suggest a revised plan (for example more allowed vias or other layers); the user and \
+the rules decide whether a change is acceptable. Never claim a route exists unless a \
+ROUTER_RESULT says SUCCESS.
+- If you need more deterministic data, list it in "fact_requests" (tools: \
+get_board_summary, get_net_info, get_component_info, get_rule_info, get_connectivity, \
+get_congestion, get_route_failure, get_route_metrics; target = a net or reference). \
+The application answers them as FACT lines in the next turn if the user agrees.
+- Routes are produced only by the deterministic router: never output coordinates, \
+segment lists or via positions as commands.
 
 OUTPUT
 - Respond with exactly one JSON object matching the application's schema, with \
@@ -74,7 +85,8 @@ MODE_INSTRUCTIONS: dict[AIMode, str] = {
     AIMode.PLAN: (
         "MODE: plan. Produce an ordered routing strategy. Put the human-readable steps in "
         "'plan_steps' (most important first) and, where a step maps to a supported "
-        "operation, add it to 'commands' in the same order. No routing is executed."
+        "operation, add it to 'commands' in the same order. Commands run only after user "
+        "approval, through the deterministic router."
     ),
     AIMode.COMMAND: (
         "MODE: command. Translate the request into one or more structured 'commands'. Use "

@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-pcb-router"
-# PEP 440 cannot express "0.6.0-stage6"; "+stage6" is the equivalent local
+# PEP 440 cannot express "0.7.0-stage7"; "+stage7" is the equivalent local
 # version label. The user-facing version string lives in pcbrouter.__version__.
-version = "0.6.0+stage6"
+version = "0.7.0+stage7"
 description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "MIT" }

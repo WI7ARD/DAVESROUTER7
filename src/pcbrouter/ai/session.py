@@ -70,6 +70,8 @@ class AIRuntimeConfig:
     max_output_tokens: int = 8192
     anonymization: AnonymizationOptions = field(default_factory=AnonymizationOptions)
     log_prompts: bool = False
+    #: Stage 7 autonomy: "advisory" | "approval_required" (default) | "batch_approval"
+    autonomy: str = "approval_required"
 
 
 class InteractionKind(StrEnum):
@@ -195,6 +197,13 @@ class AISession:
         self.proposals: dict[str, CommandProposal] = {}
         self.interactions: list[Interaction] = []
         self.locks = SessionLocks()
+        #: Stage 7: deterministic ROUTER RESULT facts from approved commands that ran
+        self.router_facts: list[dict[str, Any]] = []
+        #: FACT answers to the model's fact_requests, sent with the next request
+        self.fact_answers: list[dict[str, Any]] = []
+        self.pending_fact_requests: list[Any] = []
+        #: bounded planning loop: follow-up rounds used since the last user prompt
+        self.planning_rounds = 0
         self.privacy_acknowledged = False
         self.closed = False
         self.created_at = time.time()
@@ -260,6 +269,65 @@ class AISession:
         if self._on_constraints_changed is not None:
             self._on_constraints_changed(self.ai_overrides())
 
+    # ------------------------------------------------------------------ Stage 7
+    def update_board(self, board: Board) -> int:
+        """The working board changed (a route was accepted or undone): follow it.
+        Open proposals made for the previous state expire; approved ones stay."""
+        if board is self.board:
+            return 0
+        expired = self.expire_all("board changed: the working board was modified")
+        self.board = board
+        self.board_revision += 1
+        return expired
+
+    def record_execution(self, proposal_id: str, facts: list[dict[str, Any]], summary: str) -> None:
+        """An approved routing command ran through the router (GUI thread)."""
+        from pcbrouter.ai.route_bridge import MAX_ROUTER_FACTS
+
+        for f in facts:
+            self.router_facts.append({"proposal": proposal_id, **f})
+        del self.router_facts[:-MAX_ROUTER_FACTS]
+        p = self.proposals.get(proposal_id)
+        if p is not None and p.state is CommandState.APPROVED:
+            p.transition(CommandState.EXECUTED, f"router ran: {summary[:300]}")
+
+    def answer_fact_requests(self) -> list[dict[str, Any]]:
+        """Answer the model's pending fact requests with deterministic tools."""
+        from pcbrouter.ai.fact_tools import answer
+
+        engine = self.engine
+        out: list[dict[str, Any]] = []
+        for req in self.pending_fact_requests:
+            target = req.target
+            if target is not None:
+                for kind in (EntityKind.NET, EntityKind.REFERENCE):
+                    res = self.anonymizer.resolve(kind, target)
+                    if res.real is not None and res.real != target:
+                        target = res.real
+                        break
+            if engine is None:
+                out.append({"tool": req.tool, "error": "engine not ready"})
+            else:
+                out.append(answer(engine, req.tool, target, self.router_facts))
+        self.fact_answers = out
+        self.pending_fact_requests = []
+        return out
+
+    def _anon_fact(self, fact: dict[str, Any]) -> dict[str, Any]:
+        def conv(v: Any, key: str = "") -> Any:
+            if isinstance(v, dict):
+                return {k: conv(x, k) for k, x in v.items()}
+            if isinstance(v, list):
+                return [conv(x, key) for x in v]
+            if isinstance(v, str) and key in ("net", "target", "nets", "incomplete_nets"):
+                return self.anonymizer.out(EntityKind.NET, v)
+            if isinstance(v, str) and key == "reference":
+                return self.anonymizer.out(EntityKind.REFERENCE, v)
+            return v
+
+        out: dict[str, Any] = conv(fact)
+        return out
+
     def interaction(self, request_id: str) -> Interaction | None:
         return next((i for i in self.interactions if i.request_id == request_id), None)
 
@@ -310,6 +378,10 @@ class AISession:
                     sorted(self.anonymizer.out(EntityKind.NET, n) for n in self.locks.nets)
                 )
             )
+        for fact in self.router_facts:
+            lines.append("ROUTER_RESULT: " + json.dumps(self._anon_fact(fact), ensure_ascii=False))
+        for fact in self.fact_answers:
+            lines.append("FACT: " + json.dumps(self._anon_fact(fact), ensure_ascii=False))
         return lines
 
     def _anonymise_command(self, cmd: AICommand) -> dict[str, Any]:
@@ -435,6 +507,13 @@ class AISession:
                 _map_strings(pr.analysis.model_dump(mode="json", exclude_none=True), display)
             )
         inter.plan_steps = [display(s) for s in pr.plan_steps or []]
+        self.fact_answers = []  # answered facts were used by this turn
+        self.pending_fact_requests = list(pr.fact_requests or [])[:8]
+        if self.pending_fact_requests:
+            inter.notes.append(
+                "The AI asked for board facts: "
+                + ", ".join(f"{r.tool}({r.target or ''})" for r in self.pending_fact_requests)
+            )
 
         stale = not self._is_current(prepared)
         for command in pr.commands or []:

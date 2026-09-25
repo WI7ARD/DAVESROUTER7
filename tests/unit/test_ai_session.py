@@ -159,12 +159,13 @@ def test_runner_returns_real_results(can_board: Board, runner: AsyncRunner) -> N
 
 
 # ------------------------------------------------------------------ approval workflow
-def test_approve_routing_waits_for_stage4_and_is_undoable(can_board: Board) -> None:
+def test_approve_routing_waits_for_run_and_is_undoable(can_board: Board) -> None:
     s = session_for(can_board)
     _, inter = ask(s, Scenario.COMMAND)
     pid = inter.proposal_ids[0]
     p = s.approve(pid)
-    assert p.state is CommandState.APPROVED and "Stage 4" in p.status_note
+    # Stage 7: approved routing commands run only when the user presses Run.
+    assert p.state is CommandState.APPROVED and "deterministic router" in p.status_note
     assert s.history is not None
     entry = s.history.entries()[-1]
     assert entry.kind == "DecisionAction" and entry.metadata["decision"] == "approved"

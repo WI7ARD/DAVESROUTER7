@@ -91,6 +91,8 @@ class AISettings(_Model):
     show_privacy_preview: bool = True
     anonymization: AnonymizationSettings = Field(default_factory=AnonymizationSettings)
     save_conversation_history: bool = False
+    #: Stage 7: what approved AI commands may do. Never a silent autonomous mode.
+    autonomy_mode: Literal["advisory", "approval_required", "batch_approval"] = "approval_required"
     #: Log full prompts/context at DEBUG level. Off unless the user explicitly enables it.
     debug_log_prompts: bool = False
 

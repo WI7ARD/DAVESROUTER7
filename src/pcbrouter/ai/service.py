@@ -231,4 +231,5 @@ def runtime_config_from_settings(ai: Any) -> AIRuntimeConfig:
             a.net_names, a.component_values, a.references, a.board_filename
         ),
         log_prompts=ai.debug_log_prompts,
+        autonomy=getattr(ai, "autonomy_mode", "approval_required"),
     )

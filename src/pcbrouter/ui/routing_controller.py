@@ -236,8 +236,9 @@ class RoutingController(QObject):
 
         def job() -> BoardRoutingResult:
             plan = make_plan(fork_source, plan_settings)
-            router = BoardRouter(fork_source, plan_settings,
-                                 router_factory=lambda e: router_for(e, compute, mode))  # fmt: skip
+            router = BoardRouter(
+                fork_source, plan_settings, router_factory=lambda e: router_for(e, compute, mode)
+            )
             return router.run(plan, control, lambda info: bridge.progress.emit(info))
 
         self.board_panel.set_running("Planning board routing…")
@@ -286,6 +287,86 @@ class RoutingController(QObject):
         self.last_board_result = None
         self.board_panel.set_result(None)
         self.board_panel.status.setText("Board routing rejected. Nothing was changed.")
+
+    # ------------------------------------------------------------ AI commands (Stage 7)
+    def execute_ai_proposals(self, proposal_ids: object) -> bool:
+        """Run approved AI routing command(s) through the router in the background.
+        One command → Route Review (or an optimisation); several (batch approval) →
+        one board-routing job in Routing Jobs. Nothing is committed here."""
+        from pcbrouter.ai.route_bridge import BridgeError, execute_plan, plan_from_commands
+        from pcbrouter.commands import ExecuteAIProposalCommand
+
+        ids = list(proposal_ids) if isinstance(proposal_ids, (list, tuple)) else []
+        session = self.w.ai_service.session
+        working = self.project.working
+        if not ids or session is None or working is None or self.jobs.is_running("ai"):
+            return False
+        cancel = threading.Event()
+        self.cancel_event = cancel
+        bus = self.w.bus
+        compute = self.w.compute
+        if len(ids) == 1:
+            pid = ids[0]
+
+            def job() -> object:
+                return bus.dispatch(ExecuteAIProposalCommand(pid, cancel))
+
+        else:
+            try:
+                plan = plan_from_commands([session.proposals[i].current for i in ids])
+            except (BridgeError, KeyError) as exc:
+                self.w.statusBar().showMessage(str(exc), 8000)
+                return False
+
+            def job() -> object:
+                return execute_plan(plan, working, compute, cancel)
+
+        self.panel.set_running("Running the approved AI command with the deterministic router…")
+        self.w.engine_ui.lbl_routing.setText("Routing: AI command running…")
+        return self.jobs.start("ai", job, lambda r, _s: self._ai_done(ids, r), self._failed)
+
+    def _ai_done(self, ids: list[str], result: object) -> None:
+        from pcbrouter.ai.route_bridge import ExecutionOutcome, router_facts
+        from pcbrouter.commands import CommandResult, OptimizeNetCommand
+
+        self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
+        session = self.w.ai_service.session
+        if isinstance(result, CommandResult):
+            if not result.success:
+                self.panel.set_result(None)
+                self.panel.status.setText(f"Not run: {result.message}")
+                return
+            result = result.data
+        if not isinstance(result, ExecutionOutcome) or session is None:
+            return
+        facts = router_facts(result)
+        for pid in ids:
+            session.record_execution(pid, facts, result.summary())
+        if result.board_result is not None:
+            self.last_board_result = result.board_result
+            self.board_panel.set_result(result.board_result)
+            self.panel.set_result(None)
+            self.panel.status.setText(result.board_result.summary())
+            dock = self.w.docks["jobs"]
+            dock.show()
+            dock.raise_()
+        elif result.route_results:
+            best = next((r for r in result.route_results if r.best), result.route_results[0])
+            self.last_result = best
+            self.panel.set_result(best)
+        elif result.optimize_reports:
+            # the user approved this tweak: apply it as one validated, undoable commit
+            rep = result.optimize_reports[0]
+            for net in sorted(rep.improved):
+                res = self.w.bus.dispatch(OptimizeNetCommand(net, rep.goal))
+                self.w.statusBar().showMessage(res.message, 10000)
+            self.panel.set_result(None)
+            self.panel.status.setText(
+                f"AI tweak ({rep.goal.value}): {len(rep.improved)} improved, "
+                f"{len(rep.unchanged)} unchanged, {len(rep.skipped)} skipped"
+            )
+        self.w.ai_panel._refresh_proposals()
+        self.w.ai_history.refresh()
 
     def optimize_selected(self, goal: Any) -> bool:
         from pcbrouter.commands import OptimizeNetCommand
@@ -363,6 +444,14 @@ class RoutingController(QObject):
         added, removed = self.w.canvas.sync_board(working.board, frozenset(working.generated_ids()))
         log.info("canvas.sync added=%d removed=%d", added, removed)
         self.w.nets_panel.set_board(working.board)
+        session = self.w.ai_service.session
+        if session is not None:
+            expired = session.update_board(working.board)
+            if expired:
+                self.w.statusBar().showMessage(
+                    f"{expired} open AI proposal(s) expired: the working board changed.", 6000
+                )
+            self.w.ai_panel.refresh_board()
         self.w.engine_ui.refresh_engine()
         self._update_actions()
         self.w.refresh_statistics()

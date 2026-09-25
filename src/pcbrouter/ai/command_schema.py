@@ -301,6 +301,26 @@ class AIAnalysis(_Strict):
     warnings: list[ShortText] | None = Field(default=None, max_length=30)
 
 
+FactTool = Literal[
+    "get_board_summary",
+    "get_net_info",
+    "get_component_info",
+    "get_rule_info",
+    "get_connectivity",
+    "get_congestion",
+    "get_route_failure",
+    "get_route_metrics",
+]
+
+
+class FactRequest(_Strict):
+    """A request for deterministic board facts, answered by the application from
+    its own data. Targets are net names or component references."""
+
+    tool: FactTool
+    target: EntityName | None = None
+
+
 class PlannerResponse(_Strict):
     """Top-level JSON object every model response must be."""
 
@@ -312,3 +332,4 @@ class PlannerResponse(_Strict):
     commands: list[AICommand] | None = Field(default=None, max_length=MAX_COMMANDS_PER_RESPONSE)
     clarification_needed: ShortText | None = None
     unsupported_request: ShortText | None = None
+    fact_requests: list[FactRequest] | None = Field(default=None, max_length=8)
