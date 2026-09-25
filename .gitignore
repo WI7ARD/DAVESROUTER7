@@ -32,3 +32,4 @@ Thumbs.db
 *-backups/
 ~*.lck
 fp-info-cache
+gpu_selftest_result.json

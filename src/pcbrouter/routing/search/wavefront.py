@@ -34,7 +34,7 @@ import numpy as np
 
 from pcbrouter.routing.search.astar import SQRT2, SearchOutcome, SearchProblem, SearchStatus
 
-INF = np.float32(3.0e38)
+INF = 3.0e38  # plain Python float: a portable scalar for every array library
 _CHECK_EVERY = 8
 
 
@@ -83,13 +83,15 @@ def wavefront_search(
     via_ok = (
         xp.asarray(g.via_ok) if (problem.vias_enabled and g.via_ok is not None and nl > 1) else None
     )
-    targets = [xp.asarray(t) & p for t, p in zip(problem.targets, passable, strict=True)]
-    dist = [xp.full((ny, nx), INF, dtype=xp.float32) for _ in range(nl)]
+    targets = [xp.asarray(t & p) for t, p in zip(problem.targets, g.passable, strict=True)]
+    # initial distances are built on the host (portable across NumPy/CuPy/dpnp)
+    dist = []
     for li, cells in enumerate(problem.sources):
+        d0 = np.full((ny, nx), INF, dtype=np.float32)
         if cells.size:
-            flat = dist[li].reshape(-1)
-            flat[xp.asarray(cells)] = 0
-        dist[li] = xp.where(passable[li], dist[li], INF)
+            d0.reshape(-1)[cells] = 0.0
+        d0[~g.passable[li]] = INF
+        dist.append(xp.asarray(d0))
 
     dirs = [(0, 1), (0, -1), (1, 0), (-1, 0)]
     if problem.octilinear:
@@ -102,22 +104,22 @@ def wavefront_search(
                 diag_ok[(li, dy, dx)] = _shift(xp, passable[li], dy, 0, False) & _shift(
                     xp, passable[li], 0, dx, False
                 )
-    via_cost = np.float32(problem.via_cost)
+    via_cost = float(problem.via_cost)
     iterations = 0
     status = SearchStatus.NO_PATH
     deadline = t0 + time_limit_s
-    best_target = float(INF)
+    best_target = INF
     while True:
         iterations += 1
         changed_any = False
-        min_changed = float(INF)
+        min_changed = INF
         new_dist = []
         for li in range(nl):
             d = dist[li]
             cand = d
             for dy, dx in dirs:
                 mult = SQRT2 if (dy and dx) else 1.0
-                arrived = _shift(xp, d, dy, dx, float(INF)) + step[li] * np.float32(mult)
+                arrived = _shift(xp, d, dy, dx, INF) + step[li] * mult
                 if dy and dx:
                     arrived = xp.where(diag_ok[(li, dy, dx)], arrived, INF)
                 cand = xp.minimum(cand, arrived)
@@ -138,8 +140,8 @@ def wavefront_search(
             t = targets[li]
             if bool(t.any()):
                 best_target = min(best_target, float(dist[li][t].min()))
-        if not changed_any or (best_target < float(INF) and min_changed >= best_target):
-            status = SearchStatus.FOUND if best_target < float(INF) else SearchStatus.NO_PATH
+        if not changed_any or (best_target < INF and min_changed >= best_target):
+            status = SearchStatus.FOUND if best_target < INF else SearchStatus.NO_PATH
             break
         if iterations >= n_cells(ny, nx, nl):  # hard bound: no path is longer
             status = SearchStatus.NODE_LIMIT
