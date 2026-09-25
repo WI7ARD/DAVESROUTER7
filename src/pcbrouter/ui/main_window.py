@@ -41,6 +41,7 @@ from pcbrouter.ui.ai_controller import AIRequestController
 from pcbrouter.ui.ai_dialogs import UsageDialog
 from pcbrouter.ui.ai_history_panel import AIHistoryPanel
 from pcbrouter.ui.ai_panel import AIEngineeringPanel
+from pcbrouter.ui.export_controller import ExportController
 from pcbrouter.ui.geometry_controller import GeometryController
 from pcbrouter.ui.inspector_panel import InspectorPanel
 from pcbrouter.ui.layers_panel import LayersPanel
@@ -150,6 +151,9 @@ class MainWindow(QMainWindow):
         # Stage 8: workbench (view modes, locks, constraints, reroute, inspector, debug).
         self.workbench = WorkbenchController(self)
         self.workbench.install(self.menu_view, self.menu_router, self.menu_edit)
+        # Stage 9: export, sessions, crash recovery, diagnostic bundle.
+        self.export_ui = ExportController(self)
+        self.export_ui.install(self.menu_file, self.menu_help, self.act_settings)
         self.menu_view.addAction(self.docks["route"].toggleViewAction())
         self.menu_view.addAction(self.docks["jobs"].toggleViewAction())
         self.toolbar_main.addAction(self.act_route_net)
@@ -258,6 +262,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_close)
         file_menu.addSeparator()
         file_menu.addAction(self.act_settings)
+        self.menu_file = file_menu
         file_menu.addSeparator()
         file_menu.addAction(self.act_exit)
         self._rebuild_recent_menu()
@@ -415,6 +420,7 @@ class MainWindow(QMainWindow):
         if not self.bus.context.project.is_open:
             self.statusBar().showMessage("No board is open.", 4000)
             return
+        self.export_ui.clean_close()
         self._end_ai_session()
         result = self.bus.dispatch(CloseBoardCommand())
         self._refresh_board_state()
@@ -437,6 +443,7 @@ class MainWindow(QMainWindow):
         self.engine_ui.on_board_changed()
         self.routing_ui.on_board_changed()
         self.workbench.on_board_changed()
+        self.export_ui.on_board_changed()
         self.refresh_statistics()
         self._apply_viewer_settings()
         has = board is not None
@@ -513,6 +520,7 @@ class MainWindow(QMainWindow):
         self._apply_viewer_settings()
         self._rebuild_recent_menu()
         self.engine_ui.apply_settings()
+        self.export_ui.apply_settings()
         self.save_settings()
         self.statusBar().showMessage("Settings saved.", 4000)
 
@@ -627,6 +635,7 @@ class MainWindow(QMainWindow):
         self.engine_ui.shutdown()  # finish background work, close tool dialogs
         self.save_settings()
         if self.bus.context.project.is_open:
+            self.export_ui.clean_close()
             self._end_ai_session()
             self.bus.dispatch(CloseBoardCommand())
         event.accept()

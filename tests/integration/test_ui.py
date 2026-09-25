@@ -466,7 +466,16 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
     dlg = SettingsDialog(window.settings, window.compute, window)
     qtbot.addWidget(dlg)
     tabs = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
-    assert tabs == ["General", "Viewer", "Compute", "AI Providers", "Routing", "GPU", "Geometry"]
+    assert tabs == [
+        "General",
+        "Viewer",
+        "Compute",
+        "AI Providers",
+        "Routing",
+        "GPU",
+        "Geometry",
+        "Export",
+    ]
     dlg.grid_spacing.setValue(2.54)
     dlg.grid_visible.setChecked(False)
     result = dlg.result_settings()

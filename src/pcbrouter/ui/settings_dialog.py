@@ -58,6 +58,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._routing_tab(), "Routing")
         tabs.addTab(self._gpu_tab(compute), "GPU")
         tabs.addTab(self._geometry_tab(), "Geometry")  # appended: keeps tab indices stable
+        tabs.addTab(self._export_tab(), "Export")
         self.tabs = tabs
 
         buttons = QDialogButtonBox(
@@ -264,6 +265,31 @@ class SettingsDialog(QDialog):
         form.addRow(self.check_on_open)
         return w
 
+    def _export_tab(self) -> QWidget:
+        e = self._settings.export
+        w = QWidget()
+        form = QFormLayout(w)
+        form.addRow(
+            _banner(
+                "Routed boards are exported to a NEW file (default <name>_routed.kicad_pcb). "
+                "The export only appends tracks and vias, reloads the result to check it, "
+                "and is written atomically. Passing checks does not mean a board is ready "
+                "for manufacturing: always review it in KiCad and against your "
+                "fabricator's rules."
+            )
+        )
+        self.allow_overwrite = QCheckBox("Allow File ▸ Overwrite Source Board (backup first)")
+        self.allow_overwrite.setChecked(e.allow_overwrite_source)
+        self.allow_overwrite.setToolTip("Off (default): the opened .kicad_pcb is never modified.")
+        form.addRow(self.allow_overwrite)
+        self.kicad_drc = QCheckBox("Run KiCad DRC on the exported file (needs kicad-cli)")
+        self.kicad_drc.setChecked(e.run_kicad_drc)
+        form.addRow(self.kicad_drc)
+        self.autosave_recovery = QCheckBox("Keep a crash-recovery copy of the working session")
+        self.autosave_recovery.setChecked(e.autosave_recovery)
+        form.addRow(self.autosave_recovery)
+        return w
+
     def _on_conservative_toggled(self, checked: bool) -> None:
         if checked or not self.isVisible():
             return
@@ -302,5 +328,8 @@ class SettingsDialog(QDialog):
         s.geometry.conservative_rules = self.conservative_rules.isChecked()
         s.geometry.grid_resolution_mm = self.grid_resolution.currentData()
         s.geometry.check_on_open = self.check_on_open.isChecked()
+        s.export.allow_overwrite_source = self.allow_overwrite.isChecked()
+        s.export.run_kicad_drc = self.kicad_drc.isChecked()
+        s.export.autosave_recovery = self.autosave_recovery.isChecked()
         self.ai_widget.apply_preferences()
         return s

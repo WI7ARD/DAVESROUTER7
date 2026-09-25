@@ -147,6 +147,17 @@ class GPUSettings(_Model):
     enabled: bool = False  # legacy flag from earlier versions; not used for decisions
 
 
+class ExportSettings(_Model):
+    """Export and session safety (Stage 9)."""
+
+    #: default False: the source board is never overwritten; exports go to a new file
+    allow_overwrite_source: bool = False
+    #: run KiCad's own DRC on the exported file when kicad-cli is installed
+    run_kicad_drc: bool = False
+    #: write a crash-recovery session after every working-board change
+    autosave_recovery: bool = True
+
+
 class WindowSettings(_Model):
     geometry_b64: str | None = None  # QMainWindow.saveGeometry(), base64
     state_b64: str | None = None  # QMainWindow.saveState(), base64
@@ -165,6 +176,7 @@ class AppSettings(_Model):
     routing: RoutingSettings = Field(default_factory=RoutingSettings)
     geometry: GeometrySettings = Field(default_factory=GeometrySettings)
     gpu: GPUSettings = Field(default_factory=GPUSettings)
+    export: ExportSettings = Field(default_factory=ExportSettings)
 
     @field_validator("recent_boards")
     @classmethod

@@ -17,7 +17,12 @@ from pcbrouter.commands.board_commands import (
     board_summary,
 )
 from pcbrouter.commands.command_bus import READ_ONLY_MESSAGE, CommandBus
-from pcbrouter.commands.export_commands import ExportBoardCommand, OverwriteSourceCommand
+from pcbrouter.commands.export_commands import (
+    ExportBoardCommand,
+    OverwriteSourceCommand,
+    RestoreSessionCommand,
+    SaveSessionCommand,
+)
 from pcbrouter.commands.route_commands import (
     AcceptBoardRoutingCommand,
     AcceptRouteCommand,
@@ -47,8 +52,10 @@ __all__ = [
     "OverwriteSourceCommand",
     "RejectProposalCommand",
     "ResetWorkingBoardCommand",
+    "RestoreSessionCommand",
     "RouteBoardCommand",
     "RouteNetCommand",
+    "SaveSessionCommand",
     "ValidateAICommand",
     "WorkingUndoAction",
     "board_summary",

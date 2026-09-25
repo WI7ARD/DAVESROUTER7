@@ -87,8 +87,14 @@ def test_routed_export_reloads_with_same_copper_connectivity_and_drc(tmp_path: P
     before = sha(src)
     wb = routed(src)
     out = tmp_path / "router_basic_routed.kicad_pcb"
-    rep = export_board(src, before, wb.source, wb.board, out, provenance={
-        k: v.value for k, v in wb.provenance.items()})  # fmt: skip
+    rep = export_board(
+        src,
+        before,
+        wb.source,
+        wb.board,
+        out,
+        provenance={k: v.value for k, v in wb.provenance.items()},
+    )
     assert rep.ok, rep.summary()
     assert rep.added_tracks > 0 and sha(src) == before  # source untouched
     text = out.read_text(encoding="utf-8")
@@ -134,8 +140,15 @@ def test_explicit_overwrite_makes_a_backup_first(tmp_path: Path) -> None:
     src = copy_board(tmp_path)
     original = src.read_bytes()
     wb = routed(src, ("A",))
-    rep = export_board(src, sha(src), wb.source, wb.board, src, overwrite_source=True,
-                       backup_dir=tmp_path / "backups")  # fmt: skip
+    rep = export_board(
+        src,
+        sha(src),
+        wb.source,
+        wb.board,
+        src,
+        overwrite_source=True,
+        backup_dir=tmp_path / "backups",
+    )
     assert rep.ok and rep.backup is not None
     assert rep.backup.read_bytes() == original
     assert signature(load_board(src).board) == signature(wb.board)
@@ -169,7 +182,8 @@ def test_output_follows_file_style_crlf_and_kicad6_tokens(tmp_path: Path) -> Non
     assert style.id_token == "uuid" and style.quoted_ids
     # KiCad 6 style: tstamp ids, unquoted
     k6 = re.sub(r'\(uuid "([^"]+)"\)', r"(tstamp \1)", text).replace(
-        "(version 20240108)", "(version 20211014)")  # fmt: skip
+        "(version 20240108)", "(version 20211014)"
+    )
     s6 = detect_style(k6)
     assert s6.id_token == "tstamp" and not s6.quoted_ids
 
@@ -216,9 +230,16 @@ def test_export_command_drc_gate_and_read_only_overwrite(tmp_path: Path) -> None
 
 
 def test_kicad_drc_report_parsing_is_labelled() -> None:
-    res = parse_drc_report({"violations": [{"severity": "error", "description": "Clearance"},
-                                           {"severity": "warning", "description": "silk"}],
-                            "unconnected_items": [{}]}, "8.0.4")  # fmt: skip
+    res = parse_drc_report(
+        {
+            "violations": [
+                {"severity": "error", "description": "Clearance"},
+                {"severity": "warning", "description": "silk"},
+            ],
+            "unconnected_items": [{}],
+        },
+        "8.0.4",
+    )
     assert res.ran and not res.passed and res.errors == 1 and res.unconnected == 1
     assert res.summary().startswith("KiCad DRC FAILED")
     assert parse_drc_report({"violations": [], "unconnected_items": []}).passed
@@ -264,9 +285,16 @@ def test_restoring_illegal_copper_is_rejected(tmp_path: Path) -> None:
     a = next(p for p in wb.board.pads if p.net_name == "A")
     b = next(p for p in wb.board.pads if p.net_name == "B")
     data = session_data(wb, src.name, sha(src))
-    data["added_tracks"] = [{"id": "x", "start": [a.position.x, a.position.y],
-                             "end": [b.position.x, b.position.y], "width": 250_000,
-                             "layer": "F.Cu", "net": "A"}]  # fmt: skip
+    data["added_tracks"] = [
+        {
+            "id": "x",
+            "start": [a.position.x, a.position.y],
+            "end": [b.position.x, b.position.y],
+            "width": 250_000,
+            "layer": "F.Cu",
+            "net": "A",
+        }
+    ]
     with pytest.raises(CommitError):  # validated like any other commit
         restore_session(wb, data, sha(src))
     assert wb.board.fingerprint == wb.source.fingerprint

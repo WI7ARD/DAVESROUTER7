@@ -88,3 +88,62 @@ class OverwriteSourceCommand(ExportBoardCommand):
     name: ClassVar[str] = "overwrite_source_board"
     modifies_board: ClassVar[bool] = True
     overwrite: ClassVar[bool] = True
+
+
+@dataclass
+class SaveSessionCommand(BaseCommand):
+    """Write the working session (added copper, locks, constraints) to a JSON file."""
+
+    path: Path | None = None  # None = the crash-recovery file in the workspace
+    name: ClassVar[str] = "save_session"
+
+    def execute(self, ctx: CommandContext) -> CommandResult:
+        from pcbrouter.project.session_store import (
+            SessionError,
+            recovery_path,
+            save_session,
+            session_data,
+        )
+
+        session, working = ctx.project.session, ctx.project.working
+        if session is None or working is None:
+            return CommandResult.fail("Open a board first.")
+        target = self.path or recovery_path(session.workspace.root)
+        try:
+            data = session_data(working, session.source_path.name, session.source_sha256)
+            save_session(target, data)
+        except (OSError, SessionError) as exc:
+            return CommandResult.fail(f"Session not saved: {exc}")
+        return CommandResult.ok(f"Session saved to {target.name}", target)
+
+    def describe(self) -> str:
+        return "save working session"
+
+
+@dataclass
+class RestoreSessionCommand(BaseCommand):
+    """Apply a saved/recovered session to the open board (validated, undoable)."""
+
+    path: Path
+    name: ClassVar[str] = "restore_session"
+
+    def execute(self, ctx: CommandContext) -> CommandResult:
+        from pcbrouter.commands.route_commands import WorkingUndoAction
+        from pcbrouter.project.session_store import SessionError, load_session, restore_session
+        from pcbrouter.routing.working_board import CommitError
+
+        session, working = ctx.project.session, ctx.project.working
+        if session is None or working is None:
+            return CommandResult.fail("Open a board first.")
+        try:
+            data = load_session(self.path)
+            commit = restore_session(working, data, session.source_sha256)
+        except (OSError, SessionError, CommitError, KeyError, TypeError, ValueError) as exc:
+            return CommandResult.fail(f"Session not restored: {exc}")
+        if commit is not None:
+            ctx.history.push(WorkingUndoAction(working, commit), already_applied=True)
+            return CommandResult.ok(f"Recovered session: {commit.diff_summary()}", commit)
+        return CommandResult.ok("Recovered session (locks/constraints only)", None)
+
+    def describe(self) -> str:
+        return f"restore session from {self.path.name}"
