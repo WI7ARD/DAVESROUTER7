@@ -109,6 +109,14 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "packages, credential store) and exit",
     )
     parser.add_argument(
+        "--setup-ollama",
+        nargs="?",
+        const="qwen2.5:7b",
+        metavar="MODEL",
+        help="set up free local AI with Ollama: download MODEL (default qwen2.5:7b), "
+        "make it the AI provider and test it",
+    )
+    parser.add_argument(
         "--setup-gpu",
         action="store_true",
         help="detect the GPU, install the matching GPU library (pip) and test it",
@@ -169,6 +177,43 @@ def setup_gpu_cli() -> int:
     return 0 if ok else 1
 
 
+def setup_ollama_cli(model: str) -> int:
+    """``--setup-ollama [MODEL]``: check → pull → save profile → test."""
+    from pcbrouter.ai import ollama
+
+    status = ollama.ollama_status()
+    print(status.text())
+    if not status.running:
+        return 1
+    if model not in status.models:
+        print(f"Downloading {model}…")
+        last = [""]
+
+        def show(msg: str, frac: float | None) -> None:
+            line = f"  {msg}" + (f" {frac * 100:5.1f}%" if frac is not None else "")
+            if line != last[0]:
+                print(line, flush=True)
+                last[0] = line
+
+        try:
+            ollama.pull_model(model, progress=show, timeout=120)
+        except ollama.OllamaError as exc:
+            print(f"Download failed: {exc}")
+            return 1
+    store = SettingsStore()
+    settings = store.load()
+    ollama.apply_profile(settings.ai, ollama.ollama_profile(model))
+    store.save(settings)
+    print(f"AI provider set to '{ollama.PROFILE_NAME}' with {model}.")
+    try:
+        reply = ollama.chat_check(model)
+    except ollama.OllamaError as exc:
+        print(f"Test failed: {exc}")
+        return 1
+    print(f"Test reply: {reply[:120]}\nLocal AI works: open the AI panel in the app.")
+    return 0
+
+
 _CRASH_LOG: Any = None
 
 
@@ -198,6 +243,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(f"{APP_NAME} {__version__}")
         return 0
+    if args.setup_ollama:
+        return setup_ollama_cli(args.setup_ollama)
     if args.setup_gpu:
         return setup_gpu_cli()
     if args.worker_selftest:

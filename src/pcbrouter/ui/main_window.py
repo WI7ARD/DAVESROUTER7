@@ -316,6 +316,11 @@ class MainWindow(QMainWindow):
         ai = mb.addMenu("&AI")
         ai.addAction(self.act_ai_panel)
         ai.addAction(self.act_ai)
+        act_ollama = QAction("Set Up &Local AI (Ollama)…", self)
+        act_ollama.setStatusTip("Free AI on this computer: no API key, nothing sent online")
+        act_ollama.triggered.connect(self.open_ollama_setup)
+        ai.addAction(act_ollama)
+        self.act_ollama = act_ollama
         ai.addSeparator()
         ai.addAction(self.act_ai_usage)
         ai.addAction(self.act_ai_export)
@@ -641,6 +646,14 @@ class MainWindow(QMainWindow):
         self.routing_ui._update_actions()
         self.export_ui.update_actions()
         self.ai_panel.setProperty("routingBusy", busy)
+
+    def open_ollama_setup(self) -> None:
+        from pcbrouter.ui.ollama_dialog import OllamaDialog
+
+        dlg = OllamaDialog(self)
+        dlg.setModal(False)
+        dlg.show()
+        self._ollama_dialog = dlg
 
     def open_gpu_setup(self) -> None:
         from pcbrouter.ui.gpu_setup_dialog import GpuSetupDialog
