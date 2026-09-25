@@ -70,8 +70,10 @@ Check ($LASTEXITCODE -eq 0 -and $selftest.ok) "routing worker process runs in th
 
 # Intel GPU support bundled into the installed app: dpnp + the SYCL runtime DLLs must
 # load from the bundle (the CI machine has no Intel GPU, so no device is expected).
-$gpu = ((& $cli --gpu-check) -join "`n") | ConvertFrom-Json
-Check ($gpu.library -eq 'dpnp' -and $gpu.library_loads) "installed app loads bundled dpnp ($($gpu.library_version); $($gpu.problem))"
+$gpuText = (& $cli --gpu-check) -join "`n"
+Write-Host $gpuText
+$gpu = $gpuText | ConvertFrom-Json
+Check ($gpu.library -eq 'dpnp' -and $gpu.library_loads) "installed app loads bundled dpnp (see the report above)"
 
 # ---------------------------------------------------------------- GUI
 $gui = Start-Process -FilePath (Join-Path $dir 'AI PCB Router.exe') -ArgumentList "`"$Board`"" -PassThru
