@@ -20,6 +20,7 @@ import importlib.util
 import logging
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
@@ -30,6 +31,34 @@ log = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_S = 5.0
 SKIPPED = "SKIPPED"
+
+#: Native vendor queries (CuPy device count, SYCL enumeration) can segfault when
+#: the driver stack is broken — an in-process call would take the caller down
+#: with it (pytest run, CLI, GUI). They run in a child process instead; a crash
+#: or timeout is reported like any other failed check. Inside the frozen app
+#: ``sys.executable`` cannot run ``-c`` snippets, so the routing worker (already
+#: a separate, watchdog-supervised process) keeps the guarded in-process call.
+_NATIVE_TIMEOUT_S = PROBE_TIMEOUT_S + 5.0
+
+
+def _native_query(snippet: str, what: str) -> tuple[str | None, str]:
+    """Run ``snippet`` in a child interpreter; return (stdout, "") or (None, why)."""
+    if getattr(sys, "frozen", False):
+        return None, "frozen"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", snippet],
+            capture_output=True,
+            text=True,
+            timeout=_NATIVE_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"{what} subprocess failed: {exc!r}"
+    if proc.returncode != 0:
+        tail = (proc.stderr.strip() or proc.stdout.strip())[-200:]
+        return None, f"{what} failed in a child process (exit {proc.returncode}) {tail}"
+    return proc.stdout, ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,14 +102,30 @@ def _cuda_devices(deep: bool = True) -> tuple[list[str], list[str]]:
         from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime
 
         prepare_gpu_runtime()
-        try:
-            cp = importlib.import_module("cupy")
-            count = int(cp.cuda.runtime.getDeviceCount())
-            checks.append(f"CuPy runtime: {count} device(s)")
-            if count == 0:
+        native_out, native_why = _native_query(
+            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
+            "prepare_gpu_runtime();"
+            "import cupy;print(int(cupy.cuda.runtime.getDeviceCount()))",
+            "CuPy device query",
+        )
+        if native_out is None and native_why == "frozen":
+            try:  # frozen worker: crash is contained by the GUI's watchdog
+                cp = importlib.import_module("cupy")
+                count = int(cp.cuda.runtime.getDeviceCount())
+            except Exception as exc:  # driver/runtime mismatch etc.
+                checks.append(f"CuPy runtime check failed: {exc!r}")
                 return [], checks
-        except Exception as exc:  # driver/runtime mismatch etc.
-            checks.append(f"CuPy runtime check failed: {exc!r}")
+        elif native_out is None:
+            checks.append(native_why)
+            return [], checks
+        else:
+            try:
+                count = int(native_out.strip().splitlines()[-1])
+            except ValueError:
+                checks.append(f"CuPy device query had no answer: {native_out[-200:]!r}")
+                return [], checks
+        checks.append(f"CuPy runtime: {count} device(s)")
+        if count == 0:
             return [], checks
     return names, checks
 
@@ -97,16 +142,40 @@ def _oneapi_devices(deep: bool = True) -> tuple[list[str], list[str]]:
         from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime
 
         prepare_gpu_runtime()
-        try:
-            dpctl = importlib.import_module("dpctl")
-            devices = dpctl.get_devices(device_type="gpu")
+        native_out, native_why = _native_query(
+            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
+            "prepare_gpu_runtime();"
+            "import dpctl,json;print(json.dumps("
+            "[d.name for d in dpctl.get_devices(device_type='gpu')]))",
+            "dpctl SYCL GPU query",
+        )
+        if native_out is None and native_why == "frozen":
+            try:  # frozen worker: a vendor crash is contained by the GUI's watchdog
+                dpctl = importlib.import_module("dpctl")
+                devices = dpctl.get_devices(device_type="gpu")
+            except Exception as exc:
+                checks.append(f"dpctl check failed: {exc!r}")
+                return [], checks
+        elif native_out is None:
+            checks.append(native_why)
+            return [], checks
+        else:
+            try:
+                import json
+
+                names = json.loads(native_out.strip().splitlines()[-1])
+                devices = [str(n) for n in names]
+            except (ValueError, TypeError):
+                checks.append(f"dpctl SYCL GPU query had no answer: {native_out[-200:]!r}")
+                return [], checks
             checks.append(f"dpctl: {len(devices)} SYCL GPU device(s)")
             if not devices:
                 return [], checks
-            return [str(getattr(d, "name", "Intel GPU")) for d in devices], checks
-        except Exception as exc:
-            checks.append(f"dpctl check failed: {exc!r}")
+            return devices, checks
+        checks.append(f"dpctl: {len(devices)} SYCL GPU device(s)")
+        if not devices:
             return [], checks
+        return [str(getattr(d, "name", "Intel GPU")) for d in devices], checks
     return intel, checks
 
 
@@ -193,23 +262,56 @@ def gpu_library_report() -> dict[str, Any]:
         report["problem"] = f"{lib} is present but failed to load: {exc!r}"
         return report
     if lib == "dpnp":
+        if getattr(sys, "frozen", False):
+            # The frozen CLI cannot spawn a crash-proof device query (its own
+            # executable is the app, not Python): library loading is checked
+            # here; SYCL devices are probed in the watchdog-supervised routing
+            # worker (Tools ▸ Test GPU on this board).
+            report["device_query"] = "skipped in the frozen CLI; see Tools ▸ Test GPU"
+            return report
+        native_out, native_why = _native_query(
+            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
+            "prepare_gpu_runtime();"
+            "import dpctl,json;"
+            "devs=dpctl.get_devices();"
+            "gpus=[d.name for d in devs if 'gpu' in str(d.device_type)];"
+            "out={'devices':[d.name for d in devs],'gpus':gpus};"
+            "print(json.dumps(out))",
+            "dpctl device query",
+        )
+        if native_out is None:
+            report["problem"] = native_why
+            return report
         try:
-            dpctl = importlib.import_module("dpctl")
+            import json
 
-            devices = dpctl.get_devices()
-            report["sycl_devices"] = [f"{d.name} ({d.device_type})" for d in devices]
-            gpus = [d for d in devices if "gpu" in str(d.device_type)]
-            report["gpu_device_found"] = bool(gpus)
-            if gpus:
-                x = mod.arange(1000, dtype=mod.float32, device=gpus[0])
-                report["gpu_compute_test"] = float(x.sum()) == 499500.0
-            else:
-                report["problem"] = (
-                    "dpnp loads but no SYCL GPU device: install/update the Intel graphics "
-                    "driver (it provides the GPU compute runtime)"
-                )
-        except Exception as exc:
-            report["problem"] = f"device query failed: {exc!r}"
+            info = json.loads(native_out.strip().splitlines()[-1])
+        except (ValueError, TypeError):
+            report["problem"] = f"device query had no answer: {native_out[-200:]!r}"
+            return report
+        report["sycl_devices"] = info.get("devices", [])
+        gpus = info.get("gpus", [])
+        report["gpu_device_found"] = bool(gpus)
+        if not gpus:
+            report["problem"] = (
+                "dpnp loads but no SYCL GPU device: install/update the Intel graphics "
+                "driver (it provides the GPU compute runtime)"
+            )
+            return report
+        native_out, native_why = _native_query(
+            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
+            "prepare_gpu_runtime();"
+            "import dpnp;"
+            "x=dpnp.arange(1000,dtype=dpnp.float32);print(float(x.sum()))",
+            "dpnp GPU compute test",
+        )
+        if native_out is None:
+            report["problem"] = native_why
+            return report
+        try:
+            report["gpu_compute_test"] = float(native_out.strip().splitlines()[-1]) == 499500.0
+        except ValueError:
+            report["problem"] = f"compute test had no answer: {native_out[-200:]!r}"
     return report
 
 
