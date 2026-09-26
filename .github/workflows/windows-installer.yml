@@ -1,0 +1,84 @@
+name: Windows
+
+# Builds the NSIS installer on a real Windows machine, installs it, exercises the
+# installed app, uninstalls it, and publishes Setup.exe as a workflow artifact.
+# Also runs the full test suite on Windows.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Test suite (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest -q
+
+  installer:
+    name: Build and smoke-test installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install build dependencies
+        # gpu-intel: dpnp + dpctl + Intel SYCL runtime are bundled into the installer.
+        # A venv on purpose: dpctl only finds its runtime DLLs (<env>\Library\bin) in a
+        # venv, and PyInstaller must import it while building to collect everything.
+        run: |
+          python -m venv .buildenv
+          .buildenv\Scripts\python -m pip install --upgrade pip
+          .buildenv\Scripts\python -m pip install -e ".[ai,packaging,gpu-intel]"
+          .buildenv\Scripts\python -c "import dpnp, dpctl; print('dpnp', dpnp.__version__, 'imports in the build env')"
+      - name: Ensure NSIS
+        run: |
+          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path $nsis)) {
+            # The Chocolatey feed occasionally times out (HTTP 504): retry with backoff.
+            $ok = $false
+            foreach ($wait in 0, 20, 60) {
+              Start-Sleep -Seconds $wait
+              choco install nsis -y --no-progress
+              if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            }
+            if (-not $ok) { throw "NSIS could not be installed from Chocolatey" }
+          }
+      - name: Build installer
+        run: .buildenv\Scripts\python packaging/windows/build_installer.py
+      - name: Smoke test (install, run, uninstall)
+        run: ./packaging/windows/smoke_test.ps1
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-PCB-Router-Setup-x64
+          path: dist/installer/*.exe
+          if-no-files-found: error
+          retention-days: 30

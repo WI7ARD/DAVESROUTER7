@@ -1,0 +1,145 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-pcb-router"
+# PEP 440 cannot express "0.9.0-stage9"; "+stage9" is the equivalent local
+# version label. The user-facing version string lives in pcbrouter.__version__.
+version = "0.9.0+stage9"
+description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "Davi" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "pydantic>=2.6,<3",
+    # Compact occupancy/congestion grids for the Stage 3 geometry engine
+    # (see docs/geometry_engine.md for why NumPy and not Shapely).
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+# Provider SDKs are optional: the app runs (and inspects boards) without them, and the
+# AI settings explain how to install a missing one. Lower bounds = versions tested.
+openai = ["openai>=3.19", "keyring>=25"]  # OpenAI and OpenAI-compatible endpoints
+# Optional GPU acceleration (Stage 6). Never required; the CPU router is the reference.
+gpu-cuda = ["cupy-cuda12x>=13"]  # NVIDIA GPUs with a CUDA 12 driver
+gpu-intel = ["dpnp>=0.16"]  # Intel GPUs (Iris Xe, Arc) with the oneAPI GPU runtime
+anthropic = ["anthropic>=1.8", "keyring>=25"]
+ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25"]
+# Windows installer build (packaging/windows/build_installer.py); NSIS is separate.
+packaging = ["pyinstaller>=6.22"]
+dev = [
+    "ai-pcb-router[ai]",
+    "pytest>=8",
+    "pytest-qt>=4.4",
+    "pytest-cov>=5",
+    "black>=24",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+pcbrouter = "pcbrouter.app.application:main"
+
+[project.gui-scripts]
+pcbrouter-gui = "pcbrouter.app.application:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pcbrouter = ["py.typed", "resources/*.png"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "N",   # pep8-naming
+    "T20", # no print() in library code
+    "RUF",
+]
+ignore = [
+    "N802", # Qt overrides such as mousePressEvent must keep Qt's camelCase names
+]
+# Deliberate typography in user-facing strings (dimensions "30 × 20 mm", dashes).
+allowed-confusables = ["×", "–", "‹", "ℹ"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+"tools/**" = ["T20"]
+# KiCad s-expression fixture templates: one board object per line is easier to audit.
+"tests/fixtures/stage3_boards.py" = ["T20", "E501"]
+# Entry points that write to the terminal. print() (not sys.stdout.write) because the
+# windowed Windows executable has sys.stdout = None, where print() is a safe no-op.
+"src/pcbrouter/app/cli.py" = ["T20"]
+"src/pcbrouter/app/application.py" = ["T20"]
+"src/pcbrouter/app/freeroute_cli.py" = ["T20"]
+"src/pcbrouter/app/maintenance.py" = ["T20"]
+"packaging/**" = ["T20"]
+# Qt signals follow Qt's camelCase naming (e.g. objectSelected), matching the Qt API.
+"src/pcbrouter/ui/**" = ["N815"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["pcbrouter"]
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pcbrouter.ui.*"]
+# PySide6 stubs expose many overloaded/untyped signal attributes.
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+# pytest-qt's QtBot methods are unannotated. Assertions after state transitions trip
+# mypy's literal narrowing (comparison-overlap false positives).
+disallow_untyped_calls = false
+disable_error_code = ["comparison-overlap"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+markers = [
+    "gui: tests that construct Qt widgets (run with QT_QPA_PLATFORM=offscreen in CI)",
+    "gpu: needs a real GPU device; auto-SKIPPED when the hardware probe finds none",
+]
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["pcbrouter"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

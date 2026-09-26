@@ -1,0 +1,132 @@
+{
+ "can_node.kicad_pcb": {
+  "components": 6,
+  "drc_errors": 0,
+  "drc_warnings": 6,
+  "fingerprint": "6041dcd7e2a12f5307cafd445d858998cc8b04dc9a3c9e3283365498838ae906",
+  "nets_connected": 1,
+  "pads": 18,
+  "tracks": 7,
+  "vias": 1
+ },
+ "empty.kicad_pcb": {
+  "components": 0,
+  "drc_errors": 0,
+  "drc_warnings": 2,
+  "fingerprint": "077384fa96196fb063b3d457ece9cf6b5762a0be5426e471c998efe6efc9e7f9",
+  "nets_connected": 0,
+  "pads": 0,
+  "tracks": 0,
+  "vias": 0
+ },
+ "four_layer.kicad_pcb": {
+  "components": 4,
+  "drc_errors": 0,
+  "drc_warnings": 6,
+  "fingerprint": "f68a3b8ef260532e79a2c5536ce7da583215e4f14cf3ef32baec90f0f747aa8c",
+  "nets_connected": 0,
+  "pads": 10,
+  "tracks": 4,
+  "vias": 3
+ },
+ "router_4layer.kicad_pcb": {
+  "components": 4,
+  "drc_errors": 0,
+  "drc_warnings": 0,
+  "fingerprint": "53d17ec704994ffc43986c8b4805517be941a767bc32df3c436e1e174cb451c7",
+  "nets_connected": 0,
+  "pads": 4,
+  "tracks": 0,
+  "vias": 0
+ },
+ "router_basic.kicad_pcb": {
+  "components": 13,
+  "drc_errors": 0,
+  "drc_warnings": 1,
+  "fingerprint": "0338f230dfc5a9df4de4504e84dc5ccab0cc4a47bbc2072ce7cfc5f26926a07d",
+  "nets_connected": 1,
+  "pads": 13,
+  "tracks": 1,
+  "vias": 0
+ },
+ "router_dense.kicad_pcb": {
+  "components": 24,
+  "drc_errors": 0,
+  "drc_warnings": 0,
+  "fingerprint": "4bc65b1f3f84bfa49adde8bec73f161e19e15d781be6e24f4660e77bfc41eacf",
+  "nets_connected": 1,
+  "pads": 24,
+  "tracks": 1,
+  "vias": 0
+ },
+ "router_ripup.kicad_pcb": {
+  "components": 4,
+  "drc_errors": 0,
+  "drc_warnings": 0,
+  "fingerprint": "b87c599af18ae9042c52974421f49c42ab5ae6d6a1014ab1240329b3684d675a",
+  "nets_connected": 0,
+  "pads": 4,
+  "tracks": 0,
+  "vias": 0
+ },
+ "stage3_clean.kicad_pcb": {
+  "components": 2,
+  "drc_errors": 0,
+  "drc_warnings": 0,
+  "fingerprint": "2af27450eb0666142dd6822d5094b853ba8db6564256608b4fe7fbb580b510d6",
+  "nets_connected": 1,
+  "pads": 4,
+  "tracks": 2,
+  "vias": 2
+ },
+ "stage3_rules.kicad_pcb": {
+  "components": 6,
+  "drc_errors": 6,
+  "drc_warnings": 0,
+  "fingerprint": "f7fb5f579db4bed59ff4a5a7b684d4c332397023b304fcb0e15d066fd67e2a5d",
+  "nets_connected": 2,
+  "pads": 14,
+  "tracks": 12,
+  "vias": 6
+ },
+ "stage3_unsupported.kicad_pcb": {
+  "components": 2,
+  "drc_errors": 0,
+  "drc_warnings": 2,
+  "fingerprint": "272f2d6154072eb7093f6ff46071ae9345df67ffc93b041942fb5c9c73865a3e",
+  "nets_connected": 1,
+  "pads": 4,
+  "tracks": 2,
+  "vias": 2
+ },
+ "traces.kicad_pcb": {
+  "components": 2,
+  "drc_errors": 0,
+  "drc_warnings": 2,
+  "fingerprint": "9718cae1d9b2e857f20b15ef1750340e776d39a0b6d29ce98862051ec95da544",
+  "nets_connected": 1,
+  "pads": 4,
+  "tracks": 5,
+  "vias": 0
+ },
+ "two_components.kicad_pcb": {
+  "components": 2,
+  "drc_errors": 0,
+  "drc_warnings": 1,
+  "fingerprint": "e5ea5e77e2b4f256ededfd634f18b76314ee398c8e70d404b599f1dd230f42e5",
+  "nets_connected": 0,
+  "pads": 4,
+  "tracks": 0,
+  "vias": 0
+ },
+ "vias.kicad_pcb": {
+  "components": 2,
+  "drc_errors": 0,
+  "drc_warnings": 5,
+  "fingerprint": "77f1f0af33a2f5c53023a5cbb1c5e1e57e5107f0612ba9e0d7a254aa4b602a80",
+  "nets_connected": 1,
+  "pads": 4,
+  "tracks": 3,
+  "vias": 3
+ }
+}

@@ -1,0 +1,15 @@
+(version 1)
+(rule "HV clearance"
+	(constraint clearance (min 1.0mm))
+	(condition "A.NetName == 'HV' || B.NetName == 'HV'"))
+(rule "CAN width"
+	(constraint track_width (min 0.2mm) (opt 0.25mm))
+	(condition "A.NetClass == 'CAN'"))
+(rule "No vias on SIG2"
+	(constraint disallow via)
+	(condition "A.NetName == 'SIG2'"))
+(rule "Silk"
+	(constraint silk_clearance (min 0.1mm)))
+(rule "Disabled"
+	(severity ignore)
+	(constraint clearance (min 5mm)))

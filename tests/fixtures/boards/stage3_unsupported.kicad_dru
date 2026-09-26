@@ -1,0 +1,7 @@
+(version 1)
+(rule "Courtyard keep"
+	(constraint clearance (min 0.5mm))
+	(condition "A.insideCourtyard('R1')"))
+(rule "No vias near RF"
+	(constraint disallow via)
+	(condition "A.intersectsArea('RF')"))

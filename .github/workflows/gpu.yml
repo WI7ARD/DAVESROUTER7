@@ -1,0 +1,56 @@
+name: GPU (gated)
+
+# Every GPU-dependent job is gated on a hardware probe. GitHub-hosted runners have
+# no GPU, so on them the probe reports SKIPPED and the GPU steps are not scheduled;
+# the job succeeds with a notice instead of failing. On a self-hosted runner with a
+# CUDA or Intel oneAPI GPU (labels: self-hosted, gpu) the GPU steps run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner label (ubuntu-latest, windows-latest, or a self-hosted GPU label)"
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  gpu:
+    name: GPU self-test and benchmark (gated)
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Probe for a GPU device
+        id: probe
+        run: python tools/gpu_probe.py --job ci-gpu --github-output "$GITHUB_OUTPUT"
+        shell: bash
+      - name: GPU SKIPPED (no device)
+        if: steps.probe.outputs.available != 'true'
+        run: echo "::notice title=GPU SKIPPED::${{ steps.probe.outputs.reason }}"
+        shell: bash
+      - name: GPU self-test
+        if: steps.probe.outputs.available == 'true'
+        run: python tools/gpu_selftest.py
+        shell: bash
+      - name: GPU tests
+        if: steps.probe.outputs.available == 'true'
+        run: python -m pytest -q -m gpu
+        shell: bash
+      - name: GPU benchmark
+        if: steps.probe.outputs.available == 'true'
+        run: python tools/bench_router.py
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: steps.probe.outputs.available == 'true'
+        with:
+          name: gpu-selftest
+          path: gpu_selftest_result.json
