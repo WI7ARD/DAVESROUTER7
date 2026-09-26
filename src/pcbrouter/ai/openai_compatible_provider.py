@@ -122,6 +122,17 @@ class OpenAICompatibleProvider(SDKProvider):
                 response = await self._complete(client, request, level)
             except Exception as exc:
                 err = map_sdk_error(exc, self.profile.name)
+                if "think" in str(exc).lower() and isinstance(err, AIProviderError):
+                    # The receiver rejected the "think" flag itself (unknown
+                    # field on strict mocks/servers, not the format): retry this
+                    # level once without it.
+                    try:
+                        response = await self._complete(client, request, level, think=False)
+                    except Exception as exc2:
+                        err = map_sdk_error(exc2, self.profile.name)
+                    else:
+                        self._format_level[key] = level
+                        return response
                 if level != "none" and isinstance(err, AICapabilityError | AIInvalidRequestError):
                     last_error = err
                     continue  # try the next, less demanding response format
@@ -131,7 +142,9 @@ class OpenAICompatibleProvider(SDKProvider):
         assert last_error is not None  # pragma: no cover
         raise last_error
 
-    async def _complete(self, client: Any, request: AIRequest, level: str) -> AIResponse:
+    async def _complete(
+        self, client: Any, request: AIRequest, level: str, think: bool = True
+    ) -> AIResponse:
         native = level == "json_schema"
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self.system_text(request, native)}
@@ -143,6 +156,17 @@ class OpenAICompatibleProvider(SDKProvider):
             "max_tokens": request.max_output_tokens,
             "timeout": request.timeout_s,
         }
+        if think:
+            kwargs.update(
+                {
+                    # Reasoning ("thinking") models spend the token budget narrating
+                    # their thoughts before answering, which starves structured
+                    # commands and blows past timeouts. Disable it where the server
+                    # honours the flag; servers that reject it fall back below
+                    # (the flag is dropped).
+                    "think": False,
+                }
+            )
         if level == "json_schema" and request.response_schema is not None:
             kwargs["response_format"] = {
                 "type": "json_schema",
