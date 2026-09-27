@@ -93,6 +93,48 @@ class _Attempt:
     total: int = 0
 
 
+#: source-cell budget per search (R6-power): pour interiors are redundant —
+#: any path reaching the copper connects — so deep-interior cells are stride
+#: sampled while boundary cells are always kept. Extra (newly routed) sources
+#: merge after thinning and are never thinned.
+SOURCE_CELL_CAP = 65536
+
+
+def _thin_sources(
+    sources: list[npt.NDArray[np.int64]], nx: int, ny: int, cap: int = SOURCE_CELL_CAP
+) -> list[npt.NDArray[np.int64]]:
+    """Boundary-preserving source thinning (deterministic)."""
+    total = sum(len(s) for s in sources)
+    if total <= cap:
+        return sources
+    stride = max(2, total // cap)
+    out: list[npt.NDArray[np.int64]] = []
+    for cells in sources:
+        if len(cells) == 0:
+            out.append(cells)
+            continue
+        mask = np.zeros(nx * ny, dtype=np.bool_)
+        mask[cells] = True
+        view = mask.reshape(ny, nx)
+        pad = np.zeros((ny + 2, nx + 2), dtype=np.bool_)
+        pad[1:-1, 1:-1] = view
+        interior = (
+            view
+            & pad[:-2, 1:-1]
+            & pad[2:, 1:-1]
+            & pad[1:-1, :-2]
+            & pad[1:-1, 2:]
+            & pad[:-2, :-2]
+            & pad[:-2, 2:]
+            & pad[2:, :-2]
+            & pad[2:, 2:]
+        )
+        is_inside = interior.reshape(-1)[cells]
+        kept = np.unique(np.concatenate([cells[~is_inside], cells[is_inside][::stride]]))
+        out.append(kept)
+    return out
+
+
 class Router:
     def __init__(
         self,
@@ -314,12 +356,19 @@ class Router:
     ) -> _Attempt:
         nl = len(grid.layers)
         attempt = _Attempt(total=len(groups) - 1)
-        connected = [groups[0]]
-        remaining = list(groups[1:])
+        # Power nets: start from the smallest copper group. Pour-heavy groups
+        # hold millions of cells; pushing all of them as sources explodes the
+        # heap before the first expansion. Connectivity is symmetric, so the
+        # start side only affects speed, never correctness.
+        sizes = [sum(c.size for c in self._cells_of(grid, g)) for g in groups]
+        start = min(range(len(groups)), key=lambda i: (sizes[i], i))
+        connected = [groups[start]]
+        remaining = [g for j, g in enumerate(groups) if j != start]
         extra_sources: list[list[int]] = [[] for _ in range(nl)]
         vias_used = 0
         while remaining:
             sources = self._cells_of(grid, [u for g in connected for u in g])
+            sources = _thin_sources(sources, grid.nx, grid.ny)
             for li in range(nl):
                 if extra_sources[li]:
                     sources[li] = np.unique(

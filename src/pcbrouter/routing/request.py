@@ -194,8 +194,23 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
     preferred = [w.preferred for w in widths]
     minimum = [w.minimum for w in widths]
     maximum = [w.maximum for w in widths]
-    if any(v.value is None for v in minimum) and request.preferred_width is None:
-        raise RuleUnknownError(f"no rule states a track width for {net}")
+    minimum_unknown = any(v.value is None for v in minimum)
+    if minimum_unknown and (request.preferred_width is None or engine.config.conservative):
+        # Fail here, not after minutes of searching: without a stated minimum
+        # the exact validator (conservative) refuses every candidate, so any
+        # search is futile. Expert mode (conservative off) with an explicit
+        # width proceeds; the validator reports unknowns as warnings.
+        raise RuleUnknownError(
+            f"no rule states a minimum track width for {net}"
+            + (
+                " (add net classes in KiCad, or turn conservative rule handling "
+                "off in Settings as an explicit expert choice)"
+                if request.preferred_width is not None
+                else " (add net classes in KiCad, set a width in the Workbench "
+                "constraints, or turn conservative rule handling off in Settings "
+                "as an explicit expert choice)"
+            )
+        )
     hard_min = max((v.value for v in minimum if v.value is not None), default=0)
     if request.preferred_width is not None:
         width = request.preferred_width

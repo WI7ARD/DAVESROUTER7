@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import threading
 from pathlib import Path
 
@@ -195,6 +196,20 @@ def test_rule_unknown_blocks_routing() -> None:
     res = route(wb.engine, "B")
     assert res.status is RouteStatus.RULE_UNKNOWN and res.reason is FailureReason.RULE_UNKNOWN
     assert not res.candidates
+
+
+def test_conservative_unknown_minimum_fails_fast_with_guidance() -> None:
+    """Power boards without rules: refuse in milliseconds, not after minutes
+    of searching paths the validator must reject anyway."""
+    import time
+
+    wb = WorkingBoard(load_board(BOARDS / "router_basic.kicad_pcb").board)
+    t0 = time.perf_counter()
+    res = route(wb.engine, "B", preferred_width=MM(0.25))
+    dt = time.perf_counter() - t0
+    assert res.status is RouteStatus.RULE_UNKNOWN and res.reason is FailureReason.RULE_UNKNOWN
+    assert "net classes" in res.message
+    assert dt < 5, f"rule refusal took {dt:.1f}s"
 
 
 def _pour_board(
@@ -549,8 +564,9 @@ def test_slack_pruning_preserves_optimal_cost() -> None:
     """R4: the cell_best dominance prune never changes the optimal grid cost.
 
     Real searches are replayed through an independent, pruning-free Dijkstra
-    over the same state space; optimal costs must match exactly (same edge
-    arithmetic), proving the prune only ever skips losers.
+    over the same state space; optimal costs must match to rounding (distinct
+    optima can differ by 1 ULP under float summation order), proving the prune
+    only ever skips losers.
     """
     import numpy as np
 
@@ -591,6 +607,45 @@ def test_slack_pruning_preserves_optimal_cost() -> None:
             assert outcome.status is SearchStatus.FOUND  # type: ignore[attr-defined]
             optimal = _brute_force_optimal_cost(_problem)
             assert optimal is not None
-            assert optimal == outcome.cost, (  # type: ignore[attr-defined]
+            assert math.isclose(optimal, outcome.cost, rel_tol=1e-9), (  # type: ignore[attr-defined]
                 f"{net}: pruned={outcome.cost} optimal={optimal}"  # type: ignore[attr-defined]
             )
+
+
+def test_pour_sources_are_thinned_and_routed(tmp_path: Path) -> None:
+    """Power nets: giant pours thin to boundary + samples, still route."""
+    import numpy as np
+
+    from pcbrouter.routing.router import SOURCE_CELL_CAP, _thin_sources
+    from pcbrouter.routing.search.astar import search
+
+    cells = np.arange(100 * 100, dtype=np.int64)  # solid 100x100 copper block
+    thinned = _thin_sources([cells], 100, 100, cap=1000)
+    assert len(thinned) == 1
+    kept = set(thinned[0].tolist())
+    # every boundary cell survives; deep interior is sampled
+    edge_cells = list(range(100)) + list(range(9900, 10000)) + [i * 100 for i in range(100)]
+    edge_cells += [i * 100 + 99 for i in range(100)]
+    for edge in edge_cells:
+        assert edge in kept
+    assert len(kept) < len(cells)
+    again = _thin_sources([cells], 100, 100, cap=1000)
+    assert again[0].tolist() == thinned[0].tolist()  # deterministic
+    assert len(kept) <= 1000 + 400  # cap plus the always-kept boundary
+
+    path = _pour_board(tmp_path, 2000, box=(14, 0.5, 29.5, 19.5))
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    sizes: list[int] = []
+    real = search
+
+    def spy(problem: object, **kw: object) -> object:
+        sizes.append(sum(len(s) for s in problem.sources))  # type: ignore[attr-defined]
+        return real(problem, **kw)  # type: ignore[arg-type]
+
+    res = Router(wb.engine, search_fn=spy).route_net(
+        RouteRequest("C", candidates=1, grid_resolution=MM(0.05))
+    )
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+    assert sizes, "no searches ran"
+    assert max(sizes) <= SOURCE_CELL_CAP + 20000
+    assert_octilinear_and_legal(wb.engine, res.best)
