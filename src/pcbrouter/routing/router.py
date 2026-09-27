@@ -360,6 +360,7 @@ class Router:
                     time_limit_s=self._search_time(norm.request.time_limit_s),
                     cancel=cancel,
                     record_explored=self.record_explored,
+                    heuristic_weight=norm.request.heuristic_weight,
                 )
                 result.metrics.search_s += time.perf_counter() - t_search
                 result.metrics.expanded_nodes += outcome.expanded

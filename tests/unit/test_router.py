@@ -381,3 +381,33 @@ def test_board_router_shares_one_grid_cache(basic: WorkingBoard) -> None:
     shared = made[0].grid_cache
     assert shared is job._grid_cache
     assert 0 < len(shared) <= BoardRouter.GRID_CACHE_SIZE + 2
+
+
+def test_heuristic_weight_below_one_is_rejected(basic: WorkingBoard) -> None:
+    """R3: weights below 1 would be inadmissible in the wrong direction."""
+    res = route(basic.engine, "A", heuristic_weight=0.5)
+    assert res.status is RouteStatus.INVALID_REQUEST, res.summary()
+
+
+def test_weighted_search_is_faster_and_stays_legal() -> None:
+    """R3: weight 1.5 collapses expansions with a bounded length cost."""
+    engine = working("router_dense.kicad_pcb").engine
+    base = route(engine, "S3", candidates=1)
+    assert base.status is RouteStatus.SUCCESS, base.summary()
+    fast = route(engine, "S3", candidates=1, heuristic_weight=1.5)
+    assert fast.status is RouteStatus.SUCCESS, fast.summary()
+    assert fast.metrics.expanded_nodes <= base.metrics.expanded_nodes
+    assert fast.best is not None and base.best is not None
+    assert_octilinear_and_legal(engine, fast.best)
+    assert fast.best.score.length_nm <= 1.5 * base.best.score.length_nm
+    assert fast.metrics.search_s <= base.metrics.search_s + 0.5
+
+
+def test_weighted_search_is_deterministic() -> None:
+    """R3: same weight + seed → identical grid path."""
+    engine = working("router_dense.kicad_pcb").engine
+    first = route(engine, "S3", candidates=1, heuristic_weight=1.5)
+    second = route(engine, "S3", candidates=1, heuristic_weight=1.5)
+    assert first.status is second.status is RouteStatus.SUCCESS
+    assert first.best is not None and second.best is not None
+    assert first.best.proposal.segments == second.best.proposal.segments

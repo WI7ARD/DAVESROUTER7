@@ -16,6 +16,11 @@ values prefer the deeper node. Both only discard states that cannot beat a known
 one by more than a bend penalty, so routes stay near-optimal for the cost model
 (documented: not strictly optimal).
 
+Weighted search: ``heuristic_weight`` scales the heuristic (default 1.0 keeps
+admissibility). Weights above 1 trade optimality for speed with a proven bound
+(final cost is at most ``weight`` times the optimal grid cost); the exact
+validator still accepts or rejects every route downstream.
+
 Determinism: the priority queue breaks ties by depth, then insertion order;
 neighbour order is fixed. Same inputs → same path.
 """
@@ -99,6 +104,7 @@ def search(
     time_limit_s: float,
     cancel: threading.Event | None = None,
     record_explored: bool = False,
+    heuristic_weight: float = 1.0,
 ) -> SearchOutcome:
     t0 = time.perf_counter()
     g = problem.grid
@@ -108,8 +114,8 @@ def search(
     passable = [p.reshape(-1).tobytes() for p in g.passable]
     near = [p.reshape(-1).tobytes() for p in g.near]
     target = [t.reshape(-1).tobytes() for t in problem.targets]
-    penalty = [None if p is None else p.reshape(-1).tolist() for p in g.penalty]
-    factor = [None if f is None else f.reshape(-1).tolist() for f in g.factor]
+    penalty = [None if p is None else p.reshape(-1) for p in g.penalty]
+    factor = [None if f is None else f.reshape(-1) for f in g.factor]
     vias_on = problem.vias_enabled and g.via_ok is not None and nl > 1
     via_ok = g.via_ok.reshape(-1).tobytes() if vias_on and g.via_ok is not None else b""
     vlim = problem.max_vias
@@ -118,7 +124,6 @@ def search(
     lf = problem.layer_factor
     prox = cm.proximity_factor
     dirs = [0, 2, 4, 6] if not problem.octilinear else list(range(8))
-    bend = (0.0, cm.bend45_nm, cm.bend90_nm)
 
     boxes = [(li, _bbox(t)) for li, t in enumerate(problem.targets)]
     boxes2 = [(li, b) for li, b in boxes if b is not None]
@@ -128,20 +133,47 @@ def search(
     if any(f is not None for f in factor):
         min_factor *= cm.corridor_prefer_factor
     via_h = problem.via_cost if vias_on else 0.0
+    weight = max(1.0, heuristic_weight)
 
-    def heuristic(li: int, idx: int) -> float:
-        r, c = divmod(idx, nx)
-        best = math.inf
+    # Exact octile distance-to-target field per layer (R3): the same formula as
+    # the old per-push heuristic, evaluated once with NumPy instead of once per
+    # pushed node. Values are bit-identical, so paths and determinism are kept.
+    ny = g.ny
+    rows = np.arange(ny, dtype=np.float64).reshape(-1, 1)
+    cols = np.arange(nx, dtype=np.float64).reshape(1, -1)
+    hfield: list[npt.NDArray[np.float64]] = []
+    for li in range(nl):
+        best_arr: npt.NDArray[np.float64] | None = None
         for bl, (r0, r1, c0, c1) in boxes2:
-            dr = r0 - r if r < r0 else (r - r1 if r > r1 else 0)
-            dc = c0 - c if c < c0 else (c - c1 if c > c1 else 0)
-            lo, hi = (dr, dc) if dr < dc else (dc, dr)
+            dr = np.where(rows < r0, r0 - rows, np.where(rows > r1, rows - r1, 0.0))
+            dc = np.where(cols < c0, c0 - cols, np.where(cols > c1, cols - c1, 0.0))
+            lo = np.minimum(dr, dc)
+            hi = np.maximum(dr, dc)
             h = ((hi - lo) + SQRT2 * lo) * cell * min_factor
             if bl != li:
-                h += via_h
-            if h < best:
-                best = h
-        return best
+                h = h + via_h
+            best_arr = h if best_arr is None else np.minimum(best_arr, h)
+        assert best_arr is not None
+        if weight != 1.0:
+            best_arr = best_arr * weight
+        hfield.append(best_arr.reshape(-1))
+
+    # Turn bend-cost table [incoming dir 0..8][move]: None = disallowed (> 90°).
+    # Step lengths per move (R3): hoisted out of the per-neighbour loop.
+    step_len = [cell * (SQRT2 if dx and dy else 1.0) for dx, dy in DIRS]
+    bend = (0.0, cm.bend45_nm, cm.bend90_nm)
+    _turn_cost: list[list[float | None]] = []
+    for d in range(9):
+        row: list[float | None] = []
+        for nd in range(8):
+            if d == NO_DIR:
+                row.append(0.0)
+                continue
+            turn = abs(nd - d)
+            if turn > 4:
+                turn = 8 - turn
+            row.append(bend[turn] if turn <= 2 else None)
+        _turn_cost.append(row)
 
     heap: list[tuple[float, float, int, float, int]] = []
     # best cost to reach a (vias, layer, cell) with any direction: states more than
@@ -160,7 +192,7 @@ def search(
             if s in best_g:
                 continue
             best_g[s] = 0.0
-            heapq.heappush(heap, (heuristic(li, idx), 0.0, tie, 0.0, s))
+            heapq.heappush(heap, (hfield[li][idx], 0.0, tie, 0.0, s))
             tie += 1
     if not heap:
         return SearchOutcome(SearchStatus.NO_PATH, elapsed_s=time.perf_counter() - t0)
@@ -170,7 +202,6 @@ def search(
     deadline = t0 + time_limit_s
     status = SearchStatus.NO_PATH
     goal = -1
-    ny = g.ny
     while heap:
         _f, _ng, _t, gc, s = heapq.heappop(heap)
         if gc > best_g.get(s, math.inf):
@@ -203,15 +234,12 @@ def search(
         pen = penalty[li]
         fac = factor[li]
         base = (v * nl + li) * n
+        turn_costs = _turn_cost[d]
+        h_layer = hfield[li]
         for nd in dirs:
-            if d != NO_DIR:
-                turn = abs(nd - d)
-                if turn > 4:
-                    turn = 8 - turn
-                if turn > 2:
-                    continue
-            else:
-                turn = 0
+            bcost = turn_costs[nd]
+            if bcost is None:
+                continue
             dx, dy = DIRS[nd]
             rr, cc = r + dy, c + dx
             if rr < 0 or rr >= ny or cc < 0 or cc >= nx:
@@ -221,12 +249,12 @@ def search(
                 continue
             if dx and dy and not (pl[r * nx + cc] and pl[rr * nx + c]):
                 continue
-            step = cell * (SQRT2 if dx and dy else 1.0)
-            w = lf[li] * (fac[ni] if fac is not None else 1.0)
+            step = step_len[nd]
+            w = lf[li] * (float(fac[ni]) if fac is not None else 1.0)
             cost = step * w * (1.0 + prox * nr_l[ni])
             if pen is not None:
-                cost += step * pen[ni]
-            cost += bend[turn]
+                cost += step * float(pen[ni])
+            cost += bcost
             ng = gc + cost
             ck = base + ni
             cb = cell_best.get(ck, math.inf)
@@ -238,7 +266,7 @@ def search(
                 if ng < cb:
                     cell_best[ck] = ng
                 parent[ns] = s
-                heapq.heappush(heap, (ng + heuristic(li, ni), -ng, tie, ng, ns))
+                heapq.heappush(heap, (ng + h_layer[ni], -ng, tie, ng, ns))
                 tie += 1
         if vias_on and via_ok[idx] and (not track_vias or v + 1 < nv):
             v2 = v + 1 if track_vias else v
@@ -250,7 +278,7 @@ def search(
                 if ng < best_g.get(ns, math.inf):
                     best_g[ns] = ng
                     parent[ns] = s
-                    heapq.heappush(heap, (ng + heuristic(l2, idx), -ng, tie, ng, ns))
+                    heapq.heappush(heap, (ng + hfield[l2][idx], -ng, tie, ng, ns))
                     tie += 1
     out = SearchOutcome(status, expanded=expanded, elapsed_s=time.perf_counter() - t0)
     if record_explored:

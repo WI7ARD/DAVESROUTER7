@@ -58,7 +58,10 @@ def wavefront_search(
     cancel: threading.Event | None = None,
     record_explored: bool = False,
     xp: Any = np,
+    heuristic_weight: float = 1.0,
 ) -> SearchOutcome:
+    # heuristic_weight is accepted for SearchFn uniformity and ignored: the
+    # wavefront has no heuristic to weight.
     t0 = time.perf_counter()
     g = problem.grid
     nl = len(g.layers)

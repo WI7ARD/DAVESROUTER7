@@ -90,7 +90,10 @@ class HybridSearch:
         time_limit_s: float,
         cancel: threading.Event | None = None,
         record_explored: bool = False,
+        heuristic_weight: float = 1.0,
     ) -> SearchOutcome:
+        # Weighted search is an A* concept: forwarded on the CPU path, ignored
+        # by the wavefront (which has no heuristic).
         reason = self._gpu_reason(problem)
         if reason is None and self.gpu is not None:
             self._selected("gpu", f"{self.mode.value.upper()} mode, grid fits on the device")
@@ -120,6 +123,7 @@ class HybridSearch:
             time_limit_s=time_limit_s,
             cancel=cancel,
             record_explored=record_explored,
+            heuristic_weight=heuristic_weight,
         )
 
 

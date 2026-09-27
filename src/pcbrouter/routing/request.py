@@ -81,6 +81,10 @@ class RouteRequest:
     candidates: int = 3
     seed: int = 0
     cost: CostModel = DEFAULT_COST_MODEL
+    #: weighted A*: heuristic multiplier (1.0 = admissible/optimal). Values above
+    #: 1 trade optimality for speed with a proven bound (cost at most weight x
+    #: optimal); the exact validator still accepts or rejects every route.
+    heuristic_weight: float = 1.0
     soft_regions: tuple[SoftRegion, ...] = ()
     via_diameter: Nm | None = None
     via_drill: Nm | None = None
@@ -167,6 +171,8 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
         raise RouteRequestError("grid resolution below 0.01 mm is not supported")
     if request.time_limit_s <= 0 or request.node_limit <= 0:
         raise RouteRequestError("time and node limits must be positive")
+    if request.heuristic_weight < 1.0:
+        raise RouteRequestError("heuristic weight must be at least 1.0")
     if request.total_time_limit_s is not None and request.total_time_limit_s <= 0:
         raise RouteRequestError("the net time budget is exhausted")
     notes: list[str] = []
