@@ -149,6 +149,9 @@ class RoutingController(QObject):
         self.panel.rejectRequested.connect(self.reject)
         self.panel.candidateChanged.connect(self._preview)
         self.panel.cancelRequested.connect(self.cancel)
+        #: latest live board snapshot (preview overlay + cancel keeps it)
+        self.last_partial: Any = None
+        self.route_jobs.partial.connect(self._on_board_partial)
 
     # ------------------------------------------------------------ setup / lifecycle
     def install(self) -> None:
@@ -381,6 +384,8 @@ class RoutingController(QObject):
         )
         if not self._submit(job, self._board_job_done):
             return False
+        self.last_partial = None
+        self.overlays.clear("board_preview")
         self.board_panel.set_running("Planning board routing…")
         dock = self.w.docks["jobs"]
         dock.show()
@@ -419,12 +424,30 @@ class RoutingController(QObject):
 
     def _board_job_done(self, done: JobDone) -> None:
         if isinstance(done.value, BoardRoutingResult):
+            self.last_partial = None
             self._board_done(done.value, done.elapsed_s)
             return
         self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
+        partial, self.last_partial = self.last_partial, None
+        if (
+            done.status
+            in (
+                JobStatus.CANCELED.value,
+                JobStatus.TIMED_OUT.value,
+                JobStatus.FAILED.value,
+            )
+            and partial is not None
+        ):
+            reason = {
+                JobStatus.CANCELED.value: "Board routing canceled",
+                JobStatus.TIMED_OUT.value: "Board routing timed out",
+                JobStatus.FAILED.value: "Board routing failed",
+            }[done.status]
+            if self._partial_result(partial, reason):
+                return
         self.board_panel.set_result(None)
         if done.status == JobStatus.CANCELED.value:
-            self.board_panel.status.setText("Board routing canceled. Nothing was changed.")
+            self.board_panel.status.setText("Board routing canceled. Nothing was routed yet.")
             return
         self.board_panel.status.setText(f"Board routing {done.status.lower()}: {done.error}")
         self._job_failed(done)
@@ -433,6 +456,82 @@ class RoutingController(QObject):
         """Worker progress (already throttled) → the Routing Jobs panel."""
         if progress.board_info:
             self.board_panel.on_progress(progress.board_info)
+
+    def _on_board_partial(self, msg: Any) -> None:
+        """Live routed copper: preview overlay as nets complete."""
+        from pcbrouter.geometry.shapes import capsule, circle
+        from pcbrouter.routing.collision import ValidationStatus
+
+        partial = msg.partial
+        self.last_partial = partial
+        if not self.route_jobs.busy:
+            return
+        shapes = [capsule(t.start, t.end, t.width // 2) for t in partial.added_tracks]
+        shapes += [circle(v.position, v.diameter // 2) for v in partial.added_vias]
+        if shapes:
+            self.overlays.set_group(
+                "board_preview", overlays.candidate_items(shapes, ValidationStatus.VALID)
+            )
+        self.board_panel.status.setText(
+            f"Routing… live preview: {partial.succeeded_nets}/{partial.total_nets} nets, "
+            f"{len(partial.added_tracks)} tracks, {len(partial.added_vias)} vias. "
+            "Cancel keeps this for review."
+        )
+
+    def _partial_result(self, partial: Any, status_text: str) -> bool:
+        """Offer a cancelled/timed-out job's streamed copper for review + accept."""
+        from pcbrouter.routing.board_router import (
+            BoardMetrics,
+            BoardRoutingPlan,
+            BoardRoutingResult,
+            BoardStatus,
+            NetOutcome,
+            RouteTask,
+            Strategy,
+            TaskKind,
+        )
+        from pcbrouter.routing.result import FailureReason, RouteStatus
+
+        if not partial.added_tracks and not partial.added_vias:
+            return False
+        working = self.project.working
+        if working is None:
+            return False
+        outcomes: dict[str, NetOutcome] = {}
+        for net, (st, reason, message, _ids) in partial.outcomes.items():
+            o = NetOutcome(net, RouteStatus(st))
+            o.reason = FailureReason(reason) if reason else None
+            o.message = message
+            o.added_ids = [t.id for t in partial.added_tracks if t.net_name == net] + [
+                v.id for v in partial.added_vias if v.net_name == net
+            ]
+            o.length_nm = sum(t.length for t in partial.added_tracks if t.net_name == net)
+            o.vias = sum(1 for v in partial.added_vias if v.net_name == net)
+            outcomes[net] = o
+        result = BoardRoutingResult(
+            BoardStatus.CANCELLED,
+            working.board,
+            working.board,
+            BoardRoutingPlan(
+                [RouteTask(n, TaskKind.SIGNAL) for n in outcomes], Strategy.CRITICAL_FIRST
+            ),
+            outcomes,
+            BoardMetrics(nets_attempted=partial.total_nets, nets_completed=partial.succeeded_nets),
+            tuple(partial.added_tracks),
+            tuple(partial.added_vias),
+            tuple(partial.removed_ids),
+            [status_text],
+        )
+        self.last_board_result = result
+        self.board_panel.set_result(result)
+        self.board_panel.status.setText(
+            f"{status_text} — {partial.succeeded_nets}/{partial.total_nets} nets routed. "
+            "Review and accept what is good."
+        )
+        self.w.statusBar().showMessage(
+            f"Partial routing kept: {partial.succeeded_nets}/{partial.total_nets} nets.", 12000
+        )
+        return True
 
     def _board_done(self, result: object, _secs: float) -> None:
         self.w.engine_ui.lbl_routing.setText(self.w.engine_ui.routing_status())
@@ -462,6 +561,7 @@ class RoutingController(QObject):
             self.board_panel.status.setText(f"Not accepted: {res.message}")
             return False
         self.overlays.clear("board_preview")
+        self.last_partial = None
         self.board_panel.set_result(None)
         self.board_panel.status.setText(res.message)
         self.last_board_result = None
@@ -470,6 +570,7 @@ class RoutingController(QObject):
 
     def reject_board(self) -> None:
         self.overlays.clear("board_preview")
+        self.last_partial = None
         self.last_board_result = None
         self.board_panel.set_result(None)
         self.board_panel.status.setText("Board routing rejected. Nothing was changed.")

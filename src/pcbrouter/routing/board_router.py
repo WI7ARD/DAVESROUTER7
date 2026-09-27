@@ -391,12 +391,14 @@ class BoardRouter:
         plan: BoardRoutingPlan | None = None,
         control: BoardRoutingControl | None = None,
         progress: Progress | None = None,
+        on_partial: Callable[[Any], None] | None = None,
     ) -> BoardRoutingResult:
         t0 = time.perf_counter()
         control = control or BoardRoutingControl()
         s = self.settings
         fork = self.base.fork()
         base_board = fork.board
+        base_ids = {t.id for t in base_board.tracks} | {v.id for v in base_board.vias}
         plan = plan or make_plan(fork, s)
         self._all_tasks = list(plan.tasks)
         metrics = BoardMetrics(nets_attempted=len(plan.tasks))
@@ -407,6 +409,45 @@ class BoardRouter:
         deadline = t0 + s.budget_s
         self._deadline = deadline
         cancelled = False
+        last_partial = 0.0
+
+        def emit_partial(force: bool = False) -> None:
+            """Stream what is routed so far (live preview + cancel keeps it)."""
+            nonlocal last_partial
+            if on_partial is None:
+                return
+            now = time.perf_counter()
+            if not force and now - last_partial < 2.0:
+                return
+            last_partial = now
+            final = fork.board
+            added_t = tuple(t for t in final.tracks if t.id not in base_ids)
+            added_v = tuple(v for v in final.vias if v.id not in base_ids)
+            final_ids = {t.id for t in final.tracks} | {v.id for v in final.vias}
+            done = {
+                net: (
+                    o.status.value,
+                    o.reason.value if o.reason else "",
+                    o.message,
+                    list(o.added_ids),
+                )
+                for net, o in outcomes.items()
+                if o.passes > 0 or o.status is RouteStatus.SUCCESS or o.added_ids
+            }
+            succeeded = sum(1 for o in outcomes.values() if o.status is RouteStatus.SUCCESS)
+            from pcbrouter.jobs.protocol import BoardPartial
+
+            on_partial(
+                BoardPartial(
+                    completed_nets=len(done),
+                    total_nets=len(plan.tasks),
+                    succeeded_nets=succeeded,
+                    outcomes=done,
+                    added_tracks=list(added_t),
+                    added_vias=list(added_v),
+                    removed_ids=sorted(base_ids - final_ids),
+                )
+            )
 
         def emit(**kw: Any) -> None:
             if progress is not None:
@@ -440,7 +481,9 @@ class BoardRouter:
                 ok = self._route_task(fork, task, pass_no, outcomes, metrics, control, job_log)
                 if not ok:
                     still.append(task)
+                emit_partial()
             if cancelled:
+                emit_partial(force=True)
                 break
             failed = still
             if pass_no == 1 and failed and s.max_passes >= 2:
@@ -451,6 +494,8 @@ class BoardRouter:
                 failed = self._ripup_pass(
                     fork, failed, outcomes, metrics, control, job_log, deadline
                 )
+                emit_partial()
+        emit_partial(force=True)  # latest snapshot always matches the result below
         if s.optimize and not cancelled:
             from pcbrouter.routing.optimize import OptimizeGoal, optimize_nets
 
@@ -460,8 +505,8 @@ class BoardRouter:
                 fork, done_nets, OptimizeGoal.FEWER_VIAS, control=control, deadline=deadline
             )
             job_log += report.log
+        emit_partial(force=True)  # optimisation replaced copper: re-snapshot
         # final bookkeeping from the fork's diff to the base
-        base_ids = {t.id for t in base_board.tracks} | {v.id for v in base_board.vias}
         final = fork.board
         final_ids = {t.id for t in final.tracks} | {v.id for v in final.vias}
         added_tracks = tuple(t for t in final.tracks if t.id not in base_ids)

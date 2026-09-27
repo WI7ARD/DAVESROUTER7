@@ -260,6 +260,94 @@ def test_every_gpu_setup_button_responds(
     dlg.reject()
 
 
+def test_board_partials_stream_live_preview(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    """Live copper preview: the worker streams snapshots while routing."""
+    from pcbrouter.jobs.protocol import BoardPartial
+
+    ui = window.routing_ui
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    partials: list[BoardPartial] = []
+    ui.route_jobs.partial.connect(lambda m: partials.append(m.partial))
+    assert ui.route_board()
+    run_until(lambda: any(len(p.added_tracks) + len(p.added_vias) > 0 for p in partials), 90)
+    copper = max(partials, key=lambda p: len(p.added_tracks) + len(p.added_vias))
+    assert copper.total_nets > 0 and copper.succeeded_nets >= 1
+    assert "live preview" in ui.board_panel.status.text().lower()
+    wait(window)  # let the job finish normally; preview is replaced by the result
+    assert ui.last_board_result is not None
+    ui.reject_board()
+
+
+def test_cancel_without_result_keeps_partial_for_accept(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    """A killed/timed-out job with no final value still offers streamed copper."""
+    from pcbrouter.jobs.protocol import BoardPartial, JobDone
+
+    ui = window.routing_ui
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    before = len(window.bus.context.project.working.board.tracks)
+    partials: list[BoardPartial] = []
+    ui.route_jobs.partial.connect(lambda m: partials.append(m.partial))
+    assert ui.route_board()
+    run_until(lambda: any(len(p.added_tracks) + len(p.added_vias) > 0 for p in partials), 90)
+    partial = max(partials, key=lambda p: len(p.added_tracks) + len(p.added_vias))
+    # simulate the worker dying (kill/timeout/crash): no value, but copper streamed
+    ui.last_partial = partial
+    ui._board_job_done(JobDone(4242, JobStatus.CANCELED.value, value=None))
+    assert ui.last_board_result is not None
+    assert ui.board_panel.accept_all.isEnabled()
+    assert "nets routed" in ui.board_panel.status.text().lower()
+    assert ui.accept_board(None) is True
+    after = len(window.bus.context.project.working.board.tracks)
+    assert after > before
+    wait(window)  # the real job may still finish; it must not clobber the accept
+    assert len(window.bus.context.project.working.board.tracks) >= after
+
+
+def test_rule_unknown_result_points_at_widths(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    """A batch that routed nothing for lack of rules tells the user what to set."""
+    from pcbrouter.routing.board_router import (
+        BoardMetrics,
+        BoardRoutingPlan,
+        BoardRoutingResult,
+        BoardStatus,
+        NetOutcome,
+        RouteTask,
+        Strategy,
+        TaskKind,
+    )
+    from pcbrouter.routing.result import FailureReason, RouteStatus
+
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    base = window.bus.context.project.working.board
+    outcomes = {
+        n: NetOutcome(n, RouteStatus.RULE_UNKNOWN, FailureReason.RULE_UNKNOWN, "no rule")
+        for n in ("GND", "VCC")
+    }
+    result = BoardRoutingResult(
+        BoardStatus.FAILED,
+        base,
+        base,
+        BoardRoutingPlan(
+            [RouteTask(n, TaskKind.SIGNAL) for n in outcomes], Strategy.CRITICAL_FIRST
+        ),
+        outcomes,
+        BoardMetrics(nets_attempted=2, nets_failed=2),
+    )
+    ui = window.routing_ui
+    ui.board_panel.set_result(result)
+    assert "track width" in ui.board_panel.status.text()
+    assert not ui.board_panel.accept_all.isEnabled()
+
+
 def test_guides_cover_features_and_buttons_work(window: MainWindow) -> None:
     from pcbrouter.ui.guides import GUIDES
 

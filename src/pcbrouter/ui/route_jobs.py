@@ -38,6 +38,7 @@ from pcbrouter.jobs.protocol import (
     Heartbeat,
     JobBase,
     JobDone,
+    JobPartial,
     JobStatus,
     LogBatch,
     RouteProgress,
@@ -243,6 +244,8 @@ class _Active:
     log_tail: list[str] = field(default_factory=list)
     retries: int = 0
     note: str = ""
+    #: latest live board-routing snapshot (preview + cancel keeps it)
+    last_partial: Any = None
 
 
 class RouteJobController(QObject):
@@ -250,6 +253,7 @@ class RouteJobController(QObject):
 
     stateChanged = Signal(str)
     progress = Signal(object)  # RouteProgress (coalesced, ≤ ~30/s, typically ≤ 10/s)
+    partial = Signal(object)  # JobPartial (live board copper, ≤ ~1/2 s)
     heartbeat = Signal(object)  # Heartbeat
     jobStarted = Signal(object)  # the JobBase
     notice = Signal(str)  # something the user should know (retry, fallback)
@@ -426,6 +430,9 @@ class RouteJobController(QObject):
             elif isinstance(msg, JobDone) and a is not None and msg.job_id == a.job_id:
                 self._finish(msg)
                 a = None
+            elif isinstance(msg, JobPartial) and a is not None and msg.job_id == a.job_id:
+                a.last_partial = msg.partial
+                self.partial.emit(msg)
         if latest is not None and self.active is not None:
             self.active.progress = latest
             self.active.last_progress_at = now

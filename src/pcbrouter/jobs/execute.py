@@ -396,7 +396,16 @@ def _route_board(job: RouteBoardJob, ctx: JobContext) -> Any:
     )
     factory = ctx.router_factory(job.mode, top_level=False)
     router = BoardRouter(wb, job.settings, router_factory=factory)
-    return router.run(plan, _board_control(ctx), ctx.board_progress)
+
+    def on_partial(partial: Any) -> None:
+        from pcbrouter.jobs.protocol import JobPartial
+
+        try:
+            ctx.send(JobPartial(ctx.job_id, partial))
+        except Exception:
+            log.debug("[route:%s] partial snapshot not transferable", ctx.job_id, exc_info=True)
+
+    return router.run(plan, _board_control(ctx), ctx.board_progress, on_partial=on_partial)
 
 
 def _ai_plan(job: AIPlanJob, ctx: JobContext) -> Any:

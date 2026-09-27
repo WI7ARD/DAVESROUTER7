@@ -152,6 +152,17 @@ class BoardJobPanel(QWidget):
         self.accept_all.setEnabled(has)
         self.accept_checked.setEnabled(has)
         self.reject.setEnabled(True)
+        if not has and result.outcomes:
+            from pcbrouter.routing.result import FailureReason
+
+            reasons = {o.reason for o in result.outcomes.values()}
+            if reasons == {FailureReason.RULE_UNKNOWN}:
+                self.status.setText(
+                    result.summary()
+                    + " — every net is missing rule values (e.g. no track width stated). "
+                    "Set widths per net in the Workbench constraints, or add net classes "
+                    "in KiCad, then route again."
+                )
 
     def checked_nets(self) -> set[str]:
         out: set[str] = set()

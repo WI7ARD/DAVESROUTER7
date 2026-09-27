@@ -165,6 +165,34 @@ class JobDone:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class BoardPartial:
+    """Incremental board-routing snapshot streamed while the job runs.
+
+    Plain picklable data only (tracks/vias by value, outcome summaries): the
+    GUI renders it as a live preview overlay and, if the job is cancelled,
+    timed out or killed before the final result arrives, offers it for review
+    and accept exactly like a finished batch. Nothing here touches any board.
+    """
+
+    completed_nets: int = 0
+    total_nets: int = 0
+    succeeded_nets: int = 0
+    #: net -> (status value, reason value or "", message, added copper ids)
+    outcomes: dict[str, tuple[str, str, str, list[str]]] = field(default_factory=dict)
+    added_tracks: list[Any] = field(default_factory=list)
+    added_vias: list[Any] = field(default_factory=list)
+    removed_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class JobPartial:
+    """Worker → GUI: a :class:`BoardPartial` for the running job."""
+
+    job_id: int
+    partial: BoardPartial
+
+
 # ------------------------------------------------------------------ board snapshot
 @dataclass
 class WorkingSnapshot:
