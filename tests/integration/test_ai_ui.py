@@ -548,3 +548,64 @@ def test_memory_tab_add_and_forget(
     assert panel.tabs.tabText(2) == "Memory"
     assert window.ai_service.session is not None
     assert "MEMORY_NOTE" not in "\n".join(window.ai_service.session.session_state_lines())
+
+
+def test_history_ratings(window: MainWindow, fixture_path: Callable[[str], Path]) -> None:
+    """Helpful / Not Helpful buttons rate the selected answer."""
+    from pcbrouter.ai.requests import AIMode
+
+    open_can_board(window, fixture_path)
+    session = window.ai_service.session
+    assert session is not None
+    prepared = session.prepare("hi", AIMode.ANALYZE, model="m", provider_name="p")
+    history = window.ai_history
+    history.refresh()
+    assert history.tree.topLevelItemCount() == 1
+
+    def select_first() -> None:
+        history.tree.setCurrentItem(history.tree.topLevelItem(0))
+
+    select_first()
+    history.rate_good.click()
+    assert session.interaction(prepared.request.request_id) is not None
+    inter = session.interaction(prepared.request.request_id)
+    assert inter is not None and inter.rating == 1
+    assert "helpful" in history.tree.topLevelItem(0).text(5)
+    select_first()
+    history.rate_bad.click()
+    assert inter.rating == -1
+    select_first()
+    history.rate_clear.click()
+    assert inter.rating is None
+
+
+def test_strategy_lab_snapshot_and_rollback(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Strategy Lab: snapshot, tune (child version), delete, rollback to built-in."""
+    import pcbrouter.ui.ai_provider_settings as settings_mod
+    from pcbrouter.ui.settings_dialog import SettingsDialog
+
+    answers = iter(["Tuned", "shorter analyze", "Tune note"])
+    monkeypatch.setattr(
+        settings_mod.QInputDialog,
+        "getText",
+        staticmethod(lambda *a, **k: (next(answers), True)),
+    )
+    dlg = SettingsDialog(
+        window.settings, window.compute, window, ai_controller=window.ai_controller
+    )
+    lab = dlg.ai_widget
+    assert lab.strategy_combo.itemData(0) == "builtin"
+    lab.strategy_snapshot.click()
+    edited = lab.ai.prompt_strategies
+    assert len(edited) == 1
+    child = edited[0]
+    assert child.name == "Tuned" and child.parent_id == "builtin"
+    assert lab.ai.active_strategy_id == child.strategy_id
+    lab.strategy_delete.click()
+    assert lab.ai.prompt_strategies == []
+    assert lab.ai.active_strategy_id is None
+    new = dlg.result_settings()
+    dlg.done(SettingsDialog.DialogCode.Accepted)
+    assert new.ai.prompt_strategies == [] and new.ai.active_strategy_id is None

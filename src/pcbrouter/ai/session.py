@@ -49,6 +49,7 @@ from pcbrouter.ai.proposals import CommandProposal, CommandState, ProposalStateE
 from pcbrouter.ai.requests import AIMode, AIRequest
 from pcbrouter.ai.responses import AIResponse, FinishStatus, TokenUsage
 from pcbrouter.ai.rule_facts import prompt_rule_checks
+from pcbrouter.ai.strategy import PromptStrategy
 from pcbrouter.domain.board import Board
 from pcbrouter.domain.units import mm_to_internal
 from pcbrouter.history.history import HistoryManager, UndoableAction
@@ -71,6 +72,8 @@ class AIRuntimeConfig:
     #: Planner answers are small JSON documents (typically < 1000 tokens); a tight
     #: budget fails fast on truncation instead of burning minutes of CPU decode.
     max_output_tokens: int = 2048
+    #: versioned planner instructions (None = built-in default)
+    strategy: PromptStrategy | None = None
     anonymization: AnonymizationOptions = field(default_factory=AnonymizationOptions)
     log_prompts: bool = False
     #: Stage 7 autonomy: "advisory" | "approval_required" (default) | "batch_approval"
@@ -109,6 +112,8 @@ class Interaction:
     error_detail: str | None = None
     usage: TokenUsage | None = None
     latency_s: float | None = None
+    #: user verdict for prompt evolution: None unrated, +1 helpful, -1 not helpful
+    rating: int | None = None
     #: Stage 3 deterministic verdicts on what the user asked (authoritative).
     rule_checks: list[RuleCheck] = field(default_factory=list)
 
@@ -144,6 +149,7 @@ class Interaction:
                 }
             ),
             "latency_s": self.latency_s,
+            "rating": self.rating,
             "deterministic_rule_checks": [
                 {"label": c.label, "outcome": c.outcome, "detail": c.detail, "source": c.source}
                 for c in self.rule_checks
@@ -443,6 +449,7 @@ class AISession:
                 session_state_lines=tuple(state),
                 timeout_s=timeout_s or self.config.timeout_s,
                 max_output_tokens=self.config.max_output_tokens,
+                strategy=self.config.strategy,
             ),
             self.conversation,
         )
@@ -593,6 +600,16 @@ class AISession:
             )
         )
         return inter
+
+    def rate_interaction(self, request_id: str, rating: int | None) -> bool:
+        """Record a user verdict (+1/-1, None clears). Used for prompt evolution."""
+        if rating is not None and rating not in (1, -1):
+            raise ValueError("rating must be +1, -1 or None")
+        inter = self.interaction(request_id)
+        if inter is None:
+            return False
+        inter.rating = rating
+        return True
 
     def _remember_approval(self, proposal: CommandProposal) -> None:
         """Capture an approved proposal as board memory (already user-gated)."""

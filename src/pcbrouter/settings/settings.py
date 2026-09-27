@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pcbrouter.ai.context_builder import ContextLevel
 from pcbrouter.ai.profiles import ProviderProfile
 from pcbrouter.ai.requests import AIMode
+from pcbrouter.ai.strategy import PromptStrategy
 from pcbrouter.utils.paths import config_dir
 
 log = logging.getLogger(__name__)
@@ -87,12 +88,16 @@ class AISettings(_Model):
     max_conversation_turns: int = Field(default=6, ge=0, le=50)
     request_timeout_s: float = Field(default=90.0, ge=5.0, le=600.0)
     max_retries: int = Field(default=2, ge=0, le=5)
-    max_output_tokens: int = Field(default=8192, ge=256, le=64_000)
+    max_output_tokens: int = Field(default=2048, ge=256, le=64_000)
     show_privacy_preview: bool = True
     anonymization: AnonymizationSettings = Field(default_factory=AnonymizationSettings)
     save_conversation_history: bool = False
     #: Stage 7: what approved AI commands may do. Never a silent autonomous mode.
     autonomy_mode: Literal["advisory", "approval_required", "batch_approval"] = "approval_required"
+    #: Phase 3 prompt evolution: versioned planner instruction overrides.
+    prompt_strategies: list[PromptStrategy] = Field(default_factory=list)
+    #: active strategy id, "builtin"/None = built-in default instructions.
+    active_strategy_id: str | None = None
     #: Log full prompts/context at DEBUG level. Off unless the user explicitly enables it.
     debug_log_prompts: bool = False
 
@@ -102,6 +107,14 @@ class AISettings(_Model):
         ids = [p.profile_id for p in value]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate provider profile ids")
+        return value
+
+    @field_validator("prompt_strategies")
+    @classmethod
+    def _unique_strategies(cls, value: list[PromptStrategy]) -> list[PromptStrategy]:
+        ids = [s.strategy_id for s in value]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate prompt strategy ids")
         return value
 
     def profile(self, profile_id: str | None) -> ProviderProfile | None:

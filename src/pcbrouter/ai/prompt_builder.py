@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from pcbrouter.ai.context_builder import BoardContext
 from pcbrouter.ai.conversation import Conversation
 from pcbrouter.ai.requests import AIMode, AIRequest, ChatMessage, new_request_id
+from pcbrouter.ai.strategy import PromptStrategy, resolve_instructions
 from pcbrouter.ai.system_prompts import (
-    MODE_INSTRUCTIONS,
     PLANNER_SYSTEM_PROMPT,
     SCHEMA_FALLBACK_INSTRUCTION,
 )
@@ -48,6 +48,8 @@ class PromptInputs:
     session_state_lines: tuple[str, ...] = ()
     timeout_s: float = 90.0
     max_output_tokens: int = 4096
+    #: versioned instruction overrides (None = built-in default)
+    strategy: PromptStrategy | None = None
 
 
 class PromptBuilder:
@@ -57,7 +59,8 @@ class PromptBuilder:
             raise ValueError("the prompt is empty")
         if len(prompt) > MAX_USER_PROMPT_CHARS:
             raise ValueError(f"the prompt is longer than {MAX_USER_PROMPT_CHARS} characters")
-        system = f"{PLANNER_SYSTEM_PROMPT}\n{MODE_INSTRUCTIONS[inputs.mode]}\n"
+        instructions = resolve_instructions(inputs.strategy)
+        system = f"{PLANNER_SYSTEM_PROMPT}\n{instructions[inputs.mode]}\n"
         state = "\n".join(inputs.session_state_lines) or "none"
         final = (
             "<pcb_context>\n"
@@ -84,5 +87,8 @@ class PromptBuilder:
                 "board_fingerprint": inputs.context.board_fingerprint,
                 "session_id": inputs.context.session_id,
                 "context_level": inputs.context.level.value,
+                "strategy_id": (
+                    inputs.strategy.strategy_id if inputs.strategy is not None else "builtin"
+                ),
             },
         )

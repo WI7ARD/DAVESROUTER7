@@ -15,15 +15,18 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QToolButton,
@@ -47,6 +50,13 @@ from pcbrouter.ai.profiles import (
 )
 from pcbrouter.ai.provider_registry import KIND_INFO
 from pcbrouter.ai.requests import AIMode
+from pcbrouter.ai.strategy import (
+    BUILTIN_ID,
+    PromptStrategy,
+    active_strategy,
+    resolve_instructions,
+    snapshot_effective,
+)
 from pcbrouter.settings.settings import AISettings
 from pcbrouter.ui.ai_controller import AIRequestController
 from pcbrouter.ui.ai_panel import STATUS_COLORS
@@ -244,11 +254,44 @@ class ProviderSettingsWidget(QWidget):
         backend.setProperty("role", "banner")
         self.backend_label = backend
 
+        # ---------------------------------------------------------------- Strategy Lab
+        strategy = QGroupBox("Planner strategy (prompt evolution)")
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.setToolTip(
+            "Which planner instructions new AI requests use. "
+            "Older versions stay available: re-selecting one is the rollback."
+        )
+        self.strategy_combo.currentIndexChanged.connect(self._show_strategy)
+        self.strategy_note = QLabel("")
+        self.strategy_note.setWordWrap(True)
+        self.strategy_note.setProperty("role", "muted")
+        self.strategy_snapshot = QPushButton("Snapshot Current…")
+        self.strategy_snapshot.setToolTip(
+            "Freeze the currently effective instructions as a new named version."
+        )
+        self.strategy_snapshot.clicked.connect(self._strategy_snapshot)
+        self.strategy_tune = QPushButton("Tune Mode…")
+        self.strategy_tune.setToolTip("Edit one mode's instructions; saved as a new child version.")
+        self.strategy_tune.clicked.connect(self._strategy_tune)
+        self.strategy_delete = QPushButton("Delete Version")
+        self.strategy_delete.clicked.connect(self._strategy_delete)
+        srow = QHBoxLayout()
+        srow.addWidget(self.strategy_snapshot)
+        srow.addWidget(self.strategy_tune)
+        srow.addWidget(self.strategy_delete)
+        srow.addStretch(1)
+        sform = QFormLayout(strategy)
+        sform.addRow("Active:", self.strategy_combo)
+        sform.addRow("", self.strategy_note)
+        sform.addRow("", srow)
+
         layout = QVBoxLayout(self)
         layout.addWidget(backend)
         layout.addLayout(top, 3)
         layout.addWidget(prefs, 2)
+        layout.addWidget(strategy, 1)
         self._reload_list()
+        self._reload_strategies()
 
     # ================================================================ helpers
     def _backend_text(self) -> str:
@@ -569,6 +612,116 @@ class ProviderSettingsWidget(QWidget):
         an.board_filename = self.anon_file.isChecked()
         a.save_conversation_history = self.save_history.isChecked()
         a.debug_log_prompts = self.debug_prompts.isChecked()
+        a.active_strategy_id = self.strategy_combo.currentData()
+        if a.active_strategy_id == BUILTIN_ID:
+            a.active_strategy_id = None
+
+    # ------------------------------------------------------------ Strategy Lab
+    def _reload_strategies(self, select: str | None = None) -> None:
+        self.strategy_combo.blockSignals(True)
+        self.strategy_combo.clear()
+        self.strategy_combo.addItem("Built-in default", BUILTIN_ID)
+        for s in self.ai.prompt_strategies:
+            self.strategy_combo.addItem(s.label, s.strategy_id)
+        want = select or self.ai.active_strategy_id or BUILTIN_ID
+        idx = self.strategy_combo.findData(want)
+        self.strategy_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.strategy_combo.blockSignals(False)
+        self._show_strategy()
+
+    def _selected_strategy(self) -> PromptStrategy | None:
+        sid = self.strategy_combo.currentData()
+        return active_strategy(self.ai.prompt_strategies, sid)
+
+    def _show_strategy(self) -> None:
+        current = self._selected_strategy()
+        if current is None:
+            self.strategy_note.setText("Built-in instructions (shipped with the app).")
+        else:
+            parent = f"child of {current.parent_id}" if current.parent_id else "top-level"
+            modes = ", ".join(sorted(current.mode_instructions)) or "no overrides?"
+            note = current.note or "no note"
+            self.strategy_note.setText(f"{parent} · overrides: {modes}\n{note}")
+        self.strategy_delete.setEnabled(current is not None)
+
+    def _strategy_snapshot(self) -> None:
+        name, ok = QInputDialog.getText(self, "Snapshot Strategy", "Version name:")
+        if not ok or not name.strip():
+            return
+        note, ok = QInputDialog.getText(self, "Snapshot Strategy", "What changed (note)?")
+        if not ok:
+            return
+        current = self._selected_strategy()
+        version = snapshot_effective(
+            name.strip(), note.strip(), current, resolve_instructions(current)
+        )
+        self.ai.prompt_strategies.append(version)
+        self.ai.active_strategy_id = version.strategy_id
+        self._reload_strategies(select=version.strategy_id)
+
+    def _strategy_tune(self) -> None:
+        current = self._selected_strategy()
+        effective = resolve_instructions(current)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Tune Mode Instructions")
+        mode_combo = QComboBox()
+        for m in AIMode:
+            mode_combo.addItem(m.label, m.value)
+        text = QPlainTextEdit()
+        text.setMinimumSize(560, 300)
+        note_edit = QLineEdit()
+        note_edit.setPlaceholderText("What changed (note, required)")
+        buttons = QHBoxLayout()
+        ok_button = QPushButton("Save as New Version")
+        cancel_button = QPushButton("Cancel")
+        buttons.addStretch(1)
+        buttons.addWidget(cancel_button)
+        buttons.addWidget(ok_button)
+        form = QFormLayout(dlg)
+        form.addRow("Mode:", mode_combo)
+        form.addRow("Instructions:", text)
+        form.addRow("Note:", note_edit)
+        form.addRow("", buttons)
+
+        def _fill(_: object = None) -> None:
+            text.setPlainText(effective[AIMode(mode_combo.currentData())])
+
+        mode_combo.currentIndexChanged.connect(_fill)
+        _fill()
+        ok_button.clicked.connect(lambda: dlg.done(QDialog.DialogCode.Accepted))
+        cancel_button.clicked.connect(lambda: dlg.done(QDialog.DialogCode.Rejected))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        body = text.toPlainText().strip()
+        note = note_edit.text().strip()
+        if not body or not note:
+            return
+        mode = AIMode(mode_combo.currentData())
+        overrides = dict(current.mode_instructions) if current is not None else {}
+        overrides[mode.value] = body
+        try:
+            version = PromptStrategy(
+                name=f"{current.name if current else 'Built-in'} + {mode.label} tweak",
+                note=note,
+                parent_id=current.strategy_id if current else BUILTIN_ID,
+                mode_instructions=overrides,
+            )
+        except ValueError:
+            return
+        self.ai.prompt_strategies.append(version)
+        self.ai.active_strategy_id = version.strategy_id
+        self._reload_strategies(select=version.strategy_id)
+
+    def _strategy_delete(self) -> None:
+        current = self._selected_strategy()
+        if current is None:
+            return
+        self.ai.prompt_strategies = [
+            s for s in self.ai.prompt_strategies if s.strategy_id != current.strategy_id
+        ]
+        if self.ai.active_strategy_id == current.strategy_id:
+            self.ai.active_strategy_id = None
+        self._reload_strategies()
 
     def cleanup_keys(self, accepted: bool) -> None:
         """Delete keys of profiles that will not exist after this dialog closes."""

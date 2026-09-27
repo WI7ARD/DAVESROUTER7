@@ -221,6 +221,7 @@ def runtime_config_from_settings(ai: Any) -> AIRuntimeConfig:
     """Build the session config from :class:`pcbrouter.settings.settings.AISettings`."""
     from pcbrouter.ai.anonymizer import AnonymizationOptions
     from pcbrouter.ai.context_builder import ContextLimits
+    from pcbrouter.ai.strategy import active_strategy
 
     a = ai.anonymization
     return AIRuntimeConfig(
@@ -230,6 +231,10 @@ def runtime_config_from_settings(ai: Any) -> AIRuntimeConfig:
         timeout_s=ai.request_timeout_s,
         max_retries=ai.max_retries,
         max_output_tokens=ai.max_output_tokens,
+        strategy=active_strategy(
+            list(getattr(ai, "prompt_strategies", []) or []),
+            getattr(ai, "active_strategy_id", None),
+        ),
         anonymization=AnonymizationOptions(
             a.net_names, a.component_values, a.references, a.board_filename
         ),
