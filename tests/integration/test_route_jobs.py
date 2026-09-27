@@ -270,12 +270,19 @@ def test_board_partials_stream_live_preview(
     assert window.open_board(fixture_path("router_basic.kicad_pcb"))
     wait(window)
     partials: list[BoardPartial] = []
-    ui.route_jobs.partial.connect(lambda m: partials.append(m.partial))
+    seen_status: list[str] = []
+
+    def on_partial(m: object) -> None:
+        partials.append(m.partial)  # type: ignore[attr-defined]
+        # status at arrival: progress updates may overwrite it right after
+        seen_status.append(ui.board_panel.status.text())
+
+    ui.route_jobs.partial.connect(on_partial)
     assert ui.route_board()
     run_until(lambda: any(len(p.added_tracks) + len(p.added_vias) > 0 for p in partials), 90)
     copper = max(partials, key=lambda p: len(p.added_tracks) + len(p.added_vias))
     assert copper.total_nets > 0 and copper.succeeded_nets >= 1
-    assert "live preview" in ui.board_panel.status.text().lower()
+    assert any("live preview" in text.lower() for text in seen_status)
     wait(window)  # let the job finish normally; preview is replaced by the result
     assert ui.last_board_result is not None
     ui.reject_board()
