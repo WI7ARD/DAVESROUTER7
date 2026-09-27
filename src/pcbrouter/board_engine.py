@@ -136,22 +136,32 @@ class BoardEngine:
         with self._lock:
             cached = self._occupancy.get(key)
             if cached is None:
-                cached = build_occupancy(
-                    self.geometry, self.resolver, layer, net, width, cell, bounds, item
-                )
-                if len(self._occupancy) > 16:
-                    self._occupancy.pop(next(iter(self._occupancy)))
-                self._occupancy[key] = cached
-            return cached
+                geometry, resolver = self.geometry, self.resolver
+            else:
+                return cached
+        # Built outside the lock so concurrent layers build in parallel (R5);
+        # a duplicate build loses the race harmlessly below.
+        built = build_occupancy(geometry, resolver, layer, net, width, cell, bounds, item)
+        with self._lock:
+            existing = self._occupancy.get(key)
+            if existing is not None:
+                return existing
+            if len(self._occupancy) > 16:
+                self._occupancy.pop(next(iter(self._occupancy)))
+            self._occupancy[key] = built
+            return built
 
     def congestion(self, layer: str) -> CongestionMap:
         key = (*self.cache_key, layer)
         with self._lock:
             cached = self._congestion.get(key)
             if cached is None:
-                cached = build_congestion(self.geometry, self.resolver, layer)
-                self._congestion[key] = cached
-            return cached
+                geometry, resolver = self.geometry, self.resolver
+            else:
+                return cached
+        built = build_congestion(geometry, resolver, layer)
+        with self._lock:
+            return self._congestion.setdefault(key, built)
 
     def pin_escape(self, pad_uid: str) -> PinEscape:
         return analyse_pin_escape(

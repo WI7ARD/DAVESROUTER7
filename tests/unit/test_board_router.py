@@ -16,6 +16,7 @@ from pcbrouter.routing.board_router import (
     BoardRouterSettings,
     BoardRoutingControl,
     BoardStatus,
+    NetOutcome,
     RouteGroup,
     Strategy,
     TaskKind,
@@ -58,7 +59,10 @@ def test_plan_ordering_is_deterministic_and_configurable() -> None:
     assert prio.tasks[0].net == "S7"
     grouped = make_plan(wb, BoardRouterSettings(groups=(RouteGroup("BUS", ("S1", "S6"), 50),)))
     assert {grouped.tasks[0].net, grouped.tasks[1].net} == {"S1", "S6"}
-    assert make_plan(wb, BoardRouterSettings()).nets == crit.nets
+    assert (
+        make_plan(wb, BoardRouterSettings()).nets
+        == make_plan(wb, BoardRouterSettings(strategy=Strategy.CONGESTION_AWARE)).nets
+    )  # congestion-aware is the default
     assert diff_pairs(["USB_P", "USB_N", "A+", "A-", "X"]) == [("A+", "A-"), ("USB_P", "USB_N")]
 
 
@@ -236,3 +240,35 @@ def test_clean_rate_counts_first_try_routes() -> None:
     assert m.to_dict()["clean_rate_pct"] == round(100 * m.clean_rate, 1)
     if m.nets_completed:
         assert 0.0 <= m.clean_rate <= 1.0
+
+
+def test_retry_budgets_follow_last_failure_reason() -> None:
+    """R5: pass 2+ spends harder after limits, not after exhausted space."""
+    from pcbrouter.routing.board_router import BoardRouter
+    from pcbrouter.routing.result import FailureReason
+
+    wb = working("router_dense.kicad_pcb")
+    router = BoardRouter(wb)
+    plan = make_plan(wb, router.settings)
+    task = next(t for t in plan.tasks if t.net == "S3")
+    base = router._request(task, 1)
+    router._outcomes[task.net] = NetOutcome(task.net, RouteStatus.NO_ROUTE)
+    router._outcomes[task.net].reason = FailureReason.NO_PATH
+    slim = router._request(task, 2)
+    assert slim.node_limit == base.node_limit
+    assert slim.time_limit_s == base.time_limit_s
+    router._outcomes[task.net].reason = FailureReason.TIMEOUT
+    boosted = router._request(task, 2)
+    assert boosted.node_limit == base.node_limit * 2
+    assert boosted.time_limit_s == base.time_limit_s * 1.5
+
+
+def test_task_congestion_features_are_populated() -> None:
+    """R5: every planned task carries a bounded congestion estimate."""
+    wb = working("router_dense.kicad_pcb")
+    plan = make_plan(wb, BoardRouterSettings())
+    assert plan.tasks
+    for task in plan.tasks:
+        assert 0.0 <= task.congestion <= 1.0
+    ordered = [t.net for t in plan.tasks]
+    assert sorted(ordered) != ordered or len(ordered) < 2  # ordering is non-trivial

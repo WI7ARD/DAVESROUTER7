@@ -26,7 +26,7 @@ def test_defaults() -> None:
     assert s.ai.profiles == [] and s.ai.default_profile is None
     assert s.ai.show_privacy_preview is True and s.ai.debug_log_prompts is False
     assert s.routing.enabled is True and s.routing.candidates == 3
-    assert s.routing.strategy == "critical_first" and s.routing.allow_ripup is True
+    assert s.routing.strategy == "congestion_aware" and s.routing.allow_ripup is True
 
 
 def test_missing_file_gives_defaults(tmp_path: Path) -> None:

@@ -103,7 +103,7 @@ class BoardRoutingPlan:
 
 @dataclass
 class BoardRouterSettings:
-    strategy: Strategy = Strategy.CRITICAL_FIRST
+    strategy: Strategy = Strategy.CONGESTION_AWARE
     max_passes: int = DEFAULT_MAX_PASSES
     allow_ripup: bool = True
     ripup_user_accepted: bool = False
@@ -285,7 +285,7 @@ def diff_pairs(nets: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
-def _task_features(wb: WorkingBoard, net: str) -> tuple[int, float, int]:
+def _task_features(wb: WorkingBoard, net: str) -> tuple[int, float, int, float]:
     engine = wb.engine
     conn = net_connectivity(engine.geometry, net)
     length = sum(a.length for a in conn.airwires)
@@ -297,7 +297,20 @@ def _task_features(wb: WorkingBoard, net: str) -> tuple[int, float, int]:
             continue
         free = sum(len(esc.free_directions(layer)) for layer in esc.directions)
         escapes = min(escapes, free)
-    return len(conn.pad_uids), length, escapes
+    congestion = 0.0
+    try:  # R5: worst copper density near this net's pads (0..1), advisory only
+        geo = engine.geometry
+        for uid in conn.pad_uids[:8]:
+            item = geo.copper.get(uid)
+            if item is None:
+                continue
+            for layer in sorted(item.layers):
+                value = engine.congestion(layer).value_at(item.bounds.center)
+                if value is not None:
+                    congestion = max(congestion, value)
+    except Exception:
+        log.debug("task congestion unavailable for %s", net, exc_info=True)
+    return len(conn.pad_uids), length, escapes, congestion
 
 
 def make_plan(
@@ -325,7 +338,7 @@ def make_plan(
     default_w = resolver.resolve_trace_width(None).value or 0
     tasks: list[RouteTask] = []
     for net in candidates:
-        pads, length, escapes = _task_features(wb, net)
+        pads, length, escapes, congestion = _task_features(wb, net)
         width = resolver.resolve_trace_width(net).value or 0
         if net in partner:
             kind = TaskKind.DIFF_PAIR
@@ -343,7 +356,15 @@ def make_plan(
             prio = max(prio, user_prio)
         tasks.append(
             RouteTask(
-                net, kind, prio, partner.get(net) or group_of.get(net), req, pads, length, escapes
+                net,
+                kind,
+                prio,
+                partner.get(net) or group_of.get(net),
+                req,
+                pads,
+                length,
+                escapes,
+                congestion,
             )
         )
     if pairs:
@@ -423,6 +444,7 @@ class BoardRouter:
 
         self.router_factory = factory
         self._all_tasks: list[RouteTask] = []
+        self._outcomes: dict[str, NetOutcome] = {}
         self._deadline: float | None = None
         self._emit: Callable[..., None] = lambda **_kw: None
 
@@ -445,6 +467,7 @@ class BoardRouter:
         outcomes: dict[str, NetOutcome] = {
             t.net: NetOutcome(t.net, RouteStatus.NO_ROUTE) for t in plan.tasks
         }
+        self._outcomes = outcomes
         job_log: list[str] = []
         deadline = t0 + s.budget_s
         self._deadline = deadline
@@ -607,8 +630,20 @@ class BoardRouter:
     def _request(self, task: RouteTask, pass_no: int) -> RouteRequest:
         base = task.request or self.settings.base_request
         req = replace(base, net=task.net, candidates=1, request_id=f"board-{task.net}-p{pass_no}")
-        if pass_no >= 2:  # retries search harder
-            req = replace(req, node_limit=req.node_limit * 2, time_limit_s=req.time_limit_s * 1.5)
+        if pass_no >= 2:  # R5: spend harder only where limits (not space) bound us
+            last = self._outcomes.get(task.net)
+            last_reason = last.reason if last is not None else None
+            if last_reason is None or last_reason in (
+                FailureReason.TIMEOUT,
+                FailureReason.VIA_LIMIT,
+                FailureReason.LAYER_RESTRICTION,
+            ):
+                # hit a limit last time: more search may break through
+                req = replace(
+                    req, node_limit=req.node_limit * 2, time_limit_s=req.time_limit_s * 1.5
+                )
+            # NO_PATH / NO_ESCAPE / VALIDATION / RULE_UNKNOWN: the space is
+            # exhausted or forbidden — retry at base budget (often rip-up helps)
         if self._deadline is not None:
             # the job budget also bounds the work *inside* one net
             left = max(0.001, self._deadline - time.perf_counter())

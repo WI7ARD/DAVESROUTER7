@@ -362,6 +362,36 @@ def test_cached_grid_is_isolated_from_search_mutations(basic: WorkingBoard) -> N
     assert second.passable[0].reshape(-1)[cells].all()
 
 
+def test_threaded_grid_build_matches_serial(monkeypatch: object) -> None:
+    """R5: parallel layer builds assemble byte-identical grids."""
+    import pcbrouter.routing.search.grid as grid_module
+    from pcbrouter.routing.search.grid import compile_grid
+
+    wb = working("router_dense.kicad_pcb")
+    kwargs: dict = {
+        "engine": wb.engine,
+        "net": "USB_N",
+        "layers": ("F.Cu", "B.Cu"),
+        "width": MM(0.25),
+        "via_diameter": MM(0.6),
+        "cell": MM(0.1),
+    }
+    monkeypatch.setattr(grid_module, "MAX_GRID_WORKERS", 1)  # type: ignore[attr-defined]
+    serial = compile_grid(**kwargs)  # type: ignore[arg-type]
+    wb2 = working("router_dense.kicad_pcb")  # cold caches: real concurrent build
+    kwargs["engine"] = wb2.engine
+    monkeypatch.setattr(grid_module, "MAX_GRID_WORKERS", 4)  # type: ignore[attr-defined]
+    threaded = compile_grid(**kwargs)  # type: ignore[arg-type]
+    assert threaded.spec == serial.spec
+    assert threaded.notes == serial.notes
+    assert threaded.rules_complete == serial.rules_complete
+    for a, b in zip(threaded.passable, serial.passable, strict=True):
+        assert a.tobytes() == b.tobytes()
+    assert (threaded.via_ok is None) == (serial.via_ok is None)
+    if threaded.via_ok is not None and serial.via_ok is not None:
+        assert threaded.via_ok.tobytes() == serial.via_ok.tobytes()
+
+
 def test_board_router_shares_one_grid_cache(basic: WorkingBoard) -> None:
     """R2: every Router in a board job uses the same bounded grid cache."""
     from pcbrouter.routing.board_router import BoardRouter

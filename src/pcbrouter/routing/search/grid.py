@@ -129,6 +129,9 @@ def _passable(cells: npt.NDArray[np.uint8]) -> BoolGrid:
 #: the expensive part, while penalties/repairs stay per-search on the grid.
 GridCache = dict[Any, Any]
 
+#: layer occupancy builds per compile_grid call (R5, monkeypatchable for tests)
+MAX_GRID_WORKERS = 4
+
 
 @dataclass
 class _GridInputs:
@@ -158,6 +161,10 @@ def compile_grid(
     With ``cache`` + ``cache_key``, compiled occupancy inputs are reused: the
     returned grid still gets fresh penalties/factors, so per-candidate
     mutations (penalise/block) never leak across searches.
+
+    Layer occupancy builds run on a small thread pool (NumPy releases the GIL):
+    results are assembled in layer order, so threaded and serial builds are
+    identical. Set :data:`MAX_GRID_WORKERS` to 1 to force serial building.
     """
 
     def _cancelled() -> bool:
@@ -176,24 +183,36 @@ def compile_grid(
             notes=list(saved.notes),
             rules_complete=saved.rules_complete,
         )
+    from concurrent.futures import ThreadPoolExecutor
+
     notes: list[str] = []
     complete = True
     passable: list[BoolGrid] = []
     spec: GridSpec | None = None
-    total = len(layers) + (len(engine.geometry.copper_layers) if via_diameter else 0)
+    via_layers = list(engine.geometry.copper_layers) if via_diameter else []
+    total = len(layers) + (len(via_layers) if via_diameter and len(layers) > 1 else 0)
     step = 0
+    step_lock = threading.Lock()
 
     def tell(what: str) -> None:
         nonlocal step
-        step += 1
+        with step_lock:
+            step += 1
+            n = step
         if progress is not None:
-            progress(f"grid {step}/{total}: {what}")
+            progress(f"grid {n}/{total}: {what}")
 
-    for layer in layers:
+    if _cancelled():
+        raise GridCancelled()
+    workers = max(1, min(MAX_GRID_WORKERS, len(layers)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grid") as pool:
+        track_occs = list(
+            pool.map(lambda layer: engine.occupancy(layer, net, width, cell, window), layers)
+        )
+    for layer, occ in zip(layers, track_occs, strict=True):
         if _cancelled():
             raise GridCancelled()
         tell(f"tracks on {layer}")
-        occ = engine.occupancy(layer, net, width, cell, window)
         spec = occ.spec
         complete &= occ.rules_complete
         notes += [f"{layer}: {n}" for n in occ.notes]
@@ -202,11 +221,21 @@ def compile_grid(
     via_ok: BoolGrid | None = None
     if via_diameter is not None and len(layers) > 1:
         via_ok = np.ones((spec.ny, spec.nx), dtype=np.bool_)
-        for layer in engine.geometry.copper_layers:  # a through via spans every layer
+        # a through via spans every copper layer; built in parallel like tracks
+        via_workers = max(1, min(MAX_GRID_WORKERS, len(via_layers)))
+        with ThreadPoolExecutor(max_workers=via_workers, thread_name_prefix="grid-via") as pool:
+            via_occs = list(
+                pool.map(
+                    lambda layer: engine.occupancy(
+                        layer, net, via_diameter, cell, window, ItemType.VIA
+                    ),
+                    via_layers,
+                )
+            )
+        for layer, occ in zip(via_layers, via_occs, strict=True):
             if _cancelled():
                 raise GridCancelled()
             tell(f"vias on {layer}")
-            occ = engine.occupancy(layer, net, via_diameter, cell, window, ItemType.VIA)
             complete &= occ.rules_complete
             via_ok &= _passable(occ.cells)
     near = [_near(p) for p in passable]

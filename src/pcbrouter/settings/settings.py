@@ -136,7 +136,7 @@ class RoutingSettings(_Model):
     strategy: Literal[
         "critical_first", "most_constrained", "shortest_first", "fewest_escapes",
         "congestion_aware",
-    ] = "critical_first"  # fmt: skip
+    ] = "congestion_aware"  # fmt: skip
     max_passes: int = Field(default=3, ge=1, le=5)
     allow_ripup: bool = True
     #: external Freerouting engine: freerouting.exe (installer build) or a .jar
