@@ -77,7 +77,19 @@ Check ($gpu.library -eq 'dpnp' -and $gpu.library_loads) "installed app loads bun
 
 # ---------------------------------------------------------------- GUI
 $gui = Start-Process -FilePath (Join-Path $dir 'AI PCB Router.exe') -ArgumentList "`"$Board`"" -PassThru
-Start-Sleep -Seconds 12
+# Cold machines page in a ~360 MB bundle under antivirus watch: poll for the
+# board load instead of a fixed sleep (fast when warm, patient when cold).
+$guiLog = Join-Path $dataDir 'logs\pcbrouter.log'
+$deadline = (Get-Date).AddSeconds(180)
+while (-not $gui.HasExited) {
+    if ((Test-Path $guiLog) -and (Select-String -Path $guiLog -Pattern 'board\.load\.done' -Quiet)) {
+        break
+    }
+    if ((Get-Date) -gt $deadline) {
+        break
+    }
+    Start-Sleep -Seconds 2
+}
 Check (-not $gui.HasExited) 'GUI starts and keeps running'
 
 # The uninstaller must refuse while the app runs. With _?= it runs in place and
