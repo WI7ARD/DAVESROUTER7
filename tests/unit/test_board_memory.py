@@ -11,6 +11,7 @@ from pcbrouter.ai.memory import BoardMemory, MemoryKind
 from pcbrouter.ai.service import AIService
 from pcbrouter.ai.session import AIRuntimeConfig, AISession
 from pcbrouter.kicad.loader import load_board
+from pcbrouter.project.ai_memory_store import load_board_memory, save_board_memory
 
 BOARDS = Path(__file__).parent.parent / "fixtures" / "boards"
 
@@ -43,18 +44,19 @@ def test_render_is_newest_first_and_bounded() -> None:
 
 
 def test_save_load_round_trip_and_fingerprint_mismatch(tmp_path: Path) -> None:
-    mem = BoardMemory.load(tmp_path, "fp1")
+    mem = load_board_memory(tmp_path, "fp1")
     assert mem.entries == [] and mem.directory == tmp_path
+    mem.on_change = lambda m: save_board_memory(tmp_path, m)
     mem.add(MemoryKind.PREFERENCE, "minimize vias")
     mem.add(MemoryKind.DECISION, "approved route", source="approval:abc")
-    again = BoardMemory.load(tmp_path, "fp1")
+    again = load_board_memory(tmp_path, "fp1")
     assert [(e.kind, e.text, e.source) for e in again.entries] == [
         (MemoryKind.PREFERENCE, "minimize vias", "user"),
         (MemoryKind.DECISION, "approved route", "approval:abc"),
     ]
-    assert BoardMemory.load(tmp_path, "other-fingerprint").entries == []
+    assert load_board_memory(tmp_path, "other-fingerprint").entries == []
     (tmp_path / "ai_memory.json").write_text("not json", encoding="utf-8")
-    assert BoardMemory.load(tmp_path, "fp1").entries == []
+    assert load_board_memory(tmp_path, "fp1").entries == []
 
 
 def test_session_state_lines_include_memory() -> None:
@@ -82,8 +84,14 @@ def test_approval_is_captured_as_decision() -> None:
 
 def test_service_session_persists_memory(tmp_path: Path) -> None:
     svc = AIService()
-    first = svc.start_session(board(), "s1", AIRuntimeConfig(), memory_dir=tmp_path / "ws")
+    first = svc.start_session(board(), "s1", AIRuntimeConfig())
     first.memory.add(MemoryKind.NOTE, "remember this")
-    second = svc.start_session(board(), "s2", AIRuntimeConfig(), memory_dir=tmp_path / "ws")
+    save_board_memory(tmp_path / "ws", first.memory)
+    second = svc.start_session(
+        board(),
+        "s2",
+        AIRuntimeConfig(),
+        memory=load_board_memory(tmp_path / "ws", board().fingerprint),
+    )
     assert [e.text for e in second.memory.entries] == ["remember this"]
     svc.shutdown()

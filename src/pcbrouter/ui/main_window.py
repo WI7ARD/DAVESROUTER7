@@ -813,7 +813,11 @@ class MainWindow(QMainWindow):
         project = self.bus.context.project.session
         if project is None:
             return
+        from pcbrouter.project.ai_memory_store import load_board_memory, save_board_memory
+
         manager = self.bus.context.project
+        memory = load_board_memory(project.workspace.root, project.board.fingerprint)
+        memory.on_change = lambda m: save_board_memory(project.workspace.root, m)
         self.ai_service.start_session(
             project.board,
             project.session_id,
@@ -821,7 +825,7 @@ class MainWindow(QMainWindow):
             history=self.bus.context.history,
             engine_provider=lambda: manager.engine,
             on_constraints_changed=self.engine_ui.on_ai_constraints_changed,
-            memory_dir=project.workspace.root,
+            memory=memory,
         )
         self._refresh_ai()
 

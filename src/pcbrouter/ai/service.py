@@ -10,11 +10,11 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pcbrouter.ai.credentials import CredentialService
 from pcbrouter.ai.exceptions import AIProviderError, AIProviderUnavailableError
+from pcbrouter.ai.memory import BoardMemory
 from pcbrouter.ai.models import AIModelInfo, ConnectionResult, ConnectionStatus
 from pcbrouter.ai.profiles import ProviderProfile
 from pcbrouter.ai.provider import AIProvider
@@ -64,10 +64,8 @@ class AIService:
         history: HistoryManager | None = None,
         engine_provider: Callable[[], BoardEngine | None] | None = None,
         on_constraints_changed: Callable[[RuleOverrides], None] | None = None,
-        memory_dir: Path | None = None,
+        memory: BoardMemory | None = None,
     ) -> AISession:
-        from pcbrouter.ai.memory import BoardMemory
-
         self.end_session("another board was opened")
         self.session = AISession(
             board,
@@ -76,7 +74,7 @@ class AIService:
             history=history,
             engine_provider=engine_provider,
             on_constraints_changed=on_constraints_changed,
-            memory=BoardMemory.load(memory_dir, board.fingerprint),
+            memory=memory,
         )
         log.info("ai.session.start session=%s fingerprint=%s", session_id, board.fingerprint[:16])
         return self.session

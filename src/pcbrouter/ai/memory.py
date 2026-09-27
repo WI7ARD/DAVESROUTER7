@@ -4,14 +4,19 @@ Evolv-style, adapted: nothing is written without an explicit user action. User
 notes are typed in directly; decisions are captured only from proposals the user
 approved (already gated). The model never writes here on its own. Entries render
 as bounded ``MEMORY_*`` context lines so later requests remember what matters.
+
+Architecture rule: this module is pure logic — no file or process access (see
+``test_ai_modules_never_write_files_or_spawn_processes``). Persistence lives in
+:mod:`pcbrouter.project.ai_memory_store`; this module only serialises, and calls
+the ``on_change`` hook (bound by the UI layer) after every mutation.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -19,7 +24,6 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-FILENAME = "ai_memory.json"
 FORMAT_VERSION = 1
 MAX_TEXT_CHARS = 500
 MAX_ENTRIES = 50
@@ -47,11 +51,17 @@ class MemoryEntry:
 
 @dataclass
 class BoardMemory:
-    """Entries for one board fingerprint, optionally persisted to a directory."""
+    """Entries for one board fingerprint.
+
+    Pure logic: persistence is done by the caller through :meth:`to_dict` /
+    :meth:`from_dict` (see :mod:`pcbrouter.project.ai_memory_store`). After every
+    mutation the ``on_change`` hook runs (bound by the UI layer to save).
+    """
 
     fingerprint: str
     entries: list[MemoryEntry] = field(default_factory=list)
     directory: Path | None = None
+    on_change: Callable[[BoardMemory], None] | None = field(default=None, repr=False)
 
     # ------------------------------------------------------------ mutation
     def add(self, kind: MemoryKind, text: str, source: str = "user") -> MemoryEntry:
@@ -64,7 +74,7 @@ class BoardMemory:
         self.entries.append(entry)
         while len(self.entries) > MAX_ENTRIES:
             self.entries.pop(0)
-        self.save()
+        self._notify()
         return entry
 
     def retire(self, entry_id: str) -> bool:
@@ -72,15 +82,25 @@ class BoardMemory:
         self.entries = [e for e in self.entries if e.id != entry_id]
         if len(self.entries) == before:
             return False
-        self.save()
+        self._notify()
         return True
+
+    def _notify(self) -> None:
+        if self.on_change is None:
+            return
+        try:
+            self.on_change(self)
+        except Exception:  # a save failure must never break the session
+            log.debug("ai.memory.notify_failed", exc_info=True)
 
     # ------------------------------------------------------------ context
     def render(self, anonymize: Any = None) -> list[str]:
         """Newest-first bounded lines for the prompt (never the whole store)."""
         lines: list[str] = []
         used = 0
-        for entry in sorted(self.entries, key=lambda e: e.created_at, reverse=True):
+        # Insertion order is chronological (loading preserves it), so plain
+        # reversal is newest-first even when timestamps tie on coarse clocks.
+        for entry in reversed(self.entries):
             text = anonymize(entry.text) if anonymize is not None else entry.text
             line = f"MEMORY_{entry.kind.value.upper()}: {text}"
             if len(lines) >= RENDER_MAX_ENTRIES or used + len(line) > RENDER_MAX_CHARS:
@@ -89,59 +109,43 @@ class BoardMemory:
             used += len(line) + 1
         return lines
 
-    # ------------------------------------------------------------ persistence
-    def save(self) -> None:
-        if self.directory is None:
-            return
-        try:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "format_version": FORMAT_VERSION,
-                "fingerprint": self.fingerprint,
-                "entries": [
-                    {
-                        "id": e.id,
-                        "kind": e.kind.value,
-                        "text": e.text,
-                        "source": e.source,
-                        "created_at": e.created_at,
-                    }
-                    for e in self.entries
-                ],
-            }
-            (self.directory / FILENAME).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except OSError as exc:
-            log.warning("ai.memory.save_failed dir=%s error=%s", self.directory, exc)
+    # ------------------------------------------------------------ serialisation
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "format_version": FORMAT_VERSION,
+            "fingerprint": self.fingerprint,
+            "entries": [
+                {
+                    "id": e.id,
+                    "kind": e.kind.value,
+                    "text": e.text,
+                    "source": e.source,
+                    "created_at": e.created_at,
+                }
+                for e in self.entries
+            ],
+        }
 
     @classmethod
-    def load(cls, directory: Path | None, fingerprint: str) -> BoardMemory:
-        """Load entries for ``fingerprint``; empty store on any mismatch/problem."""
-        if directory is None:
-            return cls(fingerprint)
-        try:
-            raw = json.loads((directory / FILENAME).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            log.info("ai.memory.empty dir=%s reason=%s", directory, exc)
-            return cls(fingerprint, directory=directory)
-        if not isinstance(raw, dict) or raw.get("fingerprint") != fingerprint:
-            log.info("ai.memory.fingerprint_mismatch dir=%s", directory)
-            return cls(fingerprint, directory=directory)
+    def from_dict(cls, raw: Any, fingerprint: str) -> BoardMemory:
+        """Validated entries for ``fingerprint``; empty store on any mismatch."""
         entries: list[MemoryEntry] = []
-        for item in raw.get("entries", []):
-            try:
-                kind = MemoryKind(item["kind"])
-                text = str(item["text"])
-                if not text or len(text) > MAX_TEXT_CHARS:
-                    continue
-                entries.append(
-                    MemoryEntry(
-                        str(item.get("id", uuid.uuid4().hex[:8])),
-                        kind,
-                        text,
-                        str(item.get("source", "user")),
-                        float(item.get("created_at", time.time())),
+        if isinstance(raw, dict) and raw.get("fingerprint") == fingerprint:
+            for item in raw.get("entries", []):
+                try:
+                    kind = MemoryKind(item["kind"])
+                    text = str(item["text"])
+                    if not text or len(text) > MAX_TEXT_CHARS:
+                        continue
+                    entries.append(
+                        MemoryEntry(
+                            str(item.get("id", uuid.uuid4().hex[:8])),
+                            kind,
+                            text,
+                            str(item.get("source", "user")),
+                            float(item.get("created_at", time.time())),
+                        )
                     )
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-        return cls(fingerprint, entries[-MAX_ENTRIES:], directory)
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return cls(fingerprint, entries[-MAX_ENTRIES:])
