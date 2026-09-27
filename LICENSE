@@ -1,6 +1,6 @@
 AI PCB Router — End-User License Agreement (EULA)
 
-Copyright (c) 2026 Davi. All rights reserved.
+Copyright (c) 2026 Henderson Engineering. All rights reserved.
 
 IMPORTANT: PLEASE READ THIS AGREEMENT CAREFULLY BEFORE INSTALLING OR USING
 AI PCB ROUTER (THE "SOFTWARE"). BY INSTALLING, COPYING, OR USING THE SOFTWARE,
@@ -8,7 +8,7 @@ YOU AGREE TO BE BOUND BY THE TERMS BELOW. IF YOU DO NOT AGREE, DO NOT INSTALL
 OR USE THE SOFTWARE.
 
 1. LICENSE GRANT. Subject to this Agreement and your payment of any applicable
-   purchase price, Davi grants you a personal, non-exclusive, non-transferable,
+   purchase price, Henderson Engineering grants you a personal, non-exclusive, non-transferable,
    revocable license to install and use the Software on computers you own or
    control, for your own printed-circuit-board design work.
 
@@ -21,7 +21,7 @@ OR USE THE SOFTWARE.
    Software;
    (d) use the Software to develop a competing product based on its internals.
 
-3. OWNERSHIP. The Software is licensed, not sold. Davi retains all right,
+3. OWNERSHIP. The Software is licensed, not sold. Henderson Engineering retains all right,
    title, and interest in and to the Software, including all intellectual
    property rights.
 
@@ -34,18 +34,18 @@ OR USE THE SOFTWARE.
 
 5. YOUR FILES AND DATA. The Software processes printed-circuit-board files
    locally on your computer. Your designs, API keys, and settings remain yours
-   and are never transmitted to Davi.
+   and are never transmitted to Henderson Engineering.
 
 6. NO WARRANTY. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS
    PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
    INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
    AND NON-INFRINGEMENT. ROUTING OUTPUT MUST BE REVIEWED BY A QUALIFIED
-   ENGINEER BEFORE MANUFACTURE; DAVI IS NOT RESPONSIBLE FOR BOARD DEFECTS,
+   ENGINEER BEFORE MANUFACTURE; Henderson Engineering IS NOT RESPONSIBLE FOR BOARD DEFECTS,
    MANUFACTURING COSTS, OR DESIGN DECISIONS MADE WITH THE SOFTWARE.
 
-7. LIMITATION OF LIABILITY. TO THE MAXIMUM EXTENT PERMITTED BY LAW, DAVI'S
+7. LIMITATION OF LIABILITY. TO THE MAXIMUM EXTENT PERMITTED BY LAW, Henderson Engineering'S
    TOTAL LIABILITY FOR ALL CLAIMS RELATING TO THE SOFTWARE SHALL NOT EXCEED
-   THE AMOUNT YOU PAID FOR THE SOFTWARE, IF ANY. IN NO EVENT SHALL DAVI BE
+   THE AMOUNT YOU PAID FOR THE SOFTWARE, IF ANY. IN NO EVENT SHALL Henderson Engineering BE
    LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
    DAMAGES, OR FOR LOSS OF PROFITS, DATA, OR BUSINESS.
 

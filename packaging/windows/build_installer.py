@@ -100,7 +100,7 @@ def version_info_text(version: str, publisher: str) -> str:
         "FileDescription": APP_NAME,
         "FileVersion": version,
         "InternalName": "pcbrouter",
-        "LegalCopyright": "Copyright (c) 2026 Davi",
+        "LegalCopyright": "Copyright (c) 2026 Henderson Engineering",
         "ProductName": APP_NAME,
         "ProductVersion": version,
     }

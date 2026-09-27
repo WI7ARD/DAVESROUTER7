@@ -50,7 +50,7 @@ def _payload(tmp_path: Path, extra: dict[str, str] | None = None) -> Path:
 
 def test_version_comes_from_the_package() -> None:
     assert b.read_version() == pcbrouter.__version__
-    assert b.read_publisher() == "Davi"
+    assert b.read_publisher() == "Henderson Engineering"
 
 
 @pytest.mark.parametrize(
@@ -79,7 +79,7 @@ def test_installer_filename_is_filesystem_safe() -> None:
 
 
 def test_version_info_is_valid_python_expression() -> None:
-    text = b.version_info_text("0.2.0-stage2", "Davi")
+    text = b.version_info_text("0.2.0-stage2", "Henderson Engineering")
     assert "filevers=(0, 2, 0, 0)" in text
     assert "StringStruct('ProductVersion', '0.2.0-stage2')" in text
     compile(text, "version_info", "eval")  # PyInstaller evaluates this file
@@ -188,7 +188,7 @@ def test_makensis_command_passes_all_defines(tmp_path: Path) -> None:
     cmd = b.makensis_command(
         "makensis",
         version="0.2.0-stage2",
-        publisher="Davi",
+        publisher="Henderson Engineering",
         install_list=tmp_path / "i.nsh",
         uninstall_list=tmp_path / "u.nsh",
         outfile=tmp_path / "Setup.exe",

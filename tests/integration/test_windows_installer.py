@@ -185,7 +185,7 @@ def test_installer_lifecycle_under_wine(tmp_path: Path, wine_box: WineBox) -> No
         "_internal/sub/data file.txt",
     }
     assert box.reg_value(UNINSTALL_KEY, "DisplayVersion") == "0.2.0-stage2"
-    assert box.reg_value(UNINSTALL_KEY, "Publisher") == "Davi"
+    assert box.reg_value(UNINSTALL_KEY, "Publisher") == "Henderson Engineering"
     assert "Uninstall.exe" in (box.reg_value(UNINSTALL_KEY, "QuietUninstallString") or "")
     assert box.reg_value(OPEN_WITH_KEY, "AIPCBRouter.kicad_pcb") is not None
     command = box.reg_value(PROGID_KEY + r"\shell\open\command", None) or ""
