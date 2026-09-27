@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QListWidget,
     QMenu,
     QPlainTextEdit,
     QProgressBar,
@@ -254,6 +256,26 @@ class AIEngineeringPanel(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.conversation, "Conversation")
         self.tabs.addTab(proposals, "Proposals")
+        memory_page = QWidget()
+        self.memory_list = QListWidget()
+        self.memory_list.setToolTip(
+            "Board memory: your notes and approved decisions, remembered across "
+            "restarts and sent with future requests."
+        )
+        self.memory_add = QPushButton("Add Note…")
+        self.memory_add.setToolTip("Remember something about this board for future AI requests.")
+        self.memory_add.clicked.connect(self._memory_add)
+        self.memory_delete = QPushButton("Forget Selected")
+        self.memory_delete.setToolTip("Remove the selected memory entry.")
+        self.memory_delete.clicked.connect(self._memory_delete)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.memory_add)
+        mrow.addWidget(self.memory_delete)
+        mrow.addStretch(1)
+        mv = QVBoxLayout(memory_page)
+        mv.addWidget(self.memory_list, 1)
+        mv.addLayout(mrow)
+        self.tabs.addTab(memory_page, "Memory")
 
         self.context_label = QLabel("")
         self.context_label.setWordWrap(True)
@@ -345,9 +367,58 @@ class AIEngineeringPanel(QWidget):
             for inter in session.interactions:
                 self.conversation.append(interaction_html(inter, session.proposals))
         self._refresh_proposals()
+        self.refresh_memory()
         self._update_context_label()
         self._update_buttons()
         self._update_usage()
+
+    def refresh_memory(self) -> None:
+        """Memory tab from the current session (count in the tab title)."""
+
+        session = self.service.session
+        entries = list(session.memory.entries) if session is not None else []
+        self.memory_list.clear()
+        for entry in sorted(entries, key=lambda e: e.created_at):
+            marker = {"note": "✎", "decision": "✓", "preference": "★"}.get(entry.kind.value, "•")
+            self.memory_list.addItem(f"{marker} [{entry.kind.value}] {entry.text}")
+            self.memory_list.item(self.memory_list.count() - 1).setData(32, entry.id)
+        for i in range(self.tabs.count()):
+            if self.tabs.widget(i) is self.memory_list.parent():
+                self.tabs.setTabText(i, f"Memory ({len(entries)})" if entries else "Memory")
+        has_session = session is not None
+        self.memory_add.setEnabled(has_session)
+        self.memory_delete.setEnabled(has_session and bool(entries))
+
+    def _memory_add(self) -> None:
+        from pcbrouter.ai.memory import MemoryKind
+
+        session = self.service.session
+        if session is None:
+            return
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Remember for this board", "Note (sent with future AI requests):"
+        )
+        if not ok:
+            return
+        try:
+            session.memory.add(MemoryKind.NOTE, text)
+        except ValueError as exc:
+            self.status_label.setText(str(exc))
+            return
+        self.refresh_memory()
+        self._update_context_label()
+        self.status_label.setText("Remembered for this board.")
+
+    def _memory_delete(self) -> None:
+        session = self.service.session
+        current = self.memory_list.currentItem()
+        if session is None or current is None:
+            return
+        entry_id = current.data(32)
+        if isinstance(entry_id, str) and session.memory.retire(entry_id):
+            self.refresh_memory()
+            self._update_context_label()
+            self.status_label.setText("Forgot that memory.")
 
     def refresh_status(self) -> None:
         profile = self.current_profile()

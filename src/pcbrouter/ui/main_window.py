@@ -821,6 +821,7 @@ class MainWindow(QMainWindow):
             history=self.bus.context.history,
             engine_provider=lambda: manager.engine,
             on_constraints_changed=self.engine_ui.on_ai_constraints_changed,
+            memory_dir=project.workspace.root,
         )
         self._refresh_ai()
 

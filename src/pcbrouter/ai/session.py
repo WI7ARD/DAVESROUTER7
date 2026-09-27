@@ -43,6 +43,7 @@ from pcbrouter.ai.context_builder import (
 )
 from pcbrouter.ai.conversation import Conversation, ConversationTurn
 from pcbrouter.ai.exceptions import AIProviderError, AIRequestCancelled
+from pcbrouter.ai.memory import BoardMemory, MemoryKind
 from pcbrouter.ai.prompt_builder import PromptBuilder, PromptInputs
 from pcbrouter.ai.proposals import CommandProposal, CommandState, ProposalStateError
 from pcbrouter.ai.requests import AIMode, AIRequest
@@ -185,6 +186,7 @@ class AISession:
         board_revision: int = 0,
         engine_provider: Callable[[], BoardEngine | None] | None = None,
         on_constraints_changed: Callable[[RuleOverrides], None] | None = None,
+        memory: BoardMemory | None = None,
     ) -> None:
         self.board = board
         #: Stage 3: the deterministic geometry/rule engine for this board (optional).
@@ -207,6 +209,8 @@ class AISession:
         #: bounded planning loop: follow-up rounds used since the last user prompt
         self.planning_rounds = 0
         self.privacy_acknowledged = False
+        #: Phase 2 board memory: user notes + approved decisions, persisted per board
+        self.memory = memory if memory is not None else BoardMemory(board.fingerprint)
         self.closed = False
         self.created_at = time.time()
 
@@ -384,6 +388,10 @@ class AISession:
             lines.append("ROUTER_RESULT: " + json.dumps(self._anon_fact(fact), ensure_ascii=False))
         for fact in self.fact_answers:
             lines.append("FACT: " + json.dumps(self._anon_fact(fact), ensure_ascii=False))
+        try:
+            lines.extend(self.memory.render(self.anonymizer.anonymize_text))
+        except Exception:  # memory is advisory; never block a request on it
+            log.debug("ai.memory.render_failed", exc_info=True)
         return lines
 
     def _anonymise_command(self, cmd: AICommand) -> dict[str, Any]:
@@ -586,6 +594,33 @@ class AISession:
         )
         return inter
 
+    def _remember_approval(self, proposal: CommandProposal) -> None:
+        """Capture an approved proposal as board memory (already user-gated)."""
+        try:
+            cmd = proposal.current
+            names: list[str] = []
+            for t in cmd.targets[:6]:
+                data = t.model_dump(mode="json", exclude_none=True)
+                kind = data.get("type", "")
+                if kind == "net":
+                    names.append(str(data.get("name", "?")))
+                elif kind == "net_group":
+                    names.append("/".join(str(n) for n in data.get("names", [])[:4]))
+                elif kind == "component":
+                    names.append(str(data.get("reference", "?")))
+                else:
+                    names.append(kind or "?")
+            summary = ", ".join(names) if names else "board"
+            if len(summary) > 120:
+                summary = summary[:117] + "…"
+            self.memory.add(
+                MemoryKind.DECISION,
+                f"Approved {cmd.operation.label} on {summary}",
+                source=f"approval:{proposal.proposal_id}",
+            )
+        except Exception:  # memory is advisory; approvals must never break on it
+            log.debug("ai.memory.remember_failed", exc_info=True)
+
     def record_failure(self, prepared: PreparedRequest, error: AIProviderError) -> Interaction:
         """Failures and cancellations leave the conversation untouched."""
         inter = self.interaction(prepared.request.request_id)
@@ -720,6 +755,7 @@ class DecisionAction(UndoableAction):
             p.transition(CommandState.EXECUTED, "read-only operation completed")
         self._apply_locks()
         self._session._constraints_changed()
+        self._session._remember_approval(p)
 
     def revert(self) -> None:
         p = self._p

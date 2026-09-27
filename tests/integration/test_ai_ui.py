@@ -515,3 +515,36 @@ def test_remote_plain_http_endpoint_is_flagged(window: MainWindow) -> None:
     w.base_url_edit.editingFinished.emit()
     assert "unencrypted" in w.url_warning.text()
     dlg.done(SettingsDialog.DialogCode.Rejected)
+
+
+def test_memory_tab_add_and_forget(
+    window: MainWindow, fixture_path: Callable[[str], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Board memory: notes persist per workspace and reach the next request."""
+    import pcbrouter.ui.ai_panel as panel_mod
+
+    open_can_board(window, fixture_path)
+    panel = window.ai_panel
+    assert panel.tabs.tabText(2) == "Memory"
+    monkeypatch.setattr(
+        panel_mod.QInputDialog,
+        "getMultiLineText",
+        staticmethod(lambda *a, **k: ("Route GND first", True)),
+    )
+    panel._memory_add()
+    assert panel.tabs.tabText(2) == "Memory (1)"
+    assert panel.memory_list.count() == 1
+    session = window.ai_service.session
+    assert session is not None
+    assert "MEMORY_NOTE" in "\n".join(session.session_state_lines())
+    # survives a session restart from the same workspace
+    window._end_ai_session()
+    window._start_ai_session()
+    assert window.ai_panel.tabs.tabText(2) == "Memory (1)"
+    # forget it again
+    panel = window.ai_panel
+    panel.memory_list.setCurrentRow(0)
+    panel._memory_delete()
+    assert panel.tabs.tabText(2) == "Memory"
+    assert window.ai_service.session is not None
+    assert "MEMORY_NOTE" not in "\n".join(window.ai_service.session.session_state_lines())
