@@ -1,21 +1,58 @@
-MIT License
+AI PCB Router — End-User License Agreement (EULA)
 
-Copyright (c) 2026 WI7ARD
+Copyright (c) 2026 Davi. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+IMPORTANT: PLEASE READ THIS AGREEMENT CAREFULLY BEFORE INSTALLING OR USING
+AI PCB ROUTER (THE "SOFTWARE"). BY INSTALLING, COPYING, OR USING THE SOFTWARE,
+YOU AGREE TO BE BOUND BY THE TERMS BELOW. IF YOU DO NOT AGREE, DO NOT INSTALL
+OR USE THE SOFTWARE.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. LICENSE GRANT. Subject to this Agreement and your payment of any applicable
+   purchase price, Davi grants you a personal, non-exclusive, non-transferable,
+   revocable license to install and use the Software on computers you own or
+   control, for your own printed-circuit-board design work.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. RESTRICTIONS. Except where applicable law gives you rights that cannot be
+   waived by contract, you may not, and may not allow any third party to:
+   (a) copy, redistribute, publish, rent, lease, lend, resell, or sublicense
+   the Software or provide access to it as a service to others;
+   (b) reverse engineer, decompile, or disassemble the Software;
+   (c) remove or alter any copyright, trademark, or proprietary notices in the
+   Software;
+   (d) use the Software to develop a competing product based on its internals.
+
+3. OWNERSHIP. The Software is licensed, not sold. Davi retains all right,
+   title, and interest in and to the Software, including all intellectual
+   property rights.
+
+4. THIRD-PARTY COMPONENTS. The Software incorporates third-party open-source
+   components (including Qt/PySide6, which is licensed under the GNU Lesser
+   General Public License). Those components remain governed by their own
+   licenses; see THIRD-PARTY-NOTICES.md. Nothing in this Agreement limits any
+   rights you have under those licenses, including replacing the LGPL-covered
+   libraries used by the Software.
+
+5. YOUR FILES AND DATA. The Software processes printed-circuit-board files
+   locally on your computer. Your designs, API keys, and settings remain yours
+   and are never transmitted to Davi.
+
+6. NO WARRANTY. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS
+   PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+   AND NON-INFRINGEMENT. ROUTING OUTPUT MUST BE REVIEWED BY A QUALIFIED
+   ENGINEER BEFORE MANUFACTURE; DAVI IS NOT RESPONSIBLE FOR BOARD DEFECTS,
+   MANUFACTURING COSTS, OR DESIGN DECISIONS MADE WITH THE SOFTWARE.
+
+7. LIMITATION OF LIABILITY. TO THE MAXIMUM EXTENT PERMITTED BY LAW, DAVI'S
+   TOTAL LIABILITY FOR ALL CLAIMS RELATING TO THE SOFTWARE SHALL NOT EXCEED
+   THE AMOUNT YOU PAID FOR THE SOFTWARE, IF ANY. IN NO EVENT SHALL DAVI BE
+   LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
+   DAMAGES, OR FOR LOSS OF PROFITS, DATA, OR BUSINESS.
+
+8. TERMINATION. This Agreement is effective until terminated. It terminates
+   automatically if you breach any term; on termination you must uninstall and
+   delete all copies of the Software. Sections 3, 6, and 7 survive termination.
+
+9. GENERAL. You agree to use the Software in compliance with all applicable
+   laws and export regulations. If any provision is held unenforceable, the
+   remaining provisions continue in full effect.

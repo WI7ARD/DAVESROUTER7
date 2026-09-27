@@ -212,4 +212,7 @@ evolution layers. See [docs/roadmap.md](docs/roadmap.md) and
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Proprietary — see [LICENSE](LICENSE). Purchase grants you the right to install
+and use the app on your own computers; redistribution and resale of the app
+itself are not permitted. Bundled open-source components keep their own
+licenses — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

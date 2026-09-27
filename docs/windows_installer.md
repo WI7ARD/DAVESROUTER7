@@ -13,7 +13,7 @@ the "Space required" figure is not the real size.*
 | Wizard page | Content |
 |---|---|
 | Welcome | What the app does and does not do; no admin rights needed |
-| License | MIT license |
+| License | Proprietary EULA (shown by the installer) |
 | Components | App (required); **Start menu shortcut**; **Desktop shortcut**; **"Open with" entry for `.kicad_pcb`** (all ticked by default) |
 | Install location | Default `%LOCALAPPDATA%\Programs\AI PCB Router` |
 | Finish | Option to start the app |
