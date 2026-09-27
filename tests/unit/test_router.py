@@ -649,3 +649,45 @@ def test_pour_sources_are_thinned_and_routed(tmp_path: Path) -> None:
     assert sizes, "no searches ran"
     assert max(sizes) <= SOURCE_CELL_CAP + 20000
     assert_octilinear_and_legal(wb.engine, res.best)
+
+
+def test_node_limit_escalates_to_weighted_search() -> None:
+    """Power nets: hitting the node cap retries once weighted instead of dying."""
+    from pcbrouter.routing.search.astar import search as real_search
+
+    engine = working("router_dense.kicad_pcb").engine
+    weights: list[float] = []
+    real = real_search
+
+    def spy(problem: object, **kw: object) -> object:
+        weights.append(float(kw.get("heuristic_weight", 1.0)))
+        return real(problem, **kw)  # type: ignore[operator]
+
+    res = Router(engine, search_fn=spy).route_net(
+        RouteRequest("S3", candidates=1, node_limit=20000)
+    )
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+    assert weights[0] == 1.0
+    assert 1.5 in weights, "no weighted escalation after the node limit"
+    assert any("retried weighted" in d for d in res.details)
+    assert_octilinear_and_legal(engine, res.best)
+
+
+def test_no_escalation_when_already_weighted() -> None:
+    """Speed mode stays single-attempt: no redundant weighted retry."""
+    from pcbrouter.routing.search.astar import search as real_search
+
+    engine = working("router_dense.kicad_pcb").engine
+    calls = 0
+    real = real_search
+
+    def spy(problem: object, **kw: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real(problem, **kw)  # type: ignore[operator]
+
+    res = Router(engine, search_fn=spy).route_net(
+        RouteRequest("S3", candidates=1, node_limit=20000, heuristic_weight=1.5)
+    )
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+    assert calls == 1

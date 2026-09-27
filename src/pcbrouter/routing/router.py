@@ -68,6 +68,9 @@ log = logging.getLogger(__name__)
 
 ROUTER_VERSION = "1.0.0"
 MAX_REPAIRS = 6
+#: one-shot weight when a search hits its time/node limit (R6-power): proven
+#: ≤1.5x optimal bound, still exact-validated downstream.
+ESCALATION_WEIGHT = 1.5
 WINDOW_MARGIN_NM: Nm = 3_000_000
 DIAGNOSE_NODE_LIMIT = 300_000
 
@@ -414,6 +417,39 @@ class Router:
                 result.metrics.search_s += time.perf_counter() - t_search
                 result.metrics.expanded_nodes += outcome.expanded
                 result.metrics.searches += 1
+                if (
+                    outcome.status
+                    in (
+                        SearchStatus.TIMEOUT,
+                        SearchStatus.NODE_LIMIT,
+                    )
+                    and norm.request.heuristic_weight < ESCALATION_WEIGHT
+                ):
+                    # Limits bound, not space: one weighted retry (proven ≤1.5x
+                    # optimal bound, validator still gates) in remaining budget.
+                    # Skipped when the user already asked for weighted search.
+                    if cancel is not None and cancel.is_set():
+                        outcome = SearchOutcome(SearchStatus.CANCELLED)
+                    else:
+                        limit_name = (
+                            "time limit" if outcome.status is SearchStatus.TIMEOUT else "node limit"
+                        )
+                        t_esc = time.perf_counter()
+                        outcome = self.search_fn(
+                            problem,
+                            node_limit=norm.request.node_limit,
+                            time_limit_s=self._search_time(norm.request.time_limit_s),
+                            cancel=cancel,
+                            record_explored=self.record_explored,
+                            heuristic_weight=ESCALATION_WEIGHT,
+                        )
+                        result.metrics.search_s += time.perf_counter() - t_esc
+                        result.metrics.expanded_nodes += outcome.expanded
+                        result.metrics.searches += 1
+                        result.details.append(
+                            f"search hit the {limit_name}; retried weighted "
+                            f"(≤{ESCALATION_WEIGHT}x optimal bound)"
+                        )
                 if outcome.status is not SearchStatus.FOUND:
                     attempt.failure, attempt.message = self._search_failure(outcome, result)
                     if outcome.explored is not None:
