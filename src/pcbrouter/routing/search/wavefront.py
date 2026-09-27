@@ -194,7 +194,14 @@ def wavefront_search(
     pass_h = [np.asarray(_to_host(xp, p)) for p in passable]
     via_h = None if via_ok is None else np.asarray(_to_host(xp, via_ok))
     tgt_h = [np.asarray(_to_host(xp, t)) for t in targets]
-    out.path = _backtrack(host, step_h, pass_h, via_h, tgt_h, dirs, float(via_cost))
+    path = _backtrack(host, step_h, pass_h, via_h, tgt_h, dirs, float(via_cost))
+    if path is None:
+        return SearchOutcome(
+            SearchStatus.NO_PATH,
+            expanded=iterations * n_cells(ny, nx, nl),
+            elapsed_s=time.perf_counter() - t0,
+        )
+    out.path = path
     out.cost = best_target
     out.vias = sum(1 for a, b in zip(out.path, out.path[1:], strict=False) if a[0] != b[0])
     return out
@@ -221,7 +228,15 @@ def _backtrack(
     targets: list[np.ndarray],
     dirs: list[tuple[int, int]],
     via_cost: float,
-) -> list[tuple[int, int]]:
+) -> list[tuple[int, int]] | None:
+    """Steepest-descent path from the best target cell back to a source.
+
+    Returns None when the descent strands above zero (float rounding or a
+    disconnected distance field): the caller must report NO_PATH rather than
+    offer a truncated, unconnected path. Reach is guaranteed when it returns:
+    every step moves to a passable neighbour (or a via layer) and the walk
+    ends on a zero-distance cell, which only sources have.
+    """
     ny, nx = dist[0].shape
     best = (math.inf, 0, 0, 0)
     for li, t in enumerate(targets):
@@ -272,5 +287,8 @@ def _backtrack(
                 break
             r, c = best_n
         path.append((li, r * nx + c))
+    if float(dist[li][r, c]) > 0:
+        # Stranded above zero: no connected source was reached.
+        return None
     path.reverse()
     return path

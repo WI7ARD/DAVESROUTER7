@@ -113,3 +113,51 @@ def test_app_works_without_cuda() -> None:
         )
     )
     assert not iris.available and "Intel" in iris.device_info().name
+
+
+def test_stranded_backtrack_reports_no_path_instead_of_truncating() -> None:
+    """R4: a descent stranded above zero yields None (caller reports NO_PATH)."""
+    from pcbrouter.routing.search.astar import DIRS
+    from pcbrouter.routing.search.wavefront import _backtrack
+
+    shape = (5, 5)
+    dist = [np.full(shape, np.inf)]
+    dist[0][4, 4] = 5.0  # target with no descending neighbour: stranded
+    targets = [np.zeros(shape, dtype=bool)]
+    targets[0][4, 4] = True
+    step = [np.ones(shape)]
+    assert (
+        _backtrack(dist, step, [np.ones(shape, dtype=bool)], None, targets, list(DIRS), 0.0) is None
+    )
+
+
+def test_backtrack_reaches_a_zero_source() -> None:
+    """R4: a clean gradient backtracks to a source cell with adjacent steps."""
+    from pcbrouter.routing.search.wavefront import _backtrack
+
+    shape = (5, 5)
+    rows = np.arange(5).reshape(-1, 1)
+    cols = np.arange(5).reshape(1, -1)
+    dist = [rows + cols]  # zero at the (0, 0) source corner
+    targets = [np.zeros(shape, dtype=bool)]
+    targets[0][4, 4] = True
+    step = [np.ones(shape)]
+    path = _backtrack(
+        [dist[0].astype(float)],
+        step,
+        [np.ones(shape, dtype=bool)],
+        None,
+        targets,
+        [(1, 0), (0, 1), (-1, 0), (0, -1)],
+        0.0,
+    )
+    assert path is not None and len(path) > 1
+    assert path[0][1] == 0  # starts on the zero-distance source cell
+    assert path[-1][1] == 4 * 5 + 4  # ends on the target cell
+    import itertools
+
+    for (la, a), (lb, b) in itertools.pairwise(path):
+        assert la == lb == 0
+        ar, ac = divmod(a, 5)
+        br, bc = divmod(b, 5)
+        assert abs(ar - br) + abs(ac - bc) == 1

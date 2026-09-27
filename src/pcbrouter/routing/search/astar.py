@@ -12,9 +12,13 @@ factor — a lower bound of the true remaining cost, so the search is admissible
 
 Pruning: a state is not expanded when the same (layer, cell[, vias]) was already
 reached more than one 90-degree bend cheaper with another direction; equal f
-values prefer the deeper node. Both only discard states that cannot beat a known
-one by more than a bend penalty, so routes stay near-optimal for the cost model
-(documented: not strictly optimal).
+values prefer the deeper node. The prune is exact, not heuristic: mimicking the
+pruned arrival's first move from the cheaper arrival costs at most one extra
+90-degree bend (all later headings coincide), so a pruned state can never beat
+the arrival that pruned it, and the optimal grid cost is preserved
+(test_slack_pruning_preserves_optimal_cost replays real searches through an
+independent pruning-free Dijkstra). With the default weight of 1.0 the search
+is optimal with respect to the grid and the cost model.
 
 Weighted search: ``heuristic_weight`` scales the heuristic (default 1.0 keeps
 admissibility). Weights above 1 trade optimality for speed with a proven bound

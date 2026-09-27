@@ -197,3 +197,42 @@ def test_source_unchanged_by_board_routing(tmp_path: Path) -> None:
     plan = make_plan(wb, s, nets=["S3", "S4"])
     BoardRouter(wb, s).run(plan)
     assert hashlib.sha256(src.read_bytes()).hexdigest() == before
+
+
+def _copper_signature(result: object) -> object:
+    tracks = sorted(
+        (t.start.x, t.start.y, t.end.x, t.end.y, t.width, t.layer, t.net_name)
+        for t in result.added_tracks  # type: ignore[attr-defined]
+    )
+    vias = sorted(
+        (v.position.x, v.position.y, v.diameter, v.net_name)
+        for v in result.added_vias  # type: ignore[attr-defined]
+    )
+    return (tracks, vias)
+
+
+def test_board_routing_is_deterministic() -> None:
+    """R4: same board + settings + seed → identical routed copper."""
+    s = BoardRouterSettings(max_passes=1)
+    first = BoardRouter(working("router_dense.kicad_pcb"), s).run(
+        make_plan(working("router_dense.kicad_pcb"), s, nets=["S3", "S4"])
+    )
+    assert first.status is BoardStatus.FULLY_ROUTED
+    second = BoardRouter(working("router_dense.kicad_pcb"), s).run(
+        make_plan(working("router_dense.kicad_pcb"), s, nets=["S3", "S4"])
+    )
+    assert _copper_signature(first) == _copper_signature(second)
+    assert first.final_board.fingerprint == second.final_board.fingerprint
+
+
+def test_clean_rate_counts_first_try_routes() -> None:
+    """R4: DRC-clean rate = completed nets needing no validation repair."""
+    s = BoardRouterSettings(max_passes=1)
+    result = BoardRouter(working("router_dense.kicad_pcb"), s).run(
+        make_plan(working("router_dense.kicad_pcb"), s, nets=["S3", "S4"])
+    )
+    m = result.metrics
+    assert 0 <= m.clean_nets <= m.nets_completed
+    assert m.to_dict()["clean_rate_pct"] == round(100 * m.clean_rate, 1)
+    if m.nets_completed:
+        assert 0.0 <= m.clean_rate <= 1.0

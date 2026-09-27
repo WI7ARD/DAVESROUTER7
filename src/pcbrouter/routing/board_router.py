@@ -184,6 +184,8 @@ class BoardMetrics:
     ripups: int = 0
     reroutes: int = 0
     passes: int = 0
+    #: completed nets routed with zero exact-validation repairs (first-try clean)
+    clean_nets: int = 0
     #: summed RouteMetrics phase seconds (see RouteMetrics for the split)
     grid_s: float = 0.0
     search_s: float = 0.0
@@ -193,6 +195,11 @@ class BoardMetrics:
     @property
     def completion(self) -> float:
         return self.nets_completed / self.nets_attempted if self.nets_attempted else 1.0
+
+    @property
+    def clean_rate(self) -> float:
+        """Share of completed nets needing no validation repair."""
+        return self.clean_nets / self.nets_completed if self.nets_completed else 1.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -207,6 +214,8 @@ class BoardMetrics:
             "ripups": self.ripups,
             "reroutes": self.reroutes,
             "passes": self.passes,
+            "clean_nets": self.clean_nets,
+            "clean_rate_pct": round(100 * self.clean_rate, 1),
             "grid_s": round(self.grid_s, 2),
             "search_s": round(self.search_s, 2),
             "geometry_s": round(self.geometry_s, 2),
@@ -631,6 +640,7 @@ class BoardRouter:
         o.passes = pass_no
         if res.status is RouteStatus.ALREADY_CONNECTED:
             o.status = RouteStatus.SUCCESS
+            metrics.clean_nets += 1  # nothing to route: trivially clean
             return True
         if res.best is None:
             o.status, o.reason, o.message = res.status, res.reason, res.message
@@ -649,6 +659,8 @@ class BoardRouter:
         o.status = res.status
         o.reason = res.reason if res.status is RouteStatus.PARTIAL else None
         o.message = res.message
+        if res.status is RouteStatus.SUCCESS and res.metrics.repairs == 0:
+            metrics.clean_nets += 1
         return res.status is RouteStatus.SUCCESS
 
     # ------------------------------------------------------------ rip-up

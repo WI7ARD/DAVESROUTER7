@@ -411,3 +411,156 @@ def test_weighted_search_is_deterministic() -> None:
     assert first.status is second.status is RouteStatus.SUCCESS
     assert first.best is not None and second.best is not None
     assert first.best.proposal.segments == second.best.proposal.segments
+
+
+def _brute_force_optimal_cost(problem: object) -> float | None:
+    """Independent Dijkstra over the same state space WITHOUT dominance pruning.
+
+    Mirrors the move set and edge costs of astar.search exactly (same operand
+    order), so any cost difference proves the slack pruning changed the answer.
+    Returns None when no target is reachable.
+    """
+    import heapq
+    import math
+
+    from pcbrouter.routing.search.astar import DIRS, NO_DIR, SQRT2
+
+    g = problem.grid  # type: ignore[attr-defined]
+    nx, n, nl = g.nx, g.n, len(g.layers)
+    ny = g.ny
+    cell = float(g.spec.cell)
+    cm = problem.cost  # type: ignore[attr-defined]
+    passable = [p.reshape(-1).tobytes() for p in g.passable]
+    near = [p.reshape(-1).tobytes() for p in g.near]
+    target = [t.reshape(-1).tobytes() for t in problem.targets]  # type: ignore[attr-defined]
+    penalty = [None if p is None else p.reshape(-1) for p in g.penalty]
+    factor = [None if f is None else f.reshape(-1) for f in g.factor]
+    vias_on = problem.vias_enabled and g.via_ok is not None and nl > 1  # type: ignore[attr-defined]
+    via_ok = g.via_ok.reshape(-1).tobytes() if vias_on and g.via_ok is not None else b""
+    vlim = problem.max_vias  # type: ignore[attr-defined]
+    nv = (vlim + 1) if (vias_on and vlim is not None) else 1
+    track_vias = vias_on and vlim is not None
+    lf = problem.layer_factor  # type: ignore[attr-defined]
+    prox = cm.proximity_factor
+    dirs = [0, 2, 4, 6] if not problem.octilinear else list(range(8))  # type: ignore[attr-defined]
+    bend = (0.0, cm.bend45_nm, cm.bend90_nm)
+    heap: list[tuple[float, int]] = []
+    best: dict[int, float] = {}
+    for li, cells in enumerate(problem.sources):  # type: ignore[attr-defined]
+        pl = passable[li]
+        for idx in cells.tolist():
+            if not pl[idx]:
+                continue
+            s = (li * n + idx) * 9 + NO_DIR
+            if s not in best:
+                best[s] = 0.0
+                heapq.heappush(heap, (0.0, s))
+    while heap:
+        gc, s = heapq.heappop(heap)
+        if gc > best.get(s, math.inf):
+            continue
+        d = s % 9
+        rest = s // 9
+        idx = rest % n
+        rest //= n
+        li = rest % nl
+        v = rest // nl
+        if target[li][idx]:
+            return gc
+        r, c = divmod(idx, nx)
+        pl = passable[li]
+        nr_l = near[li]
+        pen = penalty[li]
+        fac = factor[li]
+        base = (v * nl + li) * n
+        for nd in dirs:
+            if d != NO_DIR:
+                turn = abs(nd - d)
+                if turn > 4:
+                    turn = 8 - turn
+                if turn > 2:
+                    continue
+            else:
+                turn = 0
+            dx, dy = DIRS[nd]
+            rr, cc = r + dy, c + dx
+            if rr < 0 or rr >= ny or cc < 0 or cc >= nx:
+                continue
+            ni = rr * nx + cc
+            if not pl[ni]:
+                continue
+            if dx and dy and not (pl[r * nx + cc] and pl[rr * nx + c]):
+                continue
+            step = cell * (SQRT2 if dx and dy else 1.0)
+            w = lf[li] * (float(fac[ni]) if fac is not None else 1.0)
+            cost = step * w * (1.0 + prox * nr_l[ni])
+            if pen is not None:
+                cost += step * float(pen[ni])
+            cost += bend[turn]
+            ng = gc + cost
+            ns = (base + ni) * 9 + nd
+            if ng < best.get(ns, math.inf):
+                best[ns] = ng
+                heapq.heappush(heap, (ng, ns))
+        if vias_on and via_ok[idx] and (not track_vias or v + 1 < nv):
+            v2 = v + 1 if track_vias else v
+            for l2 in range(nl):
+                if l2 == li or not passable[l2][idx]:
+                    continue
+                ns = ((v2 * nl + l2) * n + idx) * 9 + NO_DIR
+                ng = gc + problem.via_cost  # type: ignore[attr-defined]
+                if ng < best.get(ns, math.inf):
+                    best[ns] = ng
+                    heapq.heappush(heap, (ng, ns))
+    return None
+
+
+def test_slack_pruning_preserves_optimal_cost() -> None:
+    """R4: the cell_best dominance prune never changes the optimal grid cost.
+
+    Real searches are replayed through an independent, pruning-free Dijkstra
+    over the same state space; optimal costs must match exactly (same edge
+    arithmetic), proving the prune only ever skips losers.
+    """
+    import numpy as np
+
+    from pcbrouter.routing.search.astar import SearchStatus, search
+
+    dense = working("router_dense.kicad_pcb")
+
+    def penalised(layer: str, spec: object) -> object:
+
+        return np.full((spec.ny, spec.nx), 0.5)  # type: ignore[attr-defined]
+
+    cases = [
+        (working("router_basic.kicad_pcb"), "A", None),
+        (working("router_basic.kicad_pcb"), "B", None),
+        (dense, "USB_N", None),
+        (dense, "S3", None),
+        (dense, "USB_N", penalised),
+    ]
+    for wb, net, penalties in cases:
+        recorded: list[tuple[object, dict, object]] = []
+        real = search
+
+        def spy(
+            problem: object, _real: object = real, _rec: list = recorded, **kw: object
+        ) -> object:
+            outcome = _real(problem, **kw)  # type: ignore[operator]
+            _rec.append((problem, kw, outcome))
+            return outcome
+
+        router = Router(wb.engine, search_fn=spy)
+        if penalties is None:
+            res = router.route_net(RouteRequest(net, candidates=1))
+        else:
+            res = router.route_net(RouteRequest(net, candidates=1), penalties=penalties)  # type: ignore[arg-type]
+        assert res.status is RouteStatus.SUCCESS, res.summary()
+        assert recorded, "no searches recorded"
+        for _problem, _kw, outcome in recorded:
+            assert outcome.status is SearchStatus.FOUND  # type: ignore[attr-defined]
+            optimal = _brute_force_optimal_cost(_problem)
+            assert optimal is not None
+            assert optimal == outcome.cost, (  # type: ignore[attr-defined]
+                f"{net}: pruned={outcome.cost} optimal={optimal}"  # type: ignore[attr-defined]
+            )
