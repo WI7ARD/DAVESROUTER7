@@ -99,10 +99,10 @@ def test_validate_ai_command(bus: CommandBus, fixture_path: Callable[[str], Path
     assert bus.dispatch(ValidateAICommand(good)).success  # syntactic only: no board
     bus.dispatch(OpenBoardCommand(fixture_path("four_layer.kicad_pcb")))
     ok = bus.dispatch(ValidateAICommand(good))
-    assert ok.success and "later stage" in ok.message
+    assert ok.success and "Route panel" in ok.message
     unknown = bus.dispatch(ValidateAICommand('{"operation": "route_net", "target": "CAN_H"}'))
     assert not unknown.success and "CAN_H" in unknown.message
     invalid = bus.dispatch(ValidateAICommand('{"operation": "route_net", "target": "GND", "x": 1}'))
     assert not invalid.success and "Invalid command" in invalid.message
     analysis = bus.dispatch(ValidateAICommand('{"operation": "analyze_board"}'))
-    assert analysis.success and "later stage" not in analysis.message
+    assert analysis.success and "Route panel" not in analysis.message
