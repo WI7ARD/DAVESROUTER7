@@ -21,6 +21,14 @@ cloud models (the AI still only proposes; the deterministic router and checks de
 * Quality: small local models follow the JSON schema less reliably than large cloud
   models; invalid answers are rejected by local validation (never applied), and the
   adapter falls back json_schema → json_object → plain automatically.
+* Reasoning ("thinking") models (e.g. the qwen3 family) narrate their thoughts
+  before answering, which multiplies generation time on CPU past any timeout. The
+  app disables reasoning for structured routing commands and badges thinking
+  models in the model list — but for local use a non-thinking model
+  (`qwen2.5:7b`, `qwen2.5:3b`) answers far sooner.
+* Very large context windows (100k+ tokens) need a matching KV cache in RAM:
+  Ollama may fail to load such a model on 8–16 GB machines. The model list shows
+  each model's context size; if loading fails, pick a smaller-context model.
 * Ollama on Windows mostly runs models on the CPU; Iris Xe acceleration in Ollama is
   not guaranteed (that is separate from the router's dpnp GPU path).
 * Only `localhost` Ollama addresses are accepted by the setup.

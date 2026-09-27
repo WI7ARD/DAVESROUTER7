@@ -39,6 +39,13 @@ ANSWER = {
 class _Ollama(BaseHTTPRequestHandler):
     models: ClassVar[list[str]] = ["qwen2.5:3b"]
     requests: ClassVar[list[dict[str, Any]]] = []
+    details: ClassVar[dict[str, Any]] = {
+        "qwen2.5:3b": {
+            "parameter_size": "3.2B",
+            "context_length": 32768,
+            "capabilities": ["completion", "tools"],
+        }
+    }
 
     def log_message(self, *args: Any) -> None:
         pass
@@ -55,7 +62,24 @@ class _Ollama(BaseHTTPRequestHandler):
         if self.path == "/api/version":
             self._json({"version": "0.9.0-mock"})
         elif self.path == "/api/tags":
-            self._json({"models": [{"name": m} for m in self.models]})
+            self._json(
+                {
+                    "models": [
+                        {
+                            "name": m,
+                            **(
+                                {
+                                    "details": self.details[m],
+                                    "capabilities": self.details[m].get("capabilities", []),
+                                }
+                                if m in self.details
+                                else {}
+                            ),
+                        }
+                        for m in self.models
+                    ]
+                }
+            )
         elif self.path == "/v1/models":
             self._json(
                 {
@@ -139,6 +163,23 @@ def test_not_running_and_remote_hosts_refused() -> None:
     assert not st.running and "ollama.com" in st.text()
     with pytest.raises(ollama.OllamaError):
         ollama.ollama_status("http://example.com:11434")
+
+
+def test_model_facts_and_listing_enrichment(server: str) -> None:
+    """Capabilities flow: /api/tags details → facts → listed model info."""
+    facts = ollama.model_facts(server)
+    assert facts["qwen2.5:3b"].parameter_size == "3.2B"
+    assert facts["qwen2.5:3b"].context_length == 32768
+    assert facts["qwen2.5:3b"].thinking is False
+    OpenAICompatibleProvider._format_level.clear()
+    profile = ollama.ollama_profile("qwen2.5:3b", server)
+    provider = OpenAICompatibleProvider(profile, CredentialService(secure=SessionCredentialStore()))
+    models = asyncio.run(provider.list_models())
+    listed = next(m for m in models if m.model_id == "qwen2.5:3b")
+    assert listed.context_window == 32768
+    assert listed.supports_tools is True
+    assert listed.metadata["parameter_size"] == "3.2B"
+    assert "ctx 32k" in listed.detailed_label
 
 
 def test_the_app_ai_adapter_talks_to_ollama(server: str) -> None:

@@ -14,6 +14,7 @@ Compatible servers implement different subsets of the API, so nothing is assumed
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, ClassVar
 
@@ -33,6 +34,8 @@ from pcbrouter.ai.models import (
 )
 from pcbrouter.ai.requests import AIRequest
 from pcbrouter.ai.responses import AIResponse, FinishStatus, TokenUsage
+
+log = logging.getLogger(__name__)
 
 NO_KEY_PLACEHOLDER = "not-required"
 _LEVELS = ("json_schema", "json_object", "none")
@@ -64,7 +67,7 @@ class OpenAICompatibleProvider(SDKProvider):
     async def _list_models(self, client: Any) -> list[AIModelInfo]:
         try:
             page = await client.models.list()
-            return [AIModelInfo(provider_kind=self.kind.value, model_id=m.id) async for m in page]
+            models = [AIModelInfo(provider_kind=self.kind.value, model_id=m.id) async for m in page]
         except Exception as exc:
             err = map_sdk_error(exc, self.profile.name)
             if isinstance(err, AIModelNotFoundError | AIInvalidRequestError):
@@ -74,6 +77,57 @@ class OpenAICompatibleProvider(SDKProvider):
                     "Enter the model ID manually.",
                 ) from exc
             raise err from exc
+        return self._with_local_facts(models)
+
+    @staticmethod
+    def _loopback_origin(base_url: str) -> str | None:
+        """Origin URL when the endpoint is local, else None (never probed remotely)."""
+        from urllib.parse import urlparse
+
+        try:
+            parts = urlparse(base_url)
+        except ValueError:
+            return None
+        if parts.scheme != "http" or (parts.hostname or "") not in (
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        ):
+            return None
+        return f"{parts.scheme}://{parts.netloc.split('@')[-1]}".rstrip("/")
+
+    def _with_local_facts(self, models: list[AIModelInfo]) -> list[AIModelInfo]:
+        """Enrich a local endpoint's listing with Ollama model facts (best effort)."""
+        from dataclasses import replace
+
+        from pcbrouter.ai.ollama import model_facts
+
+        origin = self._loopback_origin(self.profile.effective_base_url)
+        if origin is None:
+            return models
+        try:
+            facts = model_facts(origin, timeout=5.0)
+        except Exception:  # listing must never break because facts failed
+            log.debug("ai.model_facts_unavailable", exc_info=True)
+            return models
+        out: list[AIModelInfo] = []
+        for m in models:
+            fact = facts.get(m.model_id)
+            if fact is None:
+                out.append(m)
+                continue
+            meta = dict(m.metadata)
+            meta["parameter_size"] = fact.parameter_size
+            meta["thinking"] = fact.thinking
+            out.append(
+                replace(
+                    m,
+                    context_window=fact.context_length,
+                    supports_tools=("tools" in fact.capabilities),
+                    metadata=meta,
+                )
+            )
+        return out
 
     async def _probe(self, client: Any) -> ConnectionResult:
         model = self.profile.model_id

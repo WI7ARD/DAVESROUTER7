@@ -67,7 +67,9 @@ class AIRuntimeConfig:
     max_conversation_turns: int = 6
     timeout_s: float = 90.0
     max_retries: int = 2
-    max_output_tokens: int = 8192
+    #: Planner answers are small JSON documents (typically < 1000 tokens); a tight
+    #: budget fails fast on truncation instead of burning minutes of CPU decode.
+    max_output_tokens: int = 2048
     anonymization: AnonymizationOptions = field(default_factory=AnonymizationOptions)
     log_prompts: bool = False
     #: Stage 7 autonomy: "advisory" | "approval_required" (default) | "batch_approval"
@@ -409,6 +411,7 @@ class AISession:
         provider_name: str,
         selected_nets: tuple[str, ...] = (),
         selected_components: tuple[str, ...] = (),
+        timeout_s: float | None = None,
     ) -> PreparedRequest:
         if self.closed:
             raise ProposalStateError("the AI session for this board has been closed")
@@ -430,7 +433,7 @@ class AISession:
                 context=context,
                 model=model,
                 session_state_lines=tuple(state),
-                timeout_s=self.config.timeout_s,
+                timeout_s=timeout_s or self.config.timeout_s,
                 max_output_tokens=self.config.max_output_tokens,
             ),
             self.conversation,

@@ -33,6 +33,55 @@ class AIModelInfo:
             return f"{self.display_name} ({self.model_id})"
         return self.model_id
 
+    @staticmethod
+    def _ctx_text(context_window: int | None) -> str | None:
+        if context_window is None:
+            return None
+        if context_window >= 1000 and context_window % 1024 == 0:
+            return f"ctx {context_window // 1024}k"
+        if context_window >= 1000:
+            return f"ctx {context_window / 1000:.0f}k"
+        return f"ctx {context_window}"
+
+    @property
+    def capability_badges(self) -> tuple[str, ...]:
+        """Short honest badges from reported facts only (never invented)."""
+        badges: list[str] = []
+        size = self.metadata.get("parameter_size")
+        if isinstance(size, str) and size:
+            badges.append(size)
+        ctx = self._ctx_text(self.context_window)
+        if ctx is not None:
+            badges.append(ctx)
+        if self.metadata.get("thinking") is True:
+            badges.append("thinking")
+        if self.supports_tools:
+            badges.append("tools")
+        return tuple(badges)
+
+    @property
+    def detailed_label(self) -> str:
+        badges = " · ".join(self.capability_badges)
+        return f"{self.label} — {badges}" if badges else self.label
+
+
+def model_hint(info: AIModelInfo) -> str:
+    """Human-readable caveats for a model ("" when nothing is worth saying)."""
+    notes: list[str] = []
+    if info.metadata.get("thinking") is True:
+        notes.append(
+            "Reasoning model: slow on CPU — it narrates its thoughts before answering. "
+            "The app disables reasoning for structured routing commands."
+        )
+    ctx = info.context_window
+    if isinstance(ctx, int) and ctx >= 100_000:
+        notes.append(
+            f"Very large context ({ctx:,} tokens): Ollama pre-allocates the KV cache "
+            "and may fail to load this on machines with little RAM — pick a "
+            "smaller-context model if loading fails."
+        )
+    return " ".join(notes)
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderCapabilities:

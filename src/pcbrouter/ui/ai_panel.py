@@ -372,11 +372,29 @@ class AIEngineeringPanel(QWidget):
         self.model_combo.clear()
         if profile is not None:
             for m in self.service.model_cache.get(profile.profile_id, []):
-                self.model_combo.addItem(m.label, m.model_id)
+                self.model_combo.addItem(m.detailed_label, m.model_id)
             self.model_combo.setEditText(profile.model_id)
         self.model_combo.blockSignals(False)
+        self._update_model_hint()
         self.refresh_status()
         self._update_context_label()
+
+    def _update_model_hint(self) -> None:
+        """Tooltip for the selected model: reported facts and their caveats."""
+        from pcbrouter.ai.models import model_hint
+
+        profile = self.current_profile()
+        tip = "Model used for AI requests. You can also type any installed model ID."
+        if profile is not None:
+            wanted = self.selected_model()
+            for m in self.service.model_cache.get(profile.profile_id, []):
+                if m.model_id == wanted:
+                    if m.detailed_label != m.label:
+                        tip = f"{m.detailed_label}\n{tip}"
+                    if hint := model_hint(m):
+                        tip = f"{tip}\n\nNote: {hint}"
+                    break
+        self.model_combo.setToolTip(tip)
 
     def _on_model_text(self, text: str) -> None:
         profile = self.current_profile()
@@ -388,6 +406,7 @@ class AIEngineeringPanel(QWidget):
             profile.model_id = str(model_id)  # persisted with settings on exit
             self.service.forget_status(profile.profile_id)
             self.refresh_status()
+        self._update_model_hint()
         self._update_buttons()
 
     def selected_model(self) -> str:

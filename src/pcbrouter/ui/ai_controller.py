@@ -103,6 +103,9 @@ class AIRequestController(QObject):
                 provider_name=profile.name,
                 selected_nets=selected_nets,
                 selected_components=selected_components,
+                # Local CPU inference is slow: the profile timeout (300 s for
+                # Ollama) must reach the request or every answer dies at 90 s.
+                timeout_s=max(session.config.timeout_s, profile.timeout_s),
             )
         rid = prepared.request.request_id
         future = self.service.submit(

@@ -74,14 +74,51 @@ def _get(url: str, timeout: float) -> Any:
         return json.loads(resp.read().decode("utf-8"))
 
 
+@dataclass
+class OllamaModelFacts:
+    """What Ollama reports about one installed model (never invented)."""
+
+    name: str
+    parameter_size: str | None = None  # e.g. "7.6B"
+    context_length: int | None = None  # KV-cache scale: huge values can OOM RAM
+    capabilities: tuple[str, ...] = ()  # e.g. ("completion", "tools", "thinking")
+
+    @property
+    def thinking(self) -> bool:
+        return "thinking" in self.capabilities
+
+
+def model_facts(url: str = DEFAULT_URL, timeout: float = 3.0) -> dict[str, OllamaModelFacts]:
+    """Installed models with details; {} when Ollama is unreachable."""
+    url = check_local(url)
+    try:
+        tags = _get(f"{url}/api/tags", timeout)
+    except (urllib.error.URLError, OSError, ValueError):
+        return {}
+    out: dict[str, OllamaModelFacts] = {}
+    for m in tags.get("models", []):
+        name = m.get("name", "")
+        if not name:
+            continue
+        det = m.get("details", {}) or {}
+        ctx = det.get("context_length")
+        caps = tuple(c for c in (m.get("capabilities", []) or []) if isinstance(c, str))
+        out[name] = OllamaModelFacts(
+            name,
+            parameter_size=det.get("parameter_size"),
+            context_length=ctx if isinstance(ctx, int) else None,
+            capabilities=caps,
+        )
+    return out
+
+
 def ollama_status(url: str = DEFAULT_URL, timeout: float = 3.0) -> OllamaStatus:
     url = check_local(url)
     try:
         version = _get(f"{url}/api/version", timeout).get("version")
-        tags = _get(f"{url}/api/tags", timeout)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return OllamaStatus(False, url, error=str(exc))
-    models = sorted(m.get("name", "") for m in tags.get("models", []) if m.get("name"))
+    models = sorted(model_facts(url, timeout))
     return OllamaStatus(True, url, version, models)
 
 
