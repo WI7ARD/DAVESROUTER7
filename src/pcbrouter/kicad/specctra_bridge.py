@@ -53,6 +53,8 @@ def _candidates() -> list[str]:
 
 def find_kicad_python() -> KiCadPython | None:
     """A Python that can ``import pcbnew`` (KiCad's scripting module), or None."""
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     for exe in _candidates():
         if not Path(exe).exists():
             continue
@@ -63,6 +65,7 @@ def find_kicad_python() -> KiCadPython | None:
                 text=True,
                 timeout=CHECK_TIMEOUT_S,
                 check=False,
+                **hidden_console_kwargs(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
             log.info("kicad_python.unusable path=%s error=%r", exe, exc)
@@ -75,6 +78,8 @@ def find_kicad_python() -> KiCadPython | None:
 def _run(python: KiCadPython, args: list[str], timeout_s: float) -> None:
     if not SCRIPT.exists():
         raise SpecctraError(f"helper script missing: {SCRIPT}")
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         proc = subprocess.run(
             [str(python.path), str(SCRIPT), *args],
@@ -82,6 +87,7 @@ def _run(python: KiCadPython, args: list[str], timeout_s: float) -> None:
             text=True,
             timeout=timeout_s,
             check=False,
+            **hidden_console_kwargs(),
         )
     except subprocess.TimeoutExpired as exc:
         raise SpecctraError(f"KiCad conversion timed out after {timeout_s:.0f} s") from exc

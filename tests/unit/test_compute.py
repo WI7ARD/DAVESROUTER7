@@ -218,6 +218,10 @@ class TestBackendsAndManager:
         )
 
     def test_manager_falls_back_to_cpu(self) -> None:
+        from pcbrouter.compute.detection import detect_gpu
+
+        if detect_gpu().array_module is not None:
+            pytest.skip("a real GPU stack is usable here; fallback is CI-only")
         mgr = ComputeManager(gpu_detection=GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE))
         active = mgr.select(BackendKind.GPU)
         assert active is mgr.cpu and mgr.cpu.initialized

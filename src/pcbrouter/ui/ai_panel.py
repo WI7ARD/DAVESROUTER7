@@ -140,8 +140,9 @@ class AIEngineeringPanel(QWidget):
             "Providers: <b>OpenAI</b> · <b>Anthropic</b> · <b>Custom / Local</b> "
             "(OpenAI-compatible)<br><br>"
             "<i>The AI planner cannot directly modify your PCB.</i> Every proposal is "
-            "validated locally and needs your approval; no routing is executed in this "
-            "version. Board inspection works fully without AI."
+            "validated locally and needs your approval; routing runs in the "
+            "background worker and nothing reaches your board until you accept it. "
+            "Board inspection works fully without AI."
         )
         text.setWordWrap(True)
         self.empty_status = QLabel("No AI provider configured.")

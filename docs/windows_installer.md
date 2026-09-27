@@ -117,8 +117,9 @@ Pipeline (`packaging/windows/`):
 - the uninstaller refuses while the app runs;
 - a clean uninstall.
 
-The installer is uploaded as a workflow artifact. The same workflow runs the full test
-suite on Windows.
+The installer is published on [GitHub Releases](../README.md#install-on-windows)
+(with SHA-256); CI also keeps it as a 30-day workflow artifact. The same
+workflow runs the full test suite on Windows.
 
 **Linux:** the NSIS part is testable there (`apt install nsis wine wine32:i386`, after
 `dpkg --add-architecture i386`), because makensis
@@ -141,8 +142,11 @@ bundle:
 ## Known limitations
 
 - **Not code-signed.** Windows SmartScreen shows "Windows protected your PC" for an
-  unsigned download. Click *More info ▸ Run anyway*. Signing needs a code-signing
-  certificate, which costs money and requires identity verification.
+  unsigned download. Click *More info ▸ Run anyway*. Browsers may also block the
+  download as "dangerous" (same cause: new file, no reputation): in Chrome use
+  Downloads (`Ctrl+J`) → ⋮ → *Keep dangerous file*, in Edge *Keep anyway*, and
+  always verify the SHA-256 against the `.sha256` release asset. Signing needs a
+  code-signing certificate, which costs money and requires identity verification.
 - No all-users (per-machine) install mode.
 - `pcbrouter.exe` is not added to `PATH`.
 - The "app is running" check covers the app installed in the target folder, not copies

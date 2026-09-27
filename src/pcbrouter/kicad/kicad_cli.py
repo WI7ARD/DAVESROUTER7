@@ -64,9 +64,16 @@ def find_kicad_cli() -> KiCadCli | None:
         exe = next((c for c in _WINDOWS_CANDIDATES if os.path.exists(c)), None)
     if exe is None:
         return None
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         out = subprocess.run(
-            [exe, "version"], capture_output=True, text=True, timeout=20, check=False
+            [exe, "version"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            **hidden_console_kwargs(),
         )
         version = out.stdout.strip() or None
     except (OSError, subprocess.SubprocessError) as exc:
@@ -82,6 +89,8 @@ def run_kicad_drc(
     if cli is None:
         return KiCadDRCResult(False, message="kicad-cli not found (KiCad is optional)")
     with tempfile.TemporaryDirectory() as tmp:
+        from pcbrouter.utils.process import hidden_console_kwargs
+
         report = Path(tmp) / "drc.json"
         args = [
             str(cli.path),
@@ -96,7 +105,12 @@ def run_kicad_drc(
         ]
         try:
             proc = subprocess.run(
-                args, capture_output=True, text=True, timeout=timeout_s, check=False
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+                **hidden_console_kwargs(),
             )
         except subprocess.TimeoutExpired:
             return KiCadDRCResult(

@@ -95,9 +95,16 @@ def jar_dir() -> Path:
 def java_major(java: str | None) -> int | None:
     if not java:
         return None
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         proc = subprocess.run(
-            [java, "-version"], capture_output=True, text=True, timeout=30, check=False
+            [java, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            **hidden_console_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return None

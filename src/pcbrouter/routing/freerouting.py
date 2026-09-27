@@ -146,6 +146,10 @@ def run_freerouting(
     """Run Freerouting headless; stream progress; kill it on cancel/timeout."""
     cmd = tool.command(dsn, ses, passes)
     log.info("freerouting.start %s", " ".join(cmd))
+    # No console window: Freerouting (exe or java) is a console program and
+    # Windows would otherwise flash a terminal over the app for the whole run.
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         proc = subprocess.Popen(
             cmd,
@@ -155,6 +159,7 @@ def run_freerouting(
             encoding="utf-8",
             errors="replace",
             cwd=str(dsn.parent),
+            **hidden_console_kwargs(),
         )
     except OSError as exc:
         raise FreeroutingError(f"could not start Freerouting: {exc}") from exc

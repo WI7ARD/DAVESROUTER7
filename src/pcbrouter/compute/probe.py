@@ -45,6 +45,8 @@ def _native_query(snippet: str, what: str) -> tuple[str | None, str]:
     """Run ``snippet`` in a child interpreter; return (stdout, "") or (None, why)."""
     if getattr(sys, "frozen", False):
         return None, "frozen"
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         proc = subprocess.run(
             [sys.executable, "-c", snippet],
@@ -52,6 +54,7 @@ def _native_query(snippet: str, what: str) -> tuple[str | None, str]:
             text=True,
             timeout=_NATIVE_TIMEOUT_S,
             check=False,
+            **hidden_console_kwargs(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{what} subprocess failed: {exc!r}"
@@ -85,9 +88,16 @@ def _cuda_devices(deep: bool = True) -> tuple[list[str], list[str]]:
     if exe is None:
         checks.append("nvidia-smi not found (no NVIDIA driver)")
         return [], checks
+    from pcbrouter.utils.process import hidden_console_kwargs
+
     try:
         out = subprocess.run(
-            [exe, "-L"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S, check=False
+            [exe, "-L"],
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_S,
+            check=False,
+            **hidden_console_kwargs(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         checks.append(f"nvidia-smi failed: {exc!r}")

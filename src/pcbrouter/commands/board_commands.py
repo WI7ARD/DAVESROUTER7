@@ -117,7 +117,7 @@ class ValidateAICommand(BaseCommand):
             if report.warnings:
                 warnings = " Warnings: " + "; ".join(i.text() for i in report.warnings)
         note = (
-            " It would modify the board; execution is available in a later stage (Stage 4)."
+            " It would modify the board; run it from the Route panel or board routing."
             if command.operation.category is OperationCategory.ROUTING
             else ""
         )
