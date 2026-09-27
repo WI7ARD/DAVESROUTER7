@@ -258,3 +258,126 @@ def test_big_same_net_pour_does_not_stall_grid_building(tmp_path: Path) -> None:
     res = route(wb.engine, "C", candidates=1)
     assert res.status is RouteStatus.SUCCESS, res.summary()
     assert_octilinear_and_legal(wb.engine, res.best)
+
+
+def test_shared_grid_cache_skips_occupancy_rebuild(basic: WorkingBoard) -> None:
+    """R2: a second identical search reuses compiled inputs (no occupancy work)."""
+    from pcbrouter.routing.search.grid import compile_grid
+
+    engine = basic.engine
+    calls = 0
+    real_occupancy = engine.occupancy
+
+    def counting(*args: object, **kw: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real_occupancy(*args, **kw)  # type: ignore[arg-type]
+
+    engine.occupancy = counting  # type: ignore[method-assign]
+    try:
+        cache: dict = {}
+        key = ("net-A-key",)
+        first = compile_grid(
+            engine,
+            "A",
+            ("F.Cu", "B.Cu"),
+            MM(0.25),
+            MM(0.6),
+            MM(0.1),
+            None,
+            cache=cache,
+            cache_key=key,
+        )
+        assert calls > 0
+        before = calls
+        engine._occupancy.clear()
+        second = compile_grid(
+            engine,
+            "A",
+            ("F.Cu", "B.Cu"),
+            MM(0.25),
+            MM(0.6),
+            MM(0.1),
+            None,
+            cache=cache,
+            cache_key=key,
+        )
+        assert calls == before, "cached compile must not touch occupancy"
+        assert [c.tobytes() for c in second.passable] == [c.tobytes() for c in first.passable]
+        assert len(cache) == 1
+        # a different window compiles separately
+        from pcbrouter.domain.geometry import BoundingBox
+
+        other_key = ("net-A-other-window",)
+        compile_grid(
+            engine,
+            "A",
+            ("F.Cu", "B.Cu"),
+            MM(0.25),
+            MM(0.6),
+            MM(0.1),
+            BoundingBox(0, 0, 1_000_000, 1_000_000),
+            cache=cache,
+            cache_key=other_key,
+        )
+        assert len(cache) == 2
+    finally:
+        engine.occupancy = real_occupancy  # type: ignore[method-assign]
+
+
+def test_cached_grid_is_isolated_from_search_mutations(basic: WorkingBoard) -> None:
+    """R2: per-search repairs/penalties must never corrupt the shared inputs."""
+    import numpy as np
+
+    from pcbrouter.routing.search.grid import compile_grid
+
+    engine = basic.engine
+    cache: dict = {}
+    key = ("net-A-iso",)
+    first = compile_grid(
+        engine,
+        "A",
+        ("F.Cu", "B.Cu"),
+        MM(0.25),
+        MM(0.6),
+        MM(0.1),
+        None,
+        cache=cache,
+        cache_key=key,
+    )
+    cells = np.nonzero(first.passable[0].reshape(-1))[0][:10]
+    first.block(0, cells)
+    assert not first.passable[0].reshape(-1)[cells].any()
+    second = compile_grid(
+        engine,
+        "A",
+        ("F.Cu", "B.Cu"),
+        MM(0.25),
+        MM(0.6),
+        MM(0.1),
+        None,
+        cache=cache,
+        cache_key=key,
+    )
+    assert second.passable[0].reshape(-1)[cells].all()
+
+
+def test_board_router_shares_one_grid_cache(basic: WorkingBoard) -> None:
+    """R2: every Router in a board job uses the same bounded grid cache."""
+    from pcbrouter.routing.board_router import BoardRouter
+
+    made: list[Router] = []
+
+    def factory(engine: BoardEngine) -> Router:
+        router = Router(engine)
+        made.append(router)
+        return router
+
+    job = BoardRouter(basic, router_factory=factory)
+    job.run()
+    assert len(made) >= 1
+    caches = {id(r.grid_cache) for r in made}
+    assert len(caches) == 1
+    shared = made[0].grid_cache
+    assert shared is job._grid_cache
+    assert 0 < len(shared) <= BoardRouter.GRID_CACHE_SIZE + 2

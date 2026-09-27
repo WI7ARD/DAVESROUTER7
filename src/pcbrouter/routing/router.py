@@ -99,10 +99,13 @@ class Router:
         engine: BoardEngine,
         search_fn: SearchFn | None = None,
         backend_name: str = "cpu",
+        grid_cache: dict[Any, Any] | None = None,
     ) -> None:
         self.engine = engine
         self.search_fn: SearchFn = search_fn or search
         self.backend_name = backend_name
+        #: shared compiled-grid inputs across passes/rip-ups (see grid.compile_grid)
+        self.grid_cache = grid_cache
         #: record the cells a failed search explored (debug overlay / playback)
         self.record_explored = False
         #: optional progress sink (phase/candidate/connection dicts); called a few
@@ -183,16 +186,37 @@ class Router:
             grid = None
             try:
                 t_grid = time.perf_counter()
+                window_key = (
+                    None
+                    if window is None
+                    else (window.min_x, window.min_y, window.max_x, window.max_y)
+                )
+                via = norm.via_diameter if norm.vias_allowed else None
+                grid_key = (
+                    (
+                        self.engine.cache_key,
+                        norm.net,
+                        norm.width,
+                        via,
+                        norm.layers,
+                        norm.request.grid_resolution,
+                        window_key,
+                    )
+                    if self.grid_cache is not None
+                    else None
+                )
                 grid = compile_grid(
                     self.engine,
                     norm.net,
                     norm.layers,
                     norm.width,
-                    norm.via_diameter if norm.vias_allowed else None,
+                    via,
                     norm.request.grid_resolution,
                     window,
                     progress=self._grid_progress(norm.net),
                     cancel=cancel,
+                    cache=self.grid_cache,
+                    cache_key=grid_key,
                 )
                 result.metrics.grid_s += time.perf_counter() - t_grid
             except GridCancelled:

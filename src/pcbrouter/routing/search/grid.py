@@ -21,6 +21,7 @@ import math
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -123,6 +124,22 @@ def _passable(cells: npt.NDArray[np.uint8]) -> BoolGrid:
     return np.asarray((cells == CellState.FREE) | (cells == CellState.SAME_NET))
 
 
+#: compiled grid inputs shared across passes/rip-ups of one board job (R2).
+#: Bounded by the caller (BoardRouter keeps the last few): occupancy work is
+#: the expensive part, while penalties/repairs stay per-search on the grid.
+GridCache = dict[Any, Any]
+
+
+@dataclass
+class _GridInputs:
+    spec: GridSpec
+    passable: list[BoolGrid]
+    near: list[BoolGrid]
+    via_ok: BoolGrid | None
+    notes: list[str]
+    rules_complete: bool
+
+
 def compile_grid(
     engine: BoardEngine,
     net: str,
@@ -133,12 +150,32 @@ def compile_grid(
     window: BoundingBox | None = None,
     progress: Callable[[str], None] | None = None,
     cancel: threading.Event | None = None,
+    cache: GridCache | None = None,
+    cache_key: tuple[Any, ...] | None = None,
 ) -> SearchGrid:
-    """``progress`` (optional) is told which layer is being rasterised."""
+    """``progress`` (optional) is told which layer is being rasterised.
+
+    With ``cache`` + ``cache_key``, compiled occupancy inputs are reused: the
+    returned grid still gets fresh penalties/factors, so per-candidate
+    mutations (penalise/block) never leak across searches.
+    """
 
     def _cancelled() -> bool:
         return cancel is not None and cancel.is_set()
 
+    if cache is not None and cache_key is not None and cache_key in cache:
+        saved = cache[cache_key]
+        return SearchGrid(
+            spec=saved.spec,
+            layers=layers,
+            passable=[p.copy() for p in saved.passable],
+            near=[n.copy() for n in saved.near],
+            via_ok=None if saved.via_ok is None else saved.via_ok.copy(),
+            penalty=[None] * len(layers),
+            factor=[None] * len(layers),
+            notes=list(saved.notes),
+            rules_complete=saved.rules_complete,
+        )
     notes: list[str] = []
     complete = True
     passable: list[BoolGrid] = []
@@ -172,14 +209,27 @@ def compile_grid(
             occ = engine.occupancy(layer, net, via_diameter, cell, window, ItemType.VIA)
             complete &= occ.rules_complete
             via_ok &= _passable(occ.cells)
+    near = [_near(p) for p in passable]
+    notes = list(dict.fromkeys(notes))
+    if cache is not None and cache_key is not None:
+        # Copies: the returned grid is mutated per search (penalties, repairs)
+        # and must never corrupt the shared inputs.
+        cache[cache_key] = _GridInputs(
+            spec,
+            [p.copy() for p in passable],
+            [n.copy() for n in near],
+            None if via_ok is None else via_ok.copy(),
+            list(notes),
+            complete,
+        )
     return SearchGrid(
         spec=spec,
         layers=layers,
         passable=passable,
-        near=[_near(p) for p in passable],
+        near=near,
         via_ok=via_ok,
         penalty=[None] * len(layers),
         factor=[None] * len(layers),
-        notes=list(dict.fromkeys(notes)),
+        notes=notes,
         rules_complete=complete,
     )

@@ -390,6 +390,10 @@ Progress = Callable[[dict[str, Any]], None]
 
 
 class BoardRouter:
+    #: compiled-grid inputs kept across passes/rip-ups (R2); occupancy work is
+    #: the expensive part, entries are bounded below.
+    GRID_CACHE_SIZE = 4
+
     def __init__(
         self,
         working: WorkingBoard,
@@ -398,7 +402,17 @@ class BoardRouter:
     ) -> None:
         self.base = working
         self.settings = settings or BoardRouterSettings()
-        self.router_factory = router_factory or (lambda engine: Router(engine))
+        inner = router_factory or (lambda engine: Router(engine))
+        self._grid_cache: dict[Any, Any] = {}
+
+        def factory(engine: Any) -> Router:
+            router = inner(engine)
+            router.grid_cache = self._grid_cache
+            if len(self._grid_cache) > self.GRID_CACHE_SIZE:
+                self._grid_cache.pop(next(iter(self._grid_cache)))
+            return router
+
+        self.router_factory = factory
         self._all_tasks: list[RouteTask] = []
         self._deadline: float | None = None
         self._emit: Callable[..., None] = lambda **_kw: None
