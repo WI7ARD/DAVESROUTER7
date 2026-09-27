@@ -257,6 +257,9 @@ def test_retry_budgets_follow_last_failure_reason() -> None:
     slim = router._request(task, 2)
     assert slim.node_limit == base.node_limit
     assert slim.time_limit_s == base.time_limit_s
+    assert slim.grid_resolution == base.grid_resolution // 2  # look closer once
+    steady = router._request(task, 3)
+    assert steady.grid_resolution == base.grid_resolution  # no deeper spiral
     router._outcomes[task.net].reason = FailureReason.TIMEOUT
     boosted = router._request(task, 2)
     assert boosted.node_limit == base.node_limit * 2

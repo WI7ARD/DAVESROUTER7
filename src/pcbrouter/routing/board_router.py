@@ -49,6 +49,9 @@ DEFAULT_MAX_RIPUPS_PER_NET = 2
 DEFAULT_MAX_TOTAL_RIPUPS = 20
 DEFAULT_BUDGET_S = 600.0
 CONGESTION_TILE_CELLS = 10  # congestion field resolution for feedback (cells per tile)
+#: finest grid a silent NO_PATH retry may drop to (nm); deeper refinement is an
+#: explicit user choice (Speed/Accuracy presets, workbench constraints)
+FINE_GRID_FLOOR_NM = 25_000
 
 
 class Strategy(Enum):
@@ -642,8 +645,19 @@ class BoardRouter:
                 req = replace(
                     req, node_limit=req.node_limit * 2, time_limit_s=req.time_limit_s * 1.5
                 )
-            # NO_PATH / NO_ESCAPE / VALIDATION / RULE_UNKNOWN: the space is
-            # exhausted or forbidden — retry at base budget (often rip-up helps)
+            # NO_PATH on a crowded board: look closer once (finer cells resolve
+            # tight channels between existing copper). Single step: deeper
+            # refinement belongs to explicit user choice, not silent retries.
+            if (
+                pass_no == 2
+                and last_reason is FailureReason.NO_PATH
+                and req.grid_resolution > FINE_GRID_FLOOR_NM
+            ):
+                req = replace(
+                    req, grid_resolution=max(FINE_GRID_FLOOR_NM, req.grid_resolution // 2)
+                )
+            # NO_ESCAPE / VALIDATION / RULE_UNKNOWN: the space is exhausted or
+            # forbidden — retry at base budget (often rip-up helps)
         if self._deadline is not None:
             # the job budget also bounds the work *inside* one net
             left = max(0.001, self._deadline - time.perf_counter())
