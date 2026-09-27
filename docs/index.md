@@ -21,6 +21,7 @@ Start with the [README](../README.md), then follow your interest:
 * [freerouting.md](freerouting.md) — external Freerouting engine integration.
 * [windows_installer.md](windows_installer.md) — installer build, install,
   SmartScreen notes, smoke test.
+* [stability.md](stability.md) — 1.x contracts: settings, CLI, files, privacy.
 
 ## History (per-stage records, kept as built)
 

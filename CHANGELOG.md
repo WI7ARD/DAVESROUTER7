@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.0 — first stable release
+
+Everything in 0.9.1–0.9.2, plus: pour-aware connection setup (single-pass
+group raster with cancel points and live progress), cancellable big-polygon
+raster paths, versioned releases (`1.0.0`, plain PEP 440), public README/docs
+index/changelog, stability contracts, bundled license documents, hidden helper
+consoles, and the proprietary Henderson Engineering EULA.
+
 ## v0.9.1-stage9 — reliability + speed + AI foundations
 
 **Router reliability** — routing worker isolation fixes (freerouting wait,

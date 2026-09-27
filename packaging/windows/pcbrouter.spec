@@ -34,6 +34,11 @@ datas = [
     (str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources"),
     # run by KiCad's own Python as a file (Specctra DSN/SES bridge for Freerouting)
     (str(SRC / "pcbrouter" / "kicad" / "resources"), "pcbrouter/kicad/resources"),
+    # license documents ship at the top level of the installed app (LGPL
+    # attribution for Qt/PySide6 plus the app EULA; picked up by the payload
+    # scan like everything else, so uninstall removes them too)
+    (str(ROOT / "THIRD-PARTY-NOTICES.md"), "."),
+    (str(ROOT / "LICENSE"), "."),
 ]
 for name in OPTIONAL:
     if importlib.util.find_spec(name) is None:
