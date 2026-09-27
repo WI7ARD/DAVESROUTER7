@@ -187,6 +187,9 @@ class Router:
         result.details += list(norm.notes)
         try:
             self._route(norm, result, cancel, penalties, avoid_uids)
+        except GridCancelled:
+            result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
+            result.message = "cancelled by the user"
         except Exception as exc:  # reported, never hidden; the board is untouched
             log.exception("router.internal_error net=%s", request.net)
             result.status, result.message = RouteStatus.INTERNAL_ERROR, repr(exc)
@@ -359,29 +362,52 @@ class Router:
     ) -> _Attempt:
         nl = len(grid.layers)
         attempt = _Attempt(total=len(groups) - 1)
+        # Group cells are computed ONCE (not per connection): the old code
+        # re-rasterised every group on every connection (O(n^2) in groups)
+        # with no cancel point, stalling silently on pour-heavy nets.
+        group_cells_all: list[list[npt.NDArray[np.int64]]] = []
+        for j, g in enumerate(groups):
+            if cancel is not None and cancel.is_set():
+                raise GridCancelled()
+            self._report(
+                phase="ROUTING",
+                net=norm.net,
+                message=f"locating copper (group {j + 1}/{len(groups)})",
+            )
+            group_cells_all.append(self._cells_of(grid, g, cancel))
         # Power nets: start from the smallest copper group. Pour-heavy groups
         # hold millions of cells; pushing all of them as sources explodes the
         # heap before the first expansion. Connectivity is symmetric, so the
         # start side only affects speed, never correctness.
-        sizes = [sum(c.size for c in self._cells_of(grid, g)) for g in groups]
+        sizes = [sum(c.size for c in gc) for gc in group_cells_all]
         start = min(range(len(groups)), key=lambda i: (sizes[i], i))
-        connected = [groups[start]]
-        remaining = [g for j, g in enumerate(groups) if j != start]
+        connected_idx = {start}
+        remaining_idx = [j for j in range(len(groups)) if j != start]
+        # cell -> group index per layer, for attributing reached endpoints
+        cell_to_group: list[dict[int, int]] = [{} for _ in range(nl)]
+        for j, gc in enumerate(group_cells_all):
+            for li in range(nl):
+                for idx in gc[li].tolist():
+                    cell_to_group[li].setdefault(int(idx), j)
         extra_sources: list[list[int]] = [[] for _ in range(nl)]
         vias_used = 0
-        while remaining:
-            sources = self._cells_of(grid, [u for g in connected for u in g])
-            sources = _thin_sources(sources, grid.nx, grid.ny)
+        while remaining_idx:
+            if cancel is not None and cancel.is_set():
+                raise GridCancelled()
+            merged = [
+                np.unique(np.concatenate([group_cells_all[j][li] for j in sorted(connected_idx)]))
+                for li in range(nl)
+            ]
+            sources = _thin_sources(merged, grid.nx, grid.ny)
             for li in range(nl):
                 if extra_sources[li]:
                     sources[li] = np.unique(
                         np.concatenate([sources[li], np.asarray(extra_sources[li])])
                     )
             target_masks = [np.zeros((grid.ny, grid.nx), dtype=np.bool_) for _ in range(nl)]
-            group_cells = [self._cells_of(grid, g) for g in remaining]
-            for gc in group_cells:
+            for j in remaining_idx:
                 for li in range(nl):
-                    target_masks[li].reshape(-1)[gc[li]] = True
+                    target_masks[li].reshape(-1)[group_cells_all[j][li]] = True
             if not any(
                 int(np.count_nonzero(grid.passable[li].reshape(-1)[sources[li]]))
                 for li in range(nl)
@@ -404,6 +430,13 @@ class Router:
                 vias_enabled=norm.vias_allowed and limit != 0,
             )
             connection = None
+            self._report(
+                phase="ROUTING",
+                net=norm.net,
+                connection=len(attempt.connections) + 1,
+                connections_total=attempt.total,
+                message="searching",
+            )
             for _repair in range(MAX_REPAIRS + 1):
                 t_search = time.perf_counter()
                 outcome = self.search_fn(
@@ -479,10 +512,11 @@ class Router:
                 connections_total=attempt.total,
             )
             end_li, end_idx = connection.cells[-1]
-            reached = next(
-                (i for i, gc in enumerate(group_cells) if end_idx in set(gc[end_li].tolist())), 0
-            )
-            connected.append(remaining.pop(reached))
+            hit = cell_to_group[end_li].get(int(end_idx))
+            if hit is None or hit not in remaining_idx:
+                hit = remaining_idx[0]
+            remaining_idx.remove(hit)
+            connected_idx.add(hit)
             for seg in connection.segments:
                 li = grid.layers.index(seg.layer)
                 for p in (seg.start, seg.end):
@@ -591,10 +625,18 @@ class Router:
         return None
 
     # ------------------------------------------------------------ helpers
-    def _cells_of(self, grid: SearchGrid, uids: list[str]) -> list[npt.NDArray[np.int64]]:
+    def _cells_of(
+        self,
+        grid: SearchGrid,
+        uids: list[str],
+        cancel: threading.Event | None = None,
+    ) -> list[npt.NDArray[np.int64]]:
         geo = self.engine.geometry
         per_layer: list[list[npt.NDArray[np.int64]]] = [[] for _ in grid.layers]
-        for uid in uids:
+        for n, uid in enumerate(uids):
+            # Cancel point for pour-heavy groups (thousands of copper objects).
+            if cancel is not None and n % 256 == 0 and cancel.is_set():
+                raise GridCancelled()
             item = geo.copper.get(uid)
             if item is None:
                 continue

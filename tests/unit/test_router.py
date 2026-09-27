@@ -691,3 +691,74 @@ def test_no_escalation_when_already_weighted() -> None:
     )
     assert res.status is RouteStatus.SUCCESS, res.summary()
     assert calls == 1
+
+
+def test_cancel_during_connection_setup_aborts_as_cancelled() -> None:
+    """Stall fix: an in-progress connection setup honours cancel promptly."""
+    import threading
+    import time
+
+    from pcbrouter.routing.request import normalise
+    from pcbrouter.routing.result import RouteResult
+    from pcbrouter.routing.search.grid import compile_grid
+
+    wb = working("router_dense.kicad_pcb")
+    engine = wb.engine
+    request = RouteRequest("S3", candidates=1)
+    norm = normalise(engine, request)
+    grid = compile_grid(
+        engine, norm.net, norm.layers, norm.width, None, request.grid_resolution, None
+    )
+    from pcbrouter.routing.connectivity import net_connectivity
+
+    conn = net_connectivity(engine.geometry, "S3")
+    groups = [list(m) for m in conn.group_members]
+    assert len(groups) >= 2
+    router = Router(engine)
+    result = RouteResult("t-cancel", "S3", RouteStatus.NO_ROUTE)
+    cancel = threading.Event()
+    cancel.set()  # already cancelled when the attempt starts
+    t0 = time.perf_counter()
+    with pytest.raises(Exception) as excinfo:
+        router._attempt(grid, norm, groups, result, cancel)
+    assert time.perf_counter() - t0 < 5, "cancel during setup took too long"
+    assert "GridCancelled" in type(excinfo.value).__name__
+
+
+def test_route_net_maps_setup_cancel_to_cancelled() -> None:
+    """A GridCancelled raised anywhere in routing becomes CANCELLED, not INTERNAL_ERROR."""
+    import threading
+
+    wb = working("router_basic.kicad_pcb")
+    cache: dict = {}
+    warm = Router(wb.engine, grid_cache=cache)
+    assert warm.route_net(RouteRequest("A", candidates=1)).status is RouteStatus.SUCCESS
+    assert cache, "expected the warm-up run to fill the grid cache"
+
+    class FlakyCancel(threading.Event):
+        calls = 0
+
+        def is_set(self) -> bool:
+            FlakyCancel.calls += 1
+            return FlakyCancel.calls > 1
+
+    FlakyCancel.calls = 0
+    # First check (window top) passes on a cached grid; the attempt's own
+    # setup check then fires, exercising the GridCancelled translation.
+    res = Router(wb.engine, grid_cache=cache).route_net(
+        RouteRequest("A", candidates=1), cancel=FlakyCancel()
+    )
+    assert res.status is RouteStatus.CANCELLED, res.summary()
+
+
+def test_connection_setup_reports_progress() -> None:
+    """Stall visibility: locating copper + searching reach the progress sink."""
+    wb = working("router_basic.kicad_pcb")
+    seen: list[dict] = []
+    router = Router(wb.engine)
+    router.progress = seen.append
+    res = router.route_net(RouteRequest("A", candidates=1))
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+    texts = [str(info.get("message", "")) for info in seen]
+    assert any("locating copper" in t for t in texts)
+    assert any("searching" in t for t in texts)
