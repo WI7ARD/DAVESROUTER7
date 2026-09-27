@@ -95,6 +95,12 @@ class RouteMetrics:
     elapsed_s: float = 0.0
     grid_cells: int = 0
     backend: str = "cpu"
+    #: phase split (seconds): grid compile / search / geometry (simplify +
+    #: per-element exact checks) / route-level validation
+    grid_s: float = 0.0
+    search_s: float = 0.0
+    geometry_s: float = 0.0
+    validate_s: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +110,10 @@ class RouteMetrics:
             "elapsed_s": round(self.elapsed_s, 3),
             "grid_cells": self.grid_cells,
             "backend": self.backend,
+            "grid_s": round(self.grid_s, 3),
+            "search_s": round(self.search_s, 3),
+            "geometry_s": round(self.geometry_s, 3),
+            "validate_s": round(self.validate_s, 3),
         }
 
 

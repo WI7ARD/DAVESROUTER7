@@ -10,6 +10,8 @@ from pcbrouter.jobs.protocol import BoardPartial, JobPartial
 from pcbrouter.kicad.loader import load_board
 from pcbrouter.kicad.rule_adapter import load_project_rules
 from pcbrouter.routing.board_router import BoardRouter, BoardRouterSettings, make_plan
+from pcbrouter.routing.request import RouteRequest
+from pcbrouter.routing.router import Router
 from pcbrouter.routing.working_board import WorkingBoard
 
 BOARDS = Path(__file__).parent.parent / "fixtures" / "boards"
@@ -34,6 +36,28 @@ def test_partial_snapshots_stream_routed_copper() -> None:
     assert all(b >= a for a, b in itertools.pairwise(copper)), "snapshots must only grow"
     assert seen[-1].succeeded_nets == result.metrics.nets_completed
     assert seen[-1].completed_nets >= seen[-1].succeeded_nets
+
+
+def test_phase_timings_split_elapsed() -> None:
+    """R1: grid/search/geometry/validate phases are timed and add up."""
+    wb = working("router_basic.kicad_pcb")
+    result = Router(wb.engine).route_net(RouteRequest("A", candidates=1))
+    assert result.best is not None
+    m = result.metrics
+    phases = m.grid_s + m.search_s + m.geometry_s + m.validate_s
+    assert phases > 0
+    assert phases <= m.elapsed_s + 0.05  # timers nest inside the total
+    assert m.search_s > 0 and m.grid_s >= 0
+
+
+def test_board_metrics_absorb_phases() -> None:
+    wb = working("router_basic.kicad_pcb")
+    result = BoardRouter(wb, BoardRouterSettings()).run()
+    m = result.metrics
+    assert m.grid_s + m.search_s + m.geometry_s + m.validate_s > 0
+    assert m.grid_s + m.search_s + m.geometry_s + m.validate_s <= m.runtime_s + 1.0
+    for key in ("grid_s", "search_s", "geometry_s", "validate_s"):
+        assert key in m.to_dict()
 
 
 def test_partial_snapshot_pickles_for_the_worker_boundary() -> None:

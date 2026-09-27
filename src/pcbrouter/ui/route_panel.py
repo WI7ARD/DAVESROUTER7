@@ -69,7 +69,9 @@ def candidate_html(result: RouteResult, cand: RouteCandidate | None) -> str:
     m = result.metrics
     parts.append(
         f"<p style='color:#8a94a3'>{m.expanded_nodes:,} nodes · {m.searches} search(es) · "
-        f"{m.repairs} repair(s) · {m.elapsed_s:.2f} s · backend {escape(m.backend)}</p>"
+        f"{m.repairs} repair(s) · {m.elapsed_s:.2f} s · backend {escape(m.backend)}<br>"
+        f"grid {m.grid_s:.2f} s · search {m.search_s:.2f} s · "
+        f"geometry {m.geometry_s:.2f} s · validate {m.validate_s:.2f} s</p>"
     )
     return "".join(parts)
 

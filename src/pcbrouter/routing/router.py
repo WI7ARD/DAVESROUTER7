@@ -182,6 +182,7 @@ class Router:
             )
             grid = None
             try:
+                t_grid = time.perf_counter()
                 grid = compile_grid(
                     self.engine,
                     norm.net,
@@ -193,6 +194,7 @@ class Router:
                     progress=self._grid_progress(norm.net),
                     cancel=cancel,
                 )
+                result.metrics.grid_s += time.perf_counter() - t_grid
             except GridCancelled:
                 result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
                 result.message = "cancelled by the user"
@@ -243,7 +245,9 @@ class Router:
                 continue
             seen.add(key)
             self._report(phase="VALIDATING", net=norm.net)
+            t_validate = time.perf_counter()
             validation = self.engine.validator.validate_route(proposal)
+            result.metrics.validate_s += time.perf_counter() - t_validate
             label = "Best" if not result.candidates else f"Alternative {len(result.candidates)}"
             cand = RouteCandidate(
                 label,
@@ -325,6 +329,7 @@ class Router:
             )
             connection = None
             for _repair in range(MAX_REPAIRS + 1):
+                t_search = time.perf_counter()
                 outcome = self.search_fn(
                     problem,
                     node_limit=norm.request.node_limit,
@@ -332,6 +337,7 @@ class Router:
                     cancel=cancel,
                     record_explored=self.record_explored,
                 )
+                result.metrics.search_s += time.perf_counter() - t_search
                 result.metrics.expanded_nodes += outcome.expanded
                 result.metrics.searches += 1
                 if outcome.status is not SearchStatus.FOUND:
@@ -340,7 +346,7 @@ class Router:
                         result.explored = {"spec": grid.spec, "cells": outcome.explored,
                                            "layers": grid.layers}  # fmt: skip
                     return attempt
-                connection, bad = self._geometry(grid, norm, outcome)
+                connection, bad = self._geometry_timed(grid, norm, outcome, result)
                 if not bad:
                     break
                 result.metrics.repairs += 1
@@ -381,6 +387,19 @@ class Router:
         return attempt
 
     # ------------------------------------------------------------ geometry
+    def _geometry_timed(
+        self,
+        grid: SearchGrid,
+        norm: NormalisedRequest,
+        outcome: SearchOutcome,
+        result: RouteResult,
+    ) -> tuple[_Connection, list[tuple[int, npt.NDArray[np.int64]]]]:
+        t0 = time.perf_counter()
+        try:
+            return self._geometry(grid, norm, outcome)
+        finally:
+            result.metrics.geometry_s += time.perf_counter() - t0
+
     def _geometry(
         self, grid: SearchGrid, norm: NormalisedRequest, outcome: SearchOutcome
     ) -> tuple[_Connection, list[tuple[int, npt.NDArray[np.int64]]]]:

@@ -77,15 +77,24 @@ def main(argv: list[str]) -> int:
             dt = time.perf_counter() - t0
             best = r.best
             length = best.score.length_nm / 1e6 if best else float("nan")
+            phases = r.metrics.to_dict()
             print(
                 f"{net:<10}{name:<24}{r.status.value:<10}{dt:>8.2f}{length:>11.2f}"
                 f"{best.score.vias if best else '-':>6}"
                 + (f"   speedup x{base / dt:.2f}" if base and dt > 0 else "")
             )
+            print(
+                f"{'':<10}{'grid/search/geometry/validate s:':<24}"
+                f"{phases['grid_s']:>8.2f}{phases['search_s']:>11.2f}"
+                f"{phases['geometry_s']:>6.2f}{phases['validate_s']:>6.2f}"
+                f"   nodes {r.metrics.expanded_nodes:,} repairs {r.metrics.repairs}"
+            )
             base = base or dt
     t0 = time.perf_counter()
     res = BoardRouter(wb, BoardRouterSettings()).run()
-    print(f"board routing (CPU): {res.summary()} [{time.perf_counter() - t0:.1f} s]")
+    board_t = time.perf_counter() - t0
+    print(f"board routing (CPU): {res.summary()} [{board_t:.1f} s]")
+    print(f"board phases s: {res.metrics.to_dict()}")
     if not gpu_ok:
         print(f"GPU benchmark: SKIPPED ({gate.reason or gpu.last_error or 'backend unavailable'})")
     return 0

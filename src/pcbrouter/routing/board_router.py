@@ -184,6 +184,11 @@ class BoardMetrics:
     ripups: int = 0
     reroutes: int = 0
     passes: int = 0
+    #: summed RouteMetrics phase seconds (see RouteMetrics for the split)
+    grid_s: float = 0.0
+    search_s: float = 0.0
+    geometry_s: float = 0.0
+    validate_s: float = 0.0
 
     @property
     def completion(self) -> float:
@@ -202,7 +207,19 @@ class BoardMetrics:
             "ripups": self.ripups,
             "reroutes": self.reroutes,
             "passes": self.passes,
+            "grid_s": round(self.grid_s, 2),
+            "search_s": round(self.search_s, 2),
+            "geometry_s": round(self.geometry_s, 2),
+            "validate_s": round(self.validate_s, 2),
         }
+
+    def absorb(self, metrics: Any) -> None:
+        """Add one net's RouteMetrics phase seconds and node count."""
+        self.expanded_nodes += metrics.expanded_nodes
+        self.grid_s += metrics.grid_s
+        self.search_s += metrics.search_s
+        self.geometry_s += metrics.geometry_s
+        self.validate_s += metrics.validate_s
 
 
 @dataclass
@@ -595,7 +612,7 @@ class BoardRouter:
 
             req = pair_request(fork, req, task.group)
         res = router.route_net(req, cancel=control.cancel_event, penalties=penalties)
-        metrics.expanded_nodes += res.metrics.expanded_nodes
+        metrics.absorb(res.metrics)
         o = outcomes[task.net]
         o.passes = pass_no
         if res.status is RouteStatus.ALREADY_CONNECTED:
@@ -692,7 +709,7 @@ class BoardRouter:
         res = self.router_factory(fork.engine).route_net(
             self._request(task, 3), cancel=control.cancel_event
         )
-        metrics.expanded_nodes += res.metrics.expanded_nodes
+        metrics.absorb(res.metrics)
         if res.best is None or res.status is not RouteStatus.SUCCESS:
             self._rollback(fork, snapshot_len)
             return False
@@ -719,7 +736,7 @@ class BoardRouter:
             sub = self.router_factory(fork.engine).route_net(
                 self._request(other, 3), cancel=control.cancel_event
             )
-            metrics.expanded_nodes += sub.metrics.expanded_nodes
+            metrics.absorb(sub.metrics)
             if sub.best is not None:
                 fork.commit_proposals([sub.best.proposal], f"reroute {net}")
         after_done = self._connected_count(fork, outcomes)
