@@ -56,7 +56,7 @@
 | `provider.py` | `AIProvider` ABC: `provider_id`, `display_name`, `capabilities()`, `async test_connection()`, `async list_models()`, `async generate()`; safe `repr()` |
 | `openai_provider.py` | OpenAI **Responses API** (`responses.create`, `text.format` strict JSON schema, `store=False`) |
 | `anthropic_provider.py` | Anthropic **Messages API** (`messages.create`, `output_config.format` JSON schema when the Models API says the model supports it) |
-| `openai_compatible_provider.py` | Chat Completions for LM Studio/Ollama/vLLM…: optional key, format ladder `json_schema → json_object → prompt` |
+| `openai_compatible_provider.py` | Chat Completions for LM Studio/Ollama/vLLM…: optional key, format ladder `json_schema → json_object → prompt`. Also serves the **Gemini** kind through Google's OpenAI-compatible endpoint (key required) |
 | `_sdk_common.py` | lazy SDK import, credential lookup, SDK-exception → app-exception mapping, schema fallback, client lifecycle |
 | `provider_registry.py` | profile → adapter factory (injectable), package availability |
 | `profiles.py` | `ProviderProfile` (non-secret config: kind, name, model, base URL, timeout, `credential_ref`) |

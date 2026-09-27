@@ -20,6 +20,8 @@ from pcbrouter import APP_SLUG
 class ProviderKind(StrEnum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    #: Google Gemini through its OpenAI-compatible endpoint (needs an API key).
+    GEMINI = "gemini"
     #: Any server speaking the OpenAI Chat Completions protocol: LM Studio, Ollama,
     #: vLLM, llama.cpp server, hosted gateways…
     OPENAI_COMPATIBLE = "openai_compatible"
@@ -29,6 +31,7 @@ class ProviderKind(StrEnum):
         return {
             ProviderKind.OPENAI: "OpenAI",
             ProviderKind.ANTHROPIC: "Anthropic",
+            ProviderKind.GEMINI: "Google Gemini",
             ProviderKind.OPENAI_COMPATIBLE: "OpenAI-compatible / local",
         }[self]
 
@@ -38,6 +41,7 @@ class ProviderKind(StrEnum):
 DEFAULT_BASE_URLS: dict[ProviderKind, str] = {
     ProviderKind.OPENAI: "https://api.openai.com/v1",
     ProviderKind.ANTHROPIC: "https://api.anthropic.com",
+    ProviderKind.GEMINI: "https://generativelanguage.googleapis.com/v1beta/openai",
 }
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")

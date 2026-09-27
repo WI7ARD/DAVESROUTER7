@@ -200,6 +200,19 @@ def test_compatible_profile_without_key(window: MainWindow) -> None:
     dlg.done(SettingsDialog.DialogCode.Rejected)
 
 
+def test_gemini_profile_uses_hosted_default_and_key(window: MainWindow) -> None:
+    dlg = SettingsDialog(
+        window.settings, window.compute, window, ai_controller=window.ai_controller
+    )
+    p = dlg.ai_widget.add_profile(ProviderKind.GEMINI)
+    assert p.name == "Gemini - Main" and p.requires_api_key
+    assert p.base_url is None  # falls back to Google's endpoint
+    assert p.effective_base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert dlg.ai_widget.base_url_edit.isEnabled()
+    assert not dlg.ai_widget.requires_key.isEnabled()  # always required: locked on
+    dlg.done(SettingsDialog.DialogCode.Rejected)
+
+
 # ------------------------------------------------------------------ send states & privacy
 def test_send_button_states(
     qtbot: QtBot, window: MainWindow, fixture_path: Callable[[str], Path]

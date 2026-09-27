@@ -55,6 +55,15 @@ KIND_INFO: dict[ProviderKind, ProviderKindInfo] = {
         None,
         "Any server speaking the OpenAI Chat Completions protocol (LM Studio, Ollama, vLLM…).",
     ),
+    ProviderKind.GEMINI: ProviderKindInfo(
+        ProviderKind.GEMINI,
+        "openai",
+        "openai",
+        False,
+        False,
+        DEFAULT_BASE_URLS[ProviderKind.GEMINI],
+        "Google Gemini through its OpenAI-compatible endpoint (API key required).",
+    ),
 }
 
 

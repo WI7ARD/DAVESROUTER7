@@ -64,6 +64,7 @@ from pcbrouter.ui.ai_panel import STATUS_COLORS
 _DEFAULT_NAMES = {
     ProviderKind.OPENAI: "OpenAI - Main",
     ProviderKind.ANTHROPIC: "Claude - Main",
+    ProviderKind.GEMINI: "Gemini - Main",
     ProviderKind.OPENAI_COMPATIBLE: "Local Engineering Model",
 }
 
@@ -352,7 +353,9 @@ class ProviderSettingsWidget(QWidget):
         self.base_url_edit.setPlaceholderText(
             DEFAULT_BASE_URLS.get(p.kind, "http://localhost:1234/v1")
         )
-        self.base_url_edit.setEnabled(p.kind is ProviderKind.OPENAI_COMPATIBLE)
+        self.base_url_edit.setEnabled(
+            p.kind is ProviderKind.OPENAI_COMPATIBLE or p.kind is ProviderKind.GEMINI
+        )
         for w in (self.org_edit, self.project_edit):
             w.setEnabled(p.kind is ProviderKind.OPENAI)
         self.org_edit.setText(p.organization or "")
@@ -394,8 +397,8 @@ class ProviderSettingsWidget(QWidget):
             return
         try:
             p.name = self.name_edit.text().strip() or p.name
-            if p.kind is ProviderKind.OPENAI_COMPATIBLE:
-                p.base_url = self.base_url_edit.text().strip() or p.base_url
+            if p.kind in (ProviderKind.OPENAI_COMPATIBLE, ProviderKind.GEMINI):
+                p.base_url = self.base_url_edit.text().strip() or None
                 p.requires_api_key = self.requires_key.isChecked()
             if p.kind is ProviderKind.OPENAI:
                 p.organization = self.org_edit.text().strip() or None

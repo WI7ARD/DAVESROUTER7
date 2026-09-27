@@ -40,7 +40,7 @@ Without them the router refuses immediately and says what to set — it never
 invents values. Experts can relax this in Settings (conservative handling OFF,
 with explicit warning) to route with unknowns reported as warnings.
 
-**AI assistant** — OpenAI, Anthropic and OpenAI-compatible endpoints (Ollama,
+**AI assistant** — OpenAI, Anthropic, Google Gemini and OpenAI-compatible endpoints (Ollama,
 LM Studio, …), local-first: Ollama needs no key and nothing leaves the PC.
 Board memory (notes + approved decisions, per board), capability-aware model
 list (size/context/thinking badges), versioned planner strategies with a
@@ -72,7 +72,7 @@ python3.12 -m venv .venv
 # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"      # app + AI SDKs + keyring + test tools
 # or, for a user install:
-pip install -e ".[ai]"       # app + OpenAI/Anthropic SDKs + keyring
+pip install -e ".[ai]"       # app + OpenAI/Anthropic/Gemini SDKs + keyring
 pip install -e .             # app only (AI shows "not installed")
 ```
 
@@ -153,7 +153,7 @@ through the official SDKs against mocks and a local HTTP server.
 ```
   GUI (PySide6)            CLI
        |    \               |
-       |   AI panel ──> AIService ──> AIProvider (OpenAI / Anthropic / compatible)
+       |   AI panel ──> AIService ──> AIProvider (OpenAI / Anthropic / Gemini / compatible)
        |       |            │  context + board memory → prompt → JSON → parser → validator
        |       v            v                  ▲ versioned prompt strategies
        +--> CommandBus  <── proposals (approve / reject / edit)

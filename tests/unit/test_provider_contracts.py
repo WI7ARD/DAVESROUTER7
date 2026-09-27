@@ -119,6 +119,14 @@ KINDS = [
         chat_response,
         "http://localhost:1234/v1",
     ),
+    Kind(
+        "gemini",
+        ProviderKind.GEMINI,
+        OpenAICompatibleProvider,
+        "/chat/completions",
+        chat_response,
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+    ),
 ]
 
 
