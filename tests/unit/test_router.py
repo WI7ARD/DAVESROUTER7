@@ -762,3 +762,53 @@ def test_connection_setup_reports_progress() -> None:
     texts = [str(info.get("message", "")) for info in seen]
     assert any("locating copper" in t for t in texts)
     assert any("searching" in t for t in texts)
+
+
+def _big_pour_shape(wb: WorkingBoard) -> object:
+    """A many-vertex pour shape from the fixture board under the test's board."""
+    for item in wb.engine.geometry.copper.values():
+        for s in item.shapes:
+            core = s.core
+            polygon = getattr(core, "polygon", None)
+            if polygon is not None and polygon.edge_count > 64:
+                return s
+    raise AssertionError("no big pour shape found")
+
+
+def test_cells_within_band_path_matches_slow_path(tmp_path: Path) -> None:
+    """1.0-B: big pours rasterise via the band path with identical cells."""
+    import pcbrouter.routing.search.grid as grid_module
+    from pcbrouter.routing.search.grid import compile_grid
+
+    path = _pour_board(tmp_path, 2000, box=(14, 0.5, 29.5, 19.5))
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    grid = compile_grid(wb.engine, "C", ("B.Cu",), MM(0.25), None, MM(0.1), None)
+    shape = _big_pour_shape(wb)
+    band = set(grid.cells_within(shape, MM(0.3)).tolist())
+    assert len(band) > 1000, "pour should cover many cells"
+    monkeypatch_threshold = grid_module.FAST_POLYGON_EDGES
+    grid_module.FAST_POLYGON_EDGES = 10**9  # force the slow distance-field path
+    try:
+        slow = set(grid.cells_within(shape, MM(0.3)).tolist())
+    finally:
+        grid_module.FAST_POLYGON_EDGES = monkeypatch_threshold
+    assert band == slow
+
+
+def test_cells_within_band_path_honours_cancel(tmp_path: Path) -> None:
+    """1.0-B: cancel lands inside big-pour rasterisation, not after it."""
+    import threading
+
+    from pcbrouter.routing.search.grid import GridCancelled, compile_grid
+
+    path = _pour_board(tmp_path, 2000, box=(14, 0.5, 29.5, 19.5))
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    grid = compile_grid(wb.engine, "C", ("B.Cu",), MM(0.25), None, MM(0.1), None)
+    shape = _big_pour_shape(wb)
+    cancel = threading.Event()
+    cancel.set()
+    try:
+        grid.cells_within(shape, MM(0.3), cancel)
+    except GridCancelled:
+        return
+    raise AssertionError("pre-cancelled cells_within did not raise")

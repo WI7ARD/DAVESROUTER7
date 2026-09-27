@@ -14,6 +14,7 @@ swap in an array library with the same API.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -24,6 +25,10 @@ from pcbrouter.geometry.polygon import Polygon
 
 type FloatGrid = npt.NDArray[np.float64]
 type BoolGrid = npt.NDArray[np.bool_]
+
+
+class CancelledError(Exception):
+    """A raster loop was cancelled via its ``cancel`` predicate."""
 
 
 def centers(origin: int, cell: int, count: int) -> FloatGrid:
@@ -58,7 +63,12 @@ def polygon_inside(xs: FloatGrid, ys: FloatGrid, poly: Polygon) -> BoolGrid:
 FAST_POLYGON_EDGES = 64
 
 
-def polygon_inside_grid(xc: FloatGrid, yc: FloatGrid, poly: Polygon) -> BoolGrid:
+def polygon_inside_grid(
+    xc: FloatGrid,
+    yc: FloatGrid,
+    poly: Polygon,
+    cancel: Callable[[], bool] | None = None,
+) -> BoolGrid:
     """``polygon_inside`` for a regular grid (``xc`` columns, ``yc`` rows), computed
     per row: O(rows × edges) instead of O(rows × cols × edges). Same even-odd rule
     and the same float expression, so the result is identical cell for cell."""
@@ -69,6 +79,8 @@ def polygon_inside_grid(xc: FloatGrid, yc: FloatGrid, poly: Polygon) -> BoolGrid
     ax, ay, bx, by = ax[keep], ay[keep], bx[keep], by[keep]
     out = np.zeros((len(yc), len(xc)), dtype=np.bool_)
     for r, y in enumerate(yc):
+        if cancel is not None and r % 64 == 0 and cancel():
+            raise CancelledError()
         c = (ay > y) != (by > y)
         if not c.any():
             continue
@@ -80,16 +92,23 @@ def polygon_inside_grid(xc: FloatGrid, yc: FloatGrid, poly: Polygon) -> BoolGrid
 
 
 def polygon_near_mask(
-    xc: FloatGrid, yc: FloatGrid, poly: Polygon, radius: float, reach: float
+    xc: FloatGrid,
+    yc: FloatGrid,
+    poly: Polygon,
+    radius: float,
+    reach: float,
+    cancel: Callable[[], bool] | None = None,
 ) -> BoolGrid:
     """Cells whose centre is inside ``poly`` or within ``reach`` of it when grown by
     ``radius`` — i.e. ``distance_field(...) - radius <= reach`` — without a
     full-window distance field per edge: each edge is evaluated only in its own
     small neighbourhood. Identical result, far less work for big polygons (zone
     fills with thousands of vertices)."""
-    mask = polygon_inside_grid(xc, yc, poly)
+    mask = polygon_inside_grid(xc, yc, poly, cancel)
     grow = math.ceil(reach + radius) + 1
-    for a, b in poly.edges():
+    for i, (a, b) in enumerate(poly.edges()):
+        if cancel is not None and i % 512 == 0 and cancel():
+            raise CancelledError()
         x0, x1 = min(a.x, b.x) - grow, max(a.x, b.x) + grow
         y0, y1 = min(a.y, b.y) - grow, max(a.y, b.y) + grow
         c0, c1 = np.searchsorted(xc, x0, "left"), np.searchsorted(xc, x1, "right")

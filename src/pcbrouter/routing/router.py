@@ -644,7 +644,7 @@ class Router:
                 if layer not in item.layers:
                     continue
                 for s in item.shapes:
-                    cells = grid.cells_within(s, 0.0)
+                    cells = grid.cells_within(s, 0.0, cancel)
                     if cells.size == 0:
                         idx = grid.index_of(item.bounds.center)
                         if idx is not None:

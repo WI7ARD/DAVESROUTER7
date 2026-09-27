@@ -29,7 +29,14 @@ import numpy.typing as npt
 from pcbrouter.board_engine import BoardEngine
 from pcbrouter.domain.geometry import BoundingBox, Point
 from pcbrouter.domain.units import Nm
-from pcbrouter.geometry.raster import centers, distance_field
+from pcbrouter.geometry.distance import PolygonCore
+from pcbrouter.geometry.raster import (
+    FAST_POLYGON_EDGES,
+    CancelledError,
+    centers,
+    distance_field,
+    polygon_near_mask,
+)
 from pcbrouter.geometry.shapes import Shape
 from pcbrouter.routing.occupancy import CellState, GridSpec
 from pcbrouter.rules.model import ItemType
@@ -75,8 +82,14 @@ class SearchGrid:
     def center(self, idx: int) -> Point:
         return self.spec.cell_center(idx // self.nx, idx % self.nx)
 
-    def cells_within(self, shape: Shape, reach: float = 0.0) -> npt.NDArray[np.int64]:
-        """Flat indices of cells whose centre lies within ``reach`` of the shape."""
+    def cells_within(
+        self, shape: Shape, reach: float = 0.0, cancel: threading.Event | None = None
+    ) -> npt.NDArray[np.int64]:
+        """Flat indices of cells whose centre lies within ``reach`` of the shape.
+
+        Big polygons take the band path (same cells, no per-edge full-window
+        field); ``cancel`` is honoured between row bands.
+        """
         s = self.spec
         box = shape.bounds.expanded(math.ceil(reach))
         c0 = max(0, (box.min_x - s.origin_x) // s.cell)
@@ -85,6 +98,25 @@ class SearchGrid:
         r1 = min(s.ny, (box.max_y - s.origin_y) // s.cell + 1)
         if c0 >= c1 or r0 >= r1:
             return np.zeros(0, dtype=np.int64)
+        core = shape.core
+        if isinstance(core, PolygonCore) and core.polygon.edge_count > FAST_POLYGON_EDGES:
+            xc = centers(s.origin_x + c0 * s.cell, s.cell, c1 - c0)
+            yc = centers(s.origin_y + r0 * s.cell, s.cell, r1 - r0)
+            try:
+                mask = polygon_near_mask(
+                    xc,
+                    yc,
+                    core.polygon,
+                    float(shape.radius),
+                    float(reach),
+                    cancel=(lambda: cancel.is_set()) if cancel is not None else None,
+                )
+            except CancelledError:
+                raise GridCancelled() from None
+            if cancel is not None and cancel.is_set():
+                raise GridCancelled()
+            rows, cols = np.nonzero(mask)
+            return ((rows + r0) * s.nx + (cols + c0)).astype(np.int64)
         xs = centers(s.origin_x + c0 * s.cell, s.cell, c1 - c0)
         ys = centers(s.origin_y + r0 * s.cell, s.cell, r1 - r0)
         gx, gy = np.meshgrid(xs, ys)
