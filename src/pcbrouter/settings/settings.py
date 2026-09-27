@@ -133,6 +133,9 @@ class RoutingSettings(_Model):
     enabled: bool = True
     candidates: int = Field(default=3, ge=1, le=5)
     time_limit_s: float = Field(default=30.0, ge=1.0, le=600.0)
+    #: R7 Speed/Accuracy toggle (Route panel): speed uses coarser grids,
+    #: weighted search and a single pass; accuracy is full behaviour.
+    route_mode: Literal["accuracy", "speed"] = "accuracy"
     strategy: Literal[
         "critical_first", "most_constrained", "shortest_first", "fewest_escapes",
         "congestion_aware",

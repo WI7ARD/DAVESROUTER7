@@ -11,6 +11,7 @@ from html import escape
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -81,6 +82,7 @@ class RoutePanel(QWidget):
     rejectRequested = Signal()
     candidateChanged = Signal(object)  # RouteCandidate | None
     cancelRequested = Signal()
+    modeChanged = Signal(str)  # R7 Speed/Accuracy toggle ("accuracy" | "speed")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -90,6 +92,15 @@ class RoutePanel(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancelRequested)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Accuracy", "accuracy")
+        self.mode_combo.addItem("Speed", "speed")
+        self.mode_combo.setToolTip(
+            "Accuracy: full-resolution grid, optimal search, full passes and rip-up.\n"
+            "Speed: coarser grid (≥ 0.2 mm), weighted search (≤ 1.5x optimal cost), "
+            "single candidates, one pass, no rip-up."
+        )
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self._on_row)
         self.view = QTextBrowser()
@@ -102,6 +113,8 @@ class RoutePanel(QWidget):
         self.alt_button.clicked.connect(self.next_alternative)
         top = QHBoxLayout()
         top.addWidget(self.status, 1)
+        top.addWidget(QLabel("Mode:"))
+        top.addWidget(self.mode_combo)
         top.addWidget(self.cancel_button)
         buttons = QHBoxLayout()
         for b in (self.accept_button, self.reject_button, self.alt_button):
@@ -122,6 +135,16 @@ class RoutePanel(QWidget):
         if 0 <= row < len(self.result.candidates):
             return self.result.candidates[row]
         return None
+
+    def set_mode(self, mode: str) -> None:
+        """Show the persisted mode without emitting (controller owns state)."""
+        idx = self.mode_combo.findData(mode)
+        self.mode_combo.blockSignals(True)
+        self.mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.mode_combo.blockSignals(False)
+
+    def _on_mode_changed(self) -> None:
+        self.modeChanged.emit(str(self.mode_combo.currentData()))
 
     def set_running(self, text: str) -> None:
         self.status.setText(text)

@@ -36,6 +36,7 @@ from pcbrouter.routing.board_router import (
     BoardRoutingControl,
     BoardRoutingResult,
 )
+from pcbrouter.routing.presets import RouteMode
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteCandidate, RouteResult
 from pcbrouter.routing.working_board import Commit, WorkingBoard
@@ -149,6 +150,8 @@ class RoutingController(QObject):
         self.panel.rejectRequested.connect(self.reject)
         self.panel.candidateChanged.connect(self._preview)
         self.panel.cancelRequested.connect(self.cancel)
+        self.panel.set_mode(str(self.w.settings.routing.route_mode))
+        self.panel.modeChanged.connect(self._set_route_mode)
         #: latest live board snapshot (preview overlay + cancel keeps it)
         self.last_partial: Any = None
         self.route_jobs.partial.connect(self._on_board_partial)
@@ -205,6 +208,19 @@ class RoutingController(QObject):
     def _mode(self) -> str:
         return str(self.search_mode().value)
 
+    def route_mode(self) -> RouteMode:
+        """R7 Speed/Accuracy toggle state (persisted in routing settings)."""
+        try:
+            return RouteMode(str(self.w.settings.routing.route_mode))
+        except ValueError:
+            return RouteMode.ACCURACY
+
+    def _set_route_mode(self, mode: str) -> None:
+        self.w.settings.routing.route_mode = RouteMode(mode).value
+        self.w.save_settings()
+        self.panel.set_mode(mode)
+        self.w.statusBar().showMessage(f"Routing mode: {RouteMode(mode).label}.", 5000)
+
     def _submit(self, job: Any, handler: Any) -> bool:
         """Submit to the worker; the handler runs on the GUI thread when the result
         arrives, and only if the same board is still open."""
@@ -249,6 +265,7 @@ class RoutingController(QObject):
     def request_for(self, net: str) -> RouteRequest:
         """A request built from the user's routing settings (rules still decide values)."""
         from pcbrouter.domain.units import mm_to_internal
+        from pcbrouter.routing.presets import adjust_request
         from pcbrouter.routing.request import with_user_constraints
 
         st = self.w.settings
@@ -260,9 +277,12 @@ class RoutingController(QObject):
         )
         wb = self.project.working
         if wb is None:
-            return req
-        return with_user_constraints(
-            req, wb.net_constraints.get(net), wb.locked_regions, wb.corridors
+            return adjust_request(req, self.route_mode())
+        return adjust_request(
+            with_user_constraints(
+                req, wb.net_constraints.get(net), wb.locked_regions, wb.corridors
+            ),
+            self.route_mode(),
         )
 
     def search_mode(self) -> Any:
@@ -274,14 +294,19 @@ class RoutingController(QObject):
         from dataclasses import replace
 
         from pcbrouter.routing.board_router import Strategy
+        from pcbrouter.routing.presets import adjust_board_settings
 
         st = self.w.settings.routing
         base = replace(self.request_for(""), candidates=1)
-        return BoardRouterSettings(
-            strategy=Strategy(st.strategy),
-            max_passes=st.max_passes,
-            allow_ripup=st.allow_ripup,
-            base_request=base,
+        return adjust_board_settings(
+            BoardRouterSettings(
+                strategy=Strategy(st.strategy),
+                max_passes=st.max_passes,
+                allow_ripup=st.allow_ripup,
+                base_request=base,
+            ),
+            base,
+            self.route_mode(),
         )
 
     def route_net(self, request: RouteRequest, remove_ids: tuple[str, ...] = ()) -> bool:

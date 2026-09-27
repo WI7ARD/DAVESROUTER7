@@ -44,6 +44,33 @@ def wait(w: MainWindow, timeout_s: float = 60.0) -> None:
     QCoreApplication.processEvents()
 
 
+def test_route_mode_toggle_changes_requests_and_board_settings(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    """R7: the Route panel toggle drives single-net and board presets."""
+    from pcbrouter.routing.presets import RouteMode
+
+    assert window.open_board(fixture_path("router_basic.kicad_pcb"))
+    wait(window)
+    ui = window.routing_ui
+    assert ui.route_mode() is RouteMode.ACCURACY
+    assert ui.panel.mode_combo.currentData() == "accuracy"
+    ui.panel.mode_combo.setCurrentIndex(ui.panel.mode_combo.findData("speed"))
+    assert window.settings.routing.route_mode == "speed"
+    assert ui.route_mode() is RouteMode.SPEED
+    req = ui.request_for("A")
+    assert req.heuristic_weight == 1.5
+    assert req.grid_resolution >= 200_000
+    assert req.candidates == 1
+    board = ui.board_settings()
+    assert board.max_passes == 1 and board.allow_ripup is False
+    assert board.base_request.heuristic_weight == 1.5
+    ui.panel.mode_combo.setCurrentIndex(ui.panel.mode_combo.findData("accuracy"))
+    assert ui.route_mode() is RouteMode.ACCURACY
+    assert ui.request_for("A").heuristic_weight == 1.0
+    assert ui.board_settings().allow_ripup is True
+
+
 def test_route_preview_accept_undo(window: MainWindow, fixture_path: Callable[[str], Path]) -> None:
     path = fixture_path("router_basic.kicad_pcb")
     before = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -174,8 +201,11 @@ def test_gpu_selected_without_device_is_skipped_in_app(
     window: MainWindow, fixture_path: Callable[[str], Path]
 ) -> None:
     from pcbrouter.compute import probe
+    from pcbrouter.compute.detection import detect_gpu
     from pcbrouter.settings.settings import ComputeBackendChoice
 
+    if detect_gpu().array_module is not None:
+        pytest.skip("a real GPU is usable here; the no-device fallback is CI-only")
     window.gpu_probe = probe.GpuProbe(False, None, (), "no CUDA or oneAPI GPU device found")
     window.settings.default_compute_backend = ComputeBackendChoice.GPU
     assert window.open_board(fixture_path("router_basic.kicad_pcb"))
