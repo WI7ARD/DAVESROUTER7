@@ -101,6 +101,24 @@ def test_selection_rules() -> None:
     assert no_mem.used["gpu"] == 0  # VRAM guard
 
 
+def test_auto_threshold_is_per_library() -> None:
+    """R6: dpnp (measured slow) and CUDA use different AUTO cutoffs."""
+    from types import SimpleNamespace
+
+    from pcbrouter.routing.backend import (
+        AUTO_MIN_CELLS_CUDA,
+        AUTO_MIN_CELLS_ONEAPI,
+        auto_min_cells,
+    )
+
+    assert AUTO_MIN_CELLS_CUDA > 0 and AUTO_MIN_CELLS_ONEAPI > 0
+    dpnp = SimpleNamespace(detection=SimpleNamespace(array_module="dpnp"))
+    cupy = SimpleNamespace(detection=SimpleNamespace(array_module="cupy"))
+    assert auto_min_cells(dpnp) == AUTO_MIN_CELLS_ONEAPI
+    assert auto_min_cells(cupy) == AUTO_MIN_CELLS_CUDA
+    assert auto_min_cells(object()) == AUTO_MIN_CELLS_CUDA  # unknown: conservative
+
+
 def test_app_works_without_cuda() -> None:
     mgr = ComputeManager(gpu_detection=GpuDetectionResult(GpuStatus.CUDA_UNAVAILABLE))
     wb = working("router_basic.kicad_pcb")

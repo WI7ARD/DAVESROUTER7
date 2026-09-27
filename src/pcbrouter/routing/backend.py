@@ -5,8 +5,9 @@
   (NVIDIA) or dpnp (Intel oneAPI) when the GPU backend initialised, the grid fits
   in device memory and the request has no via limit (the wavefront has no via
   dimension); otherwise that search runs on the CPU.
-* **AUTO** — the GPU only for grids of at least ``AUTO_MIN_CELLS`` cells (small
-  problems are faster on the CPU once transfer and launch overheads count).
+* **AUTO** — the GPU only for grids of at least the per-library threshold
+  below (small problems are faster on the CPU once transfer and launch
+  overheads count).
 
 Any GPU error falls back to the CPU A* for that search and is logged; the job
 continues. Whatever produced the path, the route then goes through the same
@@ -33,7 +34,24 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-AUTO_MIN_CELLS = 2_000_000
+#: AUTO thresholds in cells x layers, per GPU array library.
+#: dpnp (Intel integrated) measured on i5-1235U + Iris Xe, R6 bench: the
+#: wavefront never beats the CPU A* there (17x-236x slower from 16k to 240k
+#: cells/layer, gap widening with size), so AUTO effectively stays on the CPU;
+#: explicit GPU mode still works. CUDA is unmeasured on real NVIDIA hardware
+#: here, so it keeps the conservative historical value.
+AUTO_MIN_CELLS_CUDA = 2_000_000
+AUTO_MIN_CELLS_ONEAPI = 50_000_000
+#: legacy alias (CUDA default)
+AUTO_MIN_CELLS = AUTO_MIN_CELLS_CUDA
+
+
+def auto_min_cells(gpu: Any) -> int:
+    """Per-library AUTO threshold for ``gpu`` (unknown libraries: CUDA value)."""
+    module = getattr(getattr(gpu, "detection", None), "array_module", None)
+    if module == "dpnp":
+        return AUTO_MIN_CELLS_ONEAPI
+    return AUTO_MIN_CELLS_CUDA
 
 
 class SearchMode(Enum):
@@ -75,7 +93,7 @@ class HybridSearch:
             return "via limit requires the CPU A*"
         cells = problem.grid.n
         layers = len(problem.grid.layers)
-        if self.mode is SearchMode.AUTO and cells * layers < AUTO_MIN_CELLS:
+        if self.mode is SearchMode.AUTO and cells * layers < auto_min_cells(gpu):
             return f"problem too small for the GPU ({cells * layers:,} cells)"
         ok, why = gpu.fits(cells, layers)
         if not ok:
