@@ -3,7 +3,7 @@
 A desktop PCB engineering application for **KiCad** boards, built toward
 deterministic, AI-assisted autorouting.
 
-**Current version: `0.9.0-stage9` — Stage 9: full-board routing, validated
+**Current version: `0.9.1-stage9` — Stage 9: full-board routing, validated
 commit/undo and export (CPU/GPU + Freerouting).**
 
 > **The AI model is a planner, not the router.** It can analyse a board and
