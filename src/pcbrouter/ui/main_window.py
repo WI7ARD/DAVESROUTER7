@@ -47,6 +47,7 @@ from pcbrouter.ui.geometry_controller import GeometryController
 from pcbrouter.ui.inspector_panel import InspectorPanel
 from pcbrouter.ui.layers_panel import LayersPanel
 from pcbrouter.ui.log_panel import LogPanel
+from pcbrouter.ui.manual_draw import ManualDrawController
 from pcbrouter.ui.nets_panel import NetsPanel
 from pcbrouter.ui.pcb_canvas import ItemKind, PcbCanvas
 from pcbrouter.ui.project_panel import ProjectPanel
@@ -164,6 +165,9 @@ class MainWindow(QMainWindow):
         # Stage 8: workbench (view modes, locks, constraints, reroute, inspector, debug).
         self.workbench = WorkbenchController(self)
         self.workbench.install(self.menu_view, self.menu_router, self.menu_edit)
+        # Stage 10: manual trace/via drawing (validated commits, undoable).
+        self.manual_draw = ManualDrawController(self)
+        self.manual_draw.install(self.menu_edit, self.toolbar_main)
         # Stage 9: export, sessions, crash recovery, diagnostic bundle.
         self.export_ui = ExportController(self)
         self.export_ui.install(self.menu_file, self.menu_help, self.act_settings)

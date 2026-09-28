@@ -139,6 +139,12 @@ class PcbCanvas(QGraphicsView):
     selectionCleared = Signal()
     cursorMoved = Signal(float, float)  # scene position in mm
     zoomChanged = Signal(float)  # pixels per mm
+    #: Manual draw tool: left-click / cursor position in mm while draw mode is on.
+    drawClicked = Signal(float, float)
+    drawMoved = Signal(float, float)
+    drawFinished = Signal()
+    drawViaRequested = Signal()
+    drawCancelled = Signal()
     #: Emitted before every scene is cleared: owners of extra scene items (overlays)
     #: must drop their references, because ``QGraphicsScene.clear`` deletes them.
     aboutToClear = Signal()
@@ -191,6 +197,7 @@ class PcbCanvas(QGraphicsView):
         self._hover_key: tuple[ItemKind, str] | None = None
         self._generated: set[str] = set()
         self._view_mode = "working"
+        self._draw_mode = False
 
     # ================================================================ public API
     @property
@@ -220,6 +227,15 @@ class PcbCanvas(QGraphicsView):
     @property
     def highlighted_net(self) -> str | None:
         return self._highlight_net
+
+    @property
+    def draw_mode(self) -> bool:
+        """Whether left-clicks draw (manual trace tool) instead of selecting."""
+        return self._draw_mode
+
+    def set_draw_mode(self, on: bool) -> None:
+        self._draw_mode = on
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor if on else Qt.CursorShape.ArrowCursor)
 
     def records_for(self, kind: ItemKind, obj_id: str) -> list[QGraphicsItem]:
         return [r.item for r in self._by_id.get((kind, obj_id), [])]
@@ -367,6 +383,11 @@ class PcbCanvas(QGraphicsView):
     @property
     def grid_visible(self) -> bool:
         return self._grid_visible
+
+    @property
+    def grid_spacing_mm(self) -> float:
+        """Current grid spacing in mm (used for manual-draw snapping)."""
+        return self._grid_spacing_mm
 
     def set_layer_visible(self, layer: str, visible: bool) -> None:
         if layer in self._layer_visible:
@@ -786,6 +807,11 @@ class PcbCanvas(QGraphicsView):
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
+        if button == Qt.MouseButton.LeftButton and self._draw_mode:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            self.drawClicked.emit(scene_pos.x(), scene_pos.y())
+            event.accept()
+            return
         if button == Qt.MouseButton.LeftButton:
             rec = self._pick(event.position())
             if rec is None:
@@ -810,6 +836,8 @@ class PcbCanvas(QGraphicsView):
             return
         scene_pos = self.mapToScene(pos.toPoint())
         self.cursorMoved.emit(scene_pos.x(), scene_pos.y())
+        if self._draw_mode:
+            self.drawMoved.emit(scene_pos.x(), scene_pos.y())
         rec = self._pick(pos)
         key = (rec.kind, rec.obj_id) if rec is not None else None
         if key != self._hover_key:
@@ -842,7 +870,28 @@ class PcbCanvas(QGraphicsView):
         self._hover_overlay.setPath(QPainterPath())
         super().leaveEvent(event)
 
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if self._draw_mode and event.button() == Qt.MouseButton.LeftButton:
+            self.drawFinished.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._draw_mode and not event.isAutoRepeat():
+            key = event.key()
+            if key == Qt.Key.Key_Escape:
+                self.drawCancelled.emit()
+                event.accept()
+                return
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.drawFinished.emit()
+                event.accept()
+                return
+            if key == Qt.Key.Key_V:
+                self.drawViaRequested.emit()
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space_down = True
             self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)

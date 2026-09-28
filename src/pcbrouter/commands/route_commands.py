@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pcbrouter.commands.base import BaseCommand, CommandContext, CommandResult
+from pcbrouter.domain.track import Track
+from pcbrouter.domain.via import Via
 from pcbrouter.history.history import UndoableAction
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteCandidate
@@ -118,6 +120,45 @@ class AcceptRouteCommand(BaseCommand):
 
     def describe(self) -> str:
         return f"accept route {self.candidate.proposal.net}"
+
+
+@dataclass
+class CommitManualCopperCommand(BaseCommand):
+    """Commit hand-drawn tracks/vias (manual draw tool) as one undoable commit.
+
+    The commit is validated against the current working-board state exactly
+    like router copper: illegal geometry is refused, never forced.
+    """
+
+    net: str
+    tracks: tuple[Track, ...]
+    vias: tuple[Via, ...]
+    label: str = ""
+    name: ClassVar[str] = "commit_manual_copper"
+
+    def execute(self, ctx: CommandContext) -> CommandResult:
+        working = _working(ctx)
+        if working is None:
+            return CommandResult.fail("Open a board first.")
+        if not self.tracks and not self.vias:
+            return CommandResult.fail("Nothing to commit: draw at least one segment.")
+        label = self.label or f"Manual trace: {self.net}"
+        try:
+            commit = working.commit_objects(
+                self.tracks,
+                self.vias,
+                (),
+                label,
+                Provenance.USER_ACCEPTED,
+                metadata={"source": "manual"},
+            )
+        except CommitError as exc:
+            return CommandResult.fail(str(exc))
+        ctx.history.push(WorkingUndoAction(working, commit), already_applied=True)
+        return CommandResult.ok(f"{label} ({commit.diff_summary()})", commit)
+
+    def describe(self) -> str:
+        return f"manual trace {self.net}"
 
 
 @dataclass
