@@ -29,7 +29,7 @@ from PySide6.QtWidgets import QDialog, QFileDialog, QLabel, QMenu, QToolBar
 from pcbrouter.board_engine import BoardEngine
 from pcbrouter.domain.units import internal_to_mm
 from pcbrouter.drc.result import CHECK_NAME, DRCResult
-from pcbrouter.drc.violation import DRCViolation
+from pcbrouter.drc.violation import ERC_KINDS, DRCViolation
 from pcbrouter.geometry.board import ItemKind as GeoKind
 from pcbrouter.geometry.extract import clearance_envelope
 from pcbrouter.geometry.shapes import Shape
@@ -88,6 +88,7 @@ class GeometryController(QObject):
         self.last_occupancy: OccupancyMap | None = None
         self.last_congestion: CongestionMap | None = None
         self.last_candidate: tuple[RouteProposal, CollisionResult] | None = None
+        self._last_drc: DRCResult | None = None
         self._build_actions()
         self._build_status_labels()
         self.drc_panel.runRequested.connect(self.run_geometry_check)
@@ -150,6 +151,12 @@ class GeometryController(QObject):
             "Clear Engineering Overlays", self.clear_overlays,
             "Remove all Stage 3 overlays from the canvas",
         )  # fmt: skip
+        self.act_erc = self._act(
+            "ERC Markers", self.set_erc_visible,
+            "Electrical markers layer: airwires, single-pin nets, floating copper",
+            checkable=True,
+        )  # fmt: skip
+        self.act_erc.setChecked(True)
         self.act_diagnostics = self._act(
             "&Geometry Diagnostics…", self.show_diagnostics,
             "Engine versions, object counts, index and rule status (for bug reports)",
@@ -191,6 +198,7 @@ class GeometryController(QObject):
         view.addSeparator()
         view.addAction(self.act_routing_grid)
         view.addAction(self.act_envelope)
+        view.addAction(self.act_erc)
         debug = view.addMenu("&Debug Overlays")
         for act in self.debug_actions.values():
             debug.addAction(act)
@@ -249,6 +257,7 @@ class GeometryController(QObject):
         self.last_occupancy = None
         self.last_congestion = None
         self.last_candidate = None
+        self._last_drc = None
         for dlg in (self._segment_dialog, self._via_dialog):
             if dlg is not None:
                 dlg.close()
@@ -443,6 +452,31 @@ class GeometryController(QObject):
         shapes = {uid: self._shapes_for(uid) for uid in uids}
         located = [v for v in result.violations if v.severity.value != "info" or v.location]
         self.overlays.set_group("drc", overlays.violation_items(located, shapes))
+        self._last_drc = result
+        if self.act_erc.isChecked():
+            self._draw_erc(result)
+        else:
+            self.overlays.clear("erc")
+
+    def _draw_erc(self, result: DRCResult) -> None:
+        """Electrical-only marker layer (airwires, single-pin nets, islands)."""
+        uids = {
+            u
+            for v in result.violations
+            if v.kind in ERC_KINDS
+            for u in (v.object_a, v.object_b)
+            if u
+        }
+        shapes = {uid: self._shapes_for(uid) for uid in uids}
+        electrical = [v for v in result.violations if v.kind in ERC_KINDS]
+        self.overlays.set_group("erc", overlays.violation_items(electrical, shapes))
+
+    def set_erc_visible(self, on: bool) -> None:
+        """Toggle the ERC marker layer (redrawn from the last check result)."""
+        if on and self._last_drc is not None:
+            self._draw_erc(self._last_drc)
+        else:
+            self.overlays.clear("erc")
 
     def locate_violation(self, v: DRCViolation) -> None:
         """Zoom to a violation and highlight the objects involved."""
@@ -722,7 +756,7 @@ class GeometryController(QObject):
 
     def clear_overlays(self) -> None:
         self.overlays.clear_all()
-        for act in [self.act_envelope, *self.debug_actions.values()]:
+        for act in [self.act_envelope, self.act_erc, *self.debug_actions.values()]:
             act.blockSignals(True)
             act.setChecked(False)
             act.blockSignals(False)

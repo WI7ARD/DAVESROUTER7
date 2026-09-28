@@ -89,6 +89,29 @@ def test_internal_geometry_check_panel(
     assert _sha(path) == before
 
 
+def test_erc_marker_layer_toggle(window: MainWindow, fixture_path: Callable[[str], Path]) -> None:
+    """Electrical violations get their own toggleable marker layer."""
+    from pcbrouter.drc.violation import ERC_KINDS
+
+    open_ready(window, fixture_path("stage3_rules.kicad_pcb"))
+    ui = window.engine_ui
+    assert ui.act_erc.isChecked()  # ERC markers on by default
+    ui.run_geometry_check()
+    assert ui.wait_until_ready()
+    result = ui.drc_panel.result
+    assert result is not None
+    assert ui.overlays.has("erc")
+    erc = [v for v in result.violations if v.kind in ERC_KINDS]
+    assert erc, "expected airwire/single-pin/island markers on this fixture"
+    assert all(v.location is not None for v in erc)
+    assert ui._last_drc is result
+    ui.act_erc.setChecked(False)
+    assert not ui.overlays.has("erc")
+    assert ui.overlays.has("drc")  # geometry layer untouched
+    ui.act_erc.setChecked(True)
+    assert ui.overlays.has("erc")
+
+
 def test_rules_inspector_shows_sources(
     window: MainWindow, fixture_path: Callable[[str], Path]
 ) -> None:

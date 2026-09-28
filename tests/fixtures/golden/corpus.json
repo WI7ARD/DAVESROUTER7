@@ -22,7 +22,7 @@
  "four_layer.kicad_pcb": {
   "components": 4,
   "drc_errors": 0,
-  "drc_warnings": 6,
+  "drc_warnings": 7,
   "fingerprint": "f68a3b8ef260532e79a2c5536ce7da583215e4f14cf3ef32baec90f0f747aa8c",
   "nets_connected": 0,
   "pads": 10,
@@ -82,7 +82,7 @@
  "stage3_rules.kicad_pcb": {
   "components": 6,
   "drc_errors": 6,
-  "drc_warnings": 0,
+  "drc_warnings": 6,
   "fingerprint": "f7fb5f579db4bed59ff4a5a7b684d4c332397023b304fcb0e15d066fd67e2a5d",
   "nets_connected": 2,
   "pads": 14,
@@ -122,7 +122,7 @@
  "vias.kicad_pcb": {
   "components": 2,
   "drc_errors": 0,
-  "drc_warnings": 5,
+  "drc_warnings": 6,
   "fingerprint": "77f1f0af33a2f5c53023a5cbb1c5e1e57e5107f0612ba9e0d7a254aa4b602a80",
   "nets_connected": 1,
   "pads": 4,

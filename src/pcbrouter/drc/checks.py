@@ -573,6 +573,50 @@ def check_unconnected(ctx: CheckContext) -> None:
         )
 
 
+def check_erc(ctx: CheckContext) -> None:
+    """Electrical markers: single-pin nets and floating copper islands.
+
+    Single-pin nets have nothing to connect (informational); copper islands
+    with no pad are dead copper (warning). Locations default to the item's
+    bounds centre so the ERC layer can mark them.
+    """
+    if ctx.connectivity is None:
+        return
+    for net in sorted(ctx.connectivity.nets):
+        info = ctx.connectivity.nets[net]
+        ctx.checks += 1
+        if len(info.pad_uids) == 1:
+            pad = ctx.geo.copper.get(info.pad_uids[0])
+            if pad is not None:
+                _emit_item(
+                    ctx,
+                    ViolationKind.SINGLE_PIN_NET,
+                    pad,
+                    None,
+                    None,
+                    None,
+                    "single-pin net: nothing to connect",
+                    severity=Severity.INFO,
+                )
+        for island in info.islands:
+            members = sorted(island)
+            if not members:
+                continue
+            item = ctx.geo.copper.get(members[0])
+            if item is None:
+                continue
+            _emit_item(
+                ctx,
+                ViolationKind.FLOATING_COPPER,
+                item,
+                None,
+                None,
+                None,
+                f"floating copper: {len(members)} item(s) with no pad connection",
+                severity=Severity.WARNING,
+            )
+
+
 def report_rules_and_geometry(ctx: CheckContext) -> None:
     rs = ctx.resolver.ruleset
     for u in rs.unsupported:
@@ -635,6 +679,7 @@ ALL_CHECKS: tuple[tuple[str, Callable[[CheckContext], None]], ...] = (
     ("holes", check_holes),
     ("disallow rules", check_disallowed),
     ("unconnected items", check_unconnected),
+    ("electrical (ERC)", check_erc),
     ("rules and geometry notes", report_rules_and_geometry),
 )
 

@@ -9,7 +9,7 @@ Checks: copper-to-copper clearance and shorts (pad pairs inside one footprint ar
 skipped, as KiCad does), zone-fill clearance (WARNING — fills are refillable),
 track width min/max, via diameter/drill/annular ring, board edge crossing and edge
 clearance, cutouts, keepouts (per permission), hole clearance and hole-to-hole,
-custom `disallow` rules, unconnected items (INFO), unsupported rules (INFO/WARNING).
+custom `disallow` rules, unconnected items (INFO), single-pin nets (INFO), floating copper islands (WARNING), unsupported rules (INFO/WARNING).
 
 Checks skipped because a rule is unknown are reported as WARNING `RULE_UNKNOWN`, so a
 board with unknown rules never shows PASS.
@@ -19,5 +19,7 @@ duration. Each violation: stable id, kind, severity, objects, layer, location,
 actual and required value, rule source, geometry accuracy.
 
 UI: the *Internal Geometry Check* dock (filters: errors / warnings / info, layer,
-net; clicking a row zooms to and highlights the objects), markers on the canvas, and
+net; clicking a row zooms to and highlights the objects), markers on the canvas
+(geometry in the DRC layer, airwires / single-pin nets / floating copper in the
+toggleable View ▸ ERC Markers layer), and
 the status field `Internal DRC: Pass / Warnings / Fail`.

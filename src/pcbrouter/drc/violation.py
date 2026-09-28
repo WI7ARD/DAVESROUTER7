@@ -43,6 +43,8 @@ class ViolationKind(Enum):
     HOLE_TO_HOLE = "hole-to-hole clearance"
     DISALLOWED = "disallowed by custom rule"
     UNCONNECTED = "unconnected items"
+    SINGLE_PIN_NET = "single-pin net"
+    FLOATING_COPPER = "floating copper island"
     RULE_UNKNOWN = "rule unknown"
     UNSUPPORTED_RULE = "unsupported rule"
     GEOMETRY_NOTE = "geometry note"
@@ -68,6 +70,12 @@ class DRCViolation:
     @property
     def nets(self) -> str:
         return " / ".join(n for n in (self.net_a, self.net_b) if n) or "—"
+
+
+#: Violation kinds drawn on the dedicated ERC marker layer (electrical only).
+ERC_KINDS = frozenset(
+    {ViolationKind.UNCONNECTED, ViolationKind.SINGLE_PIN_NET, ViolationKind.FLOATING_COPPER}
+)
 
 
 def violation_id(kind: ViolationKind, *parts: object) -> str:
