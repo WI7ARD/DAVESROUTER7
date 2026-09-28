@@ -31,7 +31,9 @@
 Unicode true
 Target x86-unicode
 ManifestDPIAware true
-SetCompressor /SOLID lzma
+SetCompressor lzma
+; Non-solid (default): the ~1.7 GB payload (MKL/SYCL) does not fit one solid
+; block in 32-bit makensis (mmap failure above ~1.4 GB). Per-file blocks stay small.
 RequestExecutionLevel user
 
 !define APP_NAME "AI PCB Router"
