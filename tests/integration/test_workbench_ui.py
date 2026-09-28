@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from PySide6.QtWidgets import QDialog
 from pytestqt.qtbot import QtBot
 
 from pcbrouter.routing.result import RouteStatus
@@ -92,3 +93,31 @@ def test_workbench_flow(window: MainWindow, fixture_path: Callable[[str], Path])
     window.engine_ui.run_geometry_check()
     wait(window)
     assert not window.engine_ui.drc_panel.result.errors
+
+
+def test_bulk_constraints_dialog_applies_to_all_nets(
+    window: MainWindow, fixture_path: Callable[[str], Path]
+) -> None:
+    """Net Constraints ▸ Apply to All Nets: one width for every net."""
+    from pcbrouter.ui.workbench import NetConstraintsDialog
+
+    assert window.open_board(fixture_path("can_node.kicad_pcb"))
+    wait(window)
+    wb = window.bus.context.project.working
+    nets = sorted({n.name for n in wb.board.nets if n.name})
+    assert len(nets) >= 3
+    dlg = NetConstraintsDialog(wb, "GND", window)
+    dlg.show()
+    dlg.width_spin.setValue(0.3)
+    dlg._apply_all()
+    assert dlg.bulk_applied == len(nets)
+    assert dlg.bulk_skipped == 0
+    assert all(wb.net_constraints[n].get("width_mm") == 0.3 for n in nets)
+    dlg.done(QDialog.DialogCode.Rejected)
+    # empty values never clear anything: reset to "from rules" first
+    dlg2 = NetConstraintsDialog(wb, "GND", window)
+    dlg2.show()
+    dlg2.width_spin.setValue(0.0)
+    dlg2._apply_all()
+    assert dlg2.bulk_applied == 0
+    assert all(wb.net_constraints[n].get("width_mm") == 0.3 for n in nets)

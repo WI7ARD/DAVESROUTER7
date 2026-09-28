@@ -159,9 +159,10 @@ class BoardJobPanel(QWidget):
             if reasons == {FailureReason.RULE_UNKNOWN}:
                 self.status.setText(
                     result.summary()
-                    + " — every net is missing rule values (e.g. no track width stated). "
-                    "Set widths per net in the Workbench constraints, or add net classes "
-                    "in KiCad, then route again."
+                    + " — every net is missing rule values (e.g. no track-width minimum "
+                    "stated). Add net classes in KiCad, or turn conservative rule "
+                    "handling off in Settings as an explicit expert choice (a Workbench "
+                    "width alone is not verifiable without a minimum), then route again."
                 )
 
     def checked_nets(self) -> set[str]:

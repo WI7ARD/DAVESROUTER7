@@ -351,7 +351,7 @@ def test_rule_unknown_result_points_at_widths(
     )
     ui = window.routing_ui
     ui.board_panel.set_result(result)
-    assert "track width" in ui.board_panel.status.text()
+    assert "minimum" in ui.board_panel.status.text()
     assert not ui.board_panel.accept_all.isEnabled()
 
 

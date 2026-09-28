@@ -30,6 +30,39 @@ def working(name: str = "router_basic.kicad_pcb") -> WorkingBoard:
     return WorkingBoard(load_board(path).board, load_project_rules(path))
 
 
+def test_bulk_width_assignment_covers_unruled_nets() -> None:
+    """Unruled boards route in expert mode once every net gets an explicit width."""
+    from pcbrouter.board_engine import EngineConfig
+    from pcbrouter.routing.request import with_user_constraints
+    from pcbrouter.routing.router import Router
+    from pcbrouter.ui.workbench import apply_constraints_to_all
+
+    path = BOARDS / "can_node.kicad_pcb"
+    wb = WorkingBoard(
+        load_board(path).board, load_project_rules(path), config=EngineConfig(conservative=False)
+    )
+    assert apply_constraints_to_all(wb, {}) == (0, 0)  # empty never clears
+    applied, skipped = apply_constraints_to_all(wb, {"width_mm": 0.25})
+    nets = {n.name for n in wb.board.nets if n.name}
+    assert applied + skipped == len(nets) and applied > 0
+    assert all(
+        wb.net_constraints[n].get("width_mm") == 0.25 for n in nets if n in wb.net_constraints
+    )
+    # below-minimum widths skip nets with known minimums instead of breaking them
+    wb2 = working("router_basic.kicad_pcb")
+    applied2, skipped2 = apply_constraints_to_all(wb2, {"width_mm": 0.01})
+    assert skipped2 > 0
+    assert applied2 + skipped2 == len({n.name for n in wb2.board.nets if n.name})
+    # and the bulk widths actually unblock routing on the unruled board
+
+    res = Router(wb.engine).route_net(
+        with_user_constraints(
+            RouteRequest("CAN_TXD", candidates=1), wb.net_constraints.get("CAN_TXD")
+        )
+    )
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+
+
 def routed(wb: WorkingBoard, net: str, **kw: object) -> object:
     res = Router(wb.engine).route_net(RouteRequest(net, candidates=1, **kw))  # type: ignore[arg-type]
     assert res.best is not None, res.summary()

@@ -206,9 +206,9 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
                 " (add net classes in KiCad, or turn conservative rule handling "
                 "off in Settings as an explicit expert choice)"
                 if request.preferred_width is not None
-                else " (add net classes in KiCad, set a width in the Workbench "
-                "constraints, or turn conservative rule handling off in Settings "
-                "as an explicit expert choice)"
+                else " (add net classes in KiCad so minimums are known, or turn "
+                "conservative rule handling off in Settings as an explicit expert "
+                "choice; a Workbench width alone is not verifiable without a minimum)"
             )
         )
     hard_min = max((v.value for v in minimum if v.value is not None), default=0)
