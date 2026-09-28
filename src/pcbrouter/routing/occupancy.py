@@ -211,6 +211,14 @@ def build_occupancy(
     cells = np.zeros((spec.ny, spec.nx), dtype=np.uint8)
     raster = _Rasterizer(spec, cells)
     r_track = width / 2
+    # Segment soundness: a cell answers "may the centreline pass through this
+    # cell centre", but search edges join adjacent centres, and a point on such
+    # an edge can sit up to half a cell diagonal from the nearer endpoint.
+    # Obstacles are grown by that margin (track maps only; via centres start
+    # no segments) so the grid never promises a path the exact validator
+    # refuses — otherwise repair rounds burn blocking the same channel cell
+    # by cell until VALIDATION exhaustion.
+    seg_margin = cell * math.sqrt(2) / 2 if item is ItemType.TRACK else 0.0
     notes: list[str] = []
     complete = True
 
@@ -224,7 +232,7 @@ def build_occupancy(
         if edge_req.value is None:
             complete = False
             notes.append("copper-to-edge clearance unknown: edge band = track half-width only")
-        reach = r_track + (edge_req.value or 0)
+        reach = r_track + (edge_req.value or 0) + seg_margin
         for edge in geo.edges.values():
             raster.mark(edge.shape, reach, CellState.EDGE)
     else:
@@ -237,7 +245,7 @@ def build_occupancy(
     for k in geo.keepouts.values():
         forbidden = k.rules.vias if item is ItemType.VIA else k.rules.tracks
         if layer in k.layers and forbidden:
-            raster.mark(k.shape, r_track, CellState.KEEPOUT)
+            raster.mark(k.shape, r_track + seg_margin, CellState.KEEPOUT)
 
     # Mechanical holes (and foreign holes on layers without their copper).
     hole_req = resolver.resolve_hole_clearance(net, item, layer)
@@ -247,7 +255,7 @@ def build_occupancy(
             continue
         if hole_req.value is None:
             complete = False
-        raster.mark(h.shape, r_track + (hole_req.value or 0), CellState.BLOCKED)
+        raster.mark(h.shape, r_track + (hole_req.value or 0) + seg_margin, CellState.BLOCKED)
 
     # Copper.
     unknown_pairs = 0
@@ -265,7 +273,7 @@ def build_occupancy(
         if req.value is None:
             unknown_pairs += 1
         for s in obj.shapes:
-            raster.mark(s, r_track + (req.value or 0), CellState.FOREIGN_NET)
+            raster.mark(s, r_track + (req.value or 0) + seg_margin, CellState.FOREIGN_NET)
     if unknown_pairs:
         complete = False
         notes.append(f"clearance unknown for {unknown_pairs} object(s): only overlap blocked")

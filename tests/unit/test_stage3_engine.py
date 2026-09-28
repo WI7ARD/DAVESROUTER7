@@ -72,6 +72,23 @@ def test_condition_parser_subset() -> None:
     assert cond is not None
 
 
+def test_condition_regex_match_and_lowercase_type() -> None:
+    from pcbrouter.rules.conditions import ConditionError, ItemFacts
+    from pcbrouter.rules.model import ItemType
+
+    bus = ItemFacts("BUS3", ("Default",), ItemType.TRACK)
+    sig = ItemFacts("SIG16", ("Default",), ItemType.TRACK)
+    via = ItemFacts("GND", ("Default",), ItemType.VIA)
+    cond = parse_condition("A.Type == 'track' && A.NetName =~ 'BUS.*'")
+    assert cond.matches(bus) and not cond.matches(sig)
+    assert parse_condition("A.Type == 'via'").matches(via)
+    assert not parse_condition("A.Type == 'Track'").matches(bus)  # KiCad is case-sensitive
+    with pytest.raises(ConditionError):
+        parse_condition("A.NetName =~ '([broken'")
+    with pytest.raises(ConditionError):
+        parse_condition("A.NetName =~ B.NetName")
+
+
 def test_override_can_tighten_but_not_weaken(rules_engine: BoardEngine) -> None:
     tight = rules_engine.with_overrides(RuleOverrides(nets={"SIG": NetOverride(width=MM(0.5))}))
     assert tight.resolver.resolve_trace_width("SIG").value == MM(0.5)

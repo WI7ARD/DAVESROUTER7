@@ -5,6 +5,8 @@ Supported (everything else is reported as *unsupported*, never guessed):
 * properties ``A.NetClass``, ``A.NetName``, ``A.Type``, ``A.Layer`` (and ``B.*``)
   compared with ``==`` / ``!=`` against string literals; ``*`` and ``?`` wildcards
   behave like KiCad's wildcard compare;
+* ``A.NetName =~ 'BUS.*'``: regex *search* (substring) match, as in KiCad;
+  an invalid pattern is reported as unsupported, never guessed;
 * ``A.hasNetclass('X')`` (KiCad 9);
 * ``&&``, ``||``, ``!`` and parentheses.
 
@@ -27,7 +29,7 @@ SUPPORTED_PROPERTIES = frozenset({"NetClass", "NetName", "Type", "Layer"})
 SUPPORTED_FUNCTIONS = frozenset({"hasNetclass"})
 
 _TOKEN_RE = re.compile(
-    r"\s*(?:(?P<op>&&|\|\||==|!=|!|\(|\)|,|\.)|"
+    r"\s*(?:(?P<op>&&|\|\||==|!=|=~|!|\(|\)|,|\.)|"
     r"'(?P<sq>[^']*)'|\"(?P<dq>[^\"]*)\"|(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|"
     r"(?P<num>-?\d+(?:\.\d+)?)|(?P<bad>\S))"
 )
@@ -47,9 +49,10 @@ class ItemFacts:
     layer: str | None = None
 
     def types(self) -> tuple[str, ...]:
+        # KiCad spells item types lowercase in conditions (e.g. A.Type == 'track').
         if self.item_type is ItemType.TRACK:
-            return ("Track", "Arc")
-        return (self.item_type.value,)
+            return ("track", "arc")
+        return (self.item_type.value.lower(),)
 
 
 # ------------------------------------------------------------------ AST
@@ -67,7 +70,7 @@ class Literal:
 @dataclass(frozen=True, slots=True)
 class Compare:
     left: Prop | Literal
-    op: str  # "==" | "!="
+    op: str  # "==" | "!=" | "=~" (regex search)
     right: Prop | Literal
 
 
@@ -176,12 +179,19 @@ class _Parser:
         if isinstance(left, Call):
             return left
         tok = self.peek()
-        if tok is None or tok[1] not in ("==", "!="):
-            raise ConditionError("only == and != comparisons are supported")
+        if tok is None or tok[1] not in ("==", "!=", "=~"):
+            raise ConditionError("only ==, != and =~ comparisons are supported")
         op = self.take()[1]
         right = self.operand()
         if isinstance(right, Call):
             raise ConditionError("function calls cannot be compared")
+        if op == "=~":
+            if not isinstance(right, Literal):
+                raise ConditionError("=~ needs a string-literal pattern")
+            try:
+                re.compile(right.value)
+            except re.error as exc:
+                raise ConditionError(f"invalid =~ pattern {right.value!r}: {exc}") from exc
         return Compare(left, op, right)
 
     def operand(self) -> Prop | Literal | Call:
@@ -262,5 +272,7 @@ def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
     left, right = _values(node.left, a, b), _values(node.right, a, b)
     if left is None or right is None:
         return False  # refers to B in a single-item check: KiCad treats it as no match
+    if node.op == "=~":
+        return any(re.search(pat, val) is not None for val in left for pat in right)
     same = _match(left, right)
     return same if node.op == "==" else not same

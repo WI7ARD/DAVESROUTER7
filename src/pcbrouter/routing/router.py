@@ -174,27 +174,69 @@ class Router:
         )
         result = RouteResult(request.request_id, request.net, RouteStatus.NO_ROUTE)
         result.metrics.backend = self.backend_name
-        try:
-            norm = normalise(self.engine, request)
-        except RouteRequestError as exc:
-            result.status, result.message = RouteStatus.INVALID_REQUEST, str(exc)
-            return self._done(result, t0)
-        except RuleUnknownError as exc:
-            result.status, result.reason = RouteStatus.RULE_UNKNOWN, FailureReason.RULE_UNKNOWN
-            result.message = str(exc)
-            return self._done(result, t0)
-        result.width = norm.width
-        result.details += list(norm.notes)
-        try:
-            self._route(norm, result, cancel, penalties, avoid_uids)
-        except GridCancelled:
-            result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
-            result.message = "cancelled by the user"
-        except Exception as exc:  # reported, never hidden; the board is untouched
-            log.exception("router.internal_error net=%s", request.net)
-            result.status, result.message = RouteStatus.INTERNAL_ERROR, repr(exc)
-            result.candidates = []
+        req = request
+        for round_no in range(3):  # initial attempt + up to two limit doublings
+            try:
+                norm = normalise(self.engine, req)
+            except RouteRequestError as exc:
+                result.status, result.message = RouteStatus.INVALID_REQUEST, str(exc)
+                return self._done(result, t0)
+            except RuleUnknownError as exc:
+                result.status, result.reason = RouteStatus.RULE_UNKNOWN, FailureReason.RULE_UNKNOWN
+                result.message = str(exc)
+                return self._done(result, t0)
+            result.width = norm.width
+            result.details += list(norm.notes)
+            try:
+                self._route(norm, result, cancel, penalties, avoid_uids)
+            except GridCancelled:
+                result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
+                result.message = "cancelled by the user"
+                return self._done(result, t0)
+            except Exception as exc:  # reported, never hidden; the board is untouched
+                log.exception("router.internal_error net=%s", req.net)
+                result.status, result.message = RouteStatus.INTERNAL_ERROR, repr(exc)
+                result.candidates = []
+                return self._done(result, t0)
+            if not self._limits_escalate(req, result, round_no, cancel):
+                break
+            req = replace(
+                req,
+                node_limit=req.node_limit * 2,
+                time_limit_s=req.time_limit_s * 1.5,
+            )
+            result.status, result.reason = RouteStatus.NO_ROUTE, None
+            result.details.append(
+                "search hit the request limits; retrying with doubled budget "
+                f"(round {round_no + 2} of 3)"
+            )
         return self._done(result, t0)
+
+    def _limits_escalate(
+        self,
+        req: RouteRequest,
+        result: RouteResult,
+        round_no: int,
+        cancel: threading.Event | None,
+    ) -> bool:
+        """Whether a TIMEOUT deserves another round with doubled search limits.
+
+        Bounded (two extra rounds) and skipped where something else owns the
+        budget: board jobs carry ``total_time_limit_s`` (their passes escalate
+        themselves), Speed mode stays single-attempt, and a set cancel or a
+        blown deadline stops immediately.
+        """
+        blown = self._deadline is not None and time.perf_counter() > self._deadline
+        cancelled = cancel is not None and cancel.is_set()
+        return (
+            result.status is RouteStatus.TIMEOUT
+            and result.reason is FailureReason.TIMEOUT
+            and round_no < 2
+            and req.heuristic_weight < ESCALATION_WEIGHT
+            and req.total_time_limit_s is None
+            and not cancelled
+            and not blown
+        )
 
     # ------------------------------------------------------------ core
     def _route(
@@ -348,7 +390,10 @@ class Router:
         best = result.candidates[0]
         full = best.connections == result.connections_total
         result.status = RouteStatus.SUCCESS if full else RouteStatus.PARTIAL
-        if not full and result.reason is None:
+        if full:
+            # success clears any stale failure text from an earlier round
+            result.reason, result.message = None, ""
+        elif result.reason is None:
             result.reason = FailureReason.NO_PATH
         return True
 
