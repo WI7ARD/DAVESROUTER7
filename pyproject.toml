@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ai-pcb-router"
 # Plain PEP 440 since 1.0.0. The user-facing version string lives in
 # pcbrouter.__version__.
-version = "1.0.0"
+version = "1.1.0"
 description = "Desktop PCB inspection and AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "Proprietary" }

@@ -4,7 +4,7 @@ A desktop PCB engineering application for **KiCad** boards: inspect, autoroute
 (CPU/GPU), and get AI planning help — deterministically, with every piece of
 copper validated and approved by you before it lands on the board.
 
-**Current version: `1.0.0`.**
+**Current version: `1.1.0`.**
 
 > **The AI model is a planner, not the router.** It analyses the board and
 > proposes structured commands. Every proposal is validated locally and needs
