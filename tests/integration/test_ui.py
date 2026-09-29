@@ -306,18 +306,44 @@ def test_unknown_values_are_shown_as_unknown(
 def test_hover_reports_coordinates_and_object(
     qtbot: QtBot, window: MainWindow, fixture_path: Callable[[str], Path]
 ) -> None:
+    import time
+
     window.open_board(fixture_path("vias.kicad_pcb"))
     c = window.canvas
-    pos = scene_to_view(c, 113.0, 100.0)
-    qtbot.mouseMove(c.viewport(), pos + QPoint(25, 25))  # ensure the next move is a real move
-    qtbot.wait(50)  # hover picks are throttled (~30 Hz); let the first one land
-    with qtbot.waitSignal(c.cursorMoved) as blocker:
-        qtbot.mouseMove(c.viewport(), pos)
-    x, y = blocker.args
+    seen: list[tuple[float, float]] = []
+    c.cursorMoved.connect(lambda x, y: seen.append((x, y)))
+
+    def move(x_mm: float, y_mm: float) -> None:
+        view_pos = QPointF(scene_to_view(c, x_mm, y_mm))
+        c.mouseMoveEvent(
+            QMouseEvent(
+                QMouseEvent.Type.MouseMove,
+                view_pos,
+                view_pos,
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+
+    c._last_hover_s = 0.0  # bypass the ~30 Hz hover throttle deterministically
+    move(113.0, 100.0)
+    assert seen, "cursorMoved must fire on every move"
+    x, y = seen[-1]
     assert x == pytest.approx(113.0, abs=0.5) and y == pytest.approx(100.0, abs=0.5)
     assert "X" in window.lbl_cursor.text() and "mm" in window.lbl_cursor.text()
     assert c._hover_key is not None and c._hover_key[0] is ItemKind.VIA
     assert "Via" in c.describe(*c._hover_key)
+    # picks are throttled: a move right after a pick keeps the old hover ...
+    before = len(seen)
+    c._last_hover_s = time.perf_counter()
+    move(-500.0, -500.0)
+    assert len(seen) == before + 1, "cursor position still reports while throttled"
+    assert c._hover_key is not None and c._hover_key[0] is ItemKind.VIA
+    # ... while a stale pick timestamp lets the hover update
+    c._last_hover_s = 0.0
+    move(-500.0, -500.0)
+    assert c._hover_key is None
 
 
 def test_component_list_selects_on_canvas(
