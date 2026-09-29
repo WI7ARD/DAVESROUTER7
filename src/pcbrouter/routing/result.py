@@ -134,6 +134,9 @@ class RouteResult:
     blockers: dict[str, int] = field(default_factory=dict)
     #: failed-search explored cells (debug heat map; only when requested)
     explored: dict[str, Any] | None = None
+    #: where the failing connection was: {"start": (x_mm, y_mm), "goal": (x_mm,
+    #: y_mm), "layers": [...], "remaining_groups": n}; None when nothing failed
+    failed_at: dict[str, Any] | None = None
 
     @property
     def best(self) -> RouteCandidate | None:
@@ -153,6 +156,29 @@ class RouteResult:
             head += f" — {self.message}"
         return head
 
+    def failure_report(self) -> str:
+        """The structured ``ROUTE_FAILED`` block ("" when the net routed)."""
+        if self.status in (RouteStatus.SUCCESS, RouteStatus.ALREADY_CONNECTED):
+            return ""
+        at = self.failed_at or {}
+        lines = [
+            "ROUTE_FAILED",
+            f"net={self.net}",
+            f"status={self.status.value}",
+            f"reason={self.reason.value if self.reason else 'UNKNOWN'}"
+            + (f" ({self.message})" if self.message else ""),
+            f"connections={self.connections_routed}/{self.connections_total}",
+            f"expanded_nodes={self.metrics.expanded_nodes}",
+            f"elapsed_ms={round(self.metrics.elapsed_s * 1000)}",
+        ]
+        if at:
+            lines += [
+                f"start={at.get('start')}",
+                f"goal={at.get('goal')}",
+                f"layer={','.join(at.get('layers', []))}",
+            ]
+        return "\n".join(lines)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
@@ -161,6 +187,7 @@ class RouteResult:
             "reason": self.reason.value if self.reason else None,
             "message": self.message,
             "details": list(self.details),
+            "failed_at": self.failed_at,
             "connections": {"total": self.connections_total, "routed": self.connections_routed},
             "candidates": [
                 {

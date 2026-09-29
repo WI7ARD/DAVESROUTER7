@@ -499,7 +499,7 @@ class RoutingController(QObject):
         shapes += [circle(v.position, v.diameter // 2) for v in partial.added_vias]
         if shapes:
             self.overlays.set_group(
-                "board_preview", overlays.candidate_items(shapes, ValidationStatus.VALID)
+                "board_preview", overlays.preview_items(shapes, ValidationStatus.VALID)
             )
         self.board_panel.status.setText(
             f"Routing… live preview: {partial.succeeded_nets}/{partial.total_nets} nets, "

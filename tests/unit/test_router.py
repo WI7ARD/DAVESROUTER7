@@ -489,6 +489,7 @@ def _brute_force_optimal_cost(problem: object) -> float | None:
     prox = cm.proximity_factor
     dirs = [0, 2, 4, 6] if not problem.octilinear else list(range(8))  # type: ignore[attr-defined]
     bend = (0.0, cm.bend45_nm, cm.bend90_nm)
+    layer_dirs = getattr(problem, "layer_dirs", ())
     heap: list[tuple[float, int]] = []
     best: dict[int, float] = {}
     for li, cells in enumerate(problem.sources):  # type: ignore[attr-defined]
@@ -537,6 +538,12 @@ def _brute_force_optimal_cost(problem: object) -> float | None:
             if dx and dy and not (pl[r * nx + cc] and pl[rr * nx + c]):
                 continue
             step = cell * (SQRT2 if dx and dy else 1.0)
+            pref = layer_dirs[li] if li < len(layer_dirs) else 0
+            if pref and cm.wrong_way_factor > 1.0:  # preferred layer direction
+                if dx and dy:
+                    step *= (1.0 + cm.wrong_way_factor) / 2.0
+                elif (pref == 1 and dy) or (pref == 2 and dx):
+                    step *= cm.wrong_way_factor
             w = lf[li] * (float(fac[ni]) if fac is not None else 1.0)
             cost = step * w * (1.0 + prox * nr_l[ni])
             if pen is not None:
@@ -610,6 +617,44 @@ def test_slack_pruning_preserves_optimal_cost() -> None:
             assert math.isclose(optimal, outcome.cost, rel_tol=1e-9), (  # type: ignore[attr-defined]
                 f"{net}: pruned={outcome.cost} optimal={optimal}"  # type: ignore[attr-defined]
             )
+
+
+def test_direction_costs_and_group_boxes_keep_search_optimal() -> None:
+    """Per-group heuristic boxes, preferred layer directions (wrong-way factor 10:
+    Manhattan + wrong-way/via lower bound) stay admissible: every real search
+    returns the same cost as the independent pruning-free Dijkstra."""
+    from dataclasses import replace
+
+    from pcbrouter.routing.cost.model import DEFAULT_COST_MODEL
+    from pcbrouter.routing.search.astar import SearchStatus, search
+
+    cost = replace(DEFAULT_COST_MODEL, wrong_way_factor=10.0)
+    dense = working("router_dense.kicad_pcb")
+    for wb, net in ((working("router_basic.kicad_pcb"), "A"), (dense, "S3"), (dense, "USB_N")):
+        recorded: list[tuple[object, object]] = []
+
+        def spy(problem: object, _rec: list = recorded, **kw: object) -> object:
+            g = problem.grid  # type: ignore[attr-defined]
+            frozen = replace(  # repairs/penalties change the grid in place later
+                problem,  # type: ignore[type-var]
+                grid=replace(g, passable=[p.copy() for p in g.passable],
+                             near=[p.copy() for p in g.near],
+                             penalty=[None if p is None else p.copy() for p in g.penalty],
+                             factor=[None if p is None else p.copy() for p in g.factor],
+                             via_ok=None if g.via_ok is None else g.via_ok.copy()),
+            )  # fmt: skip
+            outcome = search(problem, **kw)  # type: ignore[arg-type]
+            _rec.append((frozen, outcome))
+            return outcome
+
+        res = Router(wb.engine, search_fn=spy).route_net(RouteRequest(net, candidates=1, cost=cost))
+        assert res.status is RouteStatus.SUCCESS, res.summary()
+        for problem, outcome in recorded:
+            assert problem.layer_dirs and problem.target_boxes  # type: ignore[attr-defined]
+            assert outcome.status is SearchStatus.FOUND  # type: ignore[attr-defined]
+            optimal = _brute_force_optimal_cost(problem)
+            assert optimal is not None
+            assert math.isclose(optimal, outcome.cost, rel_tol=1e-9), (net, outcome.cost, optimal)  # type: ignore[attr-defined]
 
 
 def test_pour_sources_are_thinned_and_routed(tmp_path: Path) -> None:

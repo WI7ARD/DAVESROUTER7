@@ -275,3 +275,47 @@ def test_task_congestion_features_are_populated() -> None:
         assert 0.0 <= task.congestion <= 1.0
     ordered = [t.net for t in plan.tasks]
     assert sorted(ordered) != ordered or len(ordered) < 2  # ordering is non-trivial
+
+
+def test_budget_exhaustion_is_not_a_user_cancel() -> None:
+    """A spent time budget ends the job as FAILED/PARTIALLY_ROUTED with a reason on
+    every net it never reached — never as CANCELLED (the user did not cancel)."""
+    wb = working("router_dense.kicad_pcb")
+    res = BoardRouter(wb, BoardRouterSettings(budget_s=0.001)).run()
+    assert res.status in (BoardStatus.FAILED, BoardStatus.PARTIALLY_ROUTED)
+    untouched = [o for o in res.outcomes.values() if o.status is RouteStatus.TIMEOUT]
+    assert untouched and all("time budget" in o.message for o in untouched)
+    assert any("time budget" in line for line in res.log)
+    control = BoardRoutingControl()
+    control.cancel()
+    res2 = BoardRouter(wb, BoardRouterSettings()).run(control=control)
+    assert res2.status is BoardStatus.CANCELLED
+    assert all("cancelled by the user" in o.message for o in res2.outcomes.values())
+
+
+def test_failed_route_reports_structured_failure() -> None:
+    wb = working("router_basic.kicad_pcb")
+    res = Router(wb.engine).route_net(RouteRequest("A", candidates=1, node_limit=5))
+    assert res.status is not RouteStatus.SUCCESS
+    report = res.failure_report()
+    for key in ("ROUTE_FAILED", "net=A", "reason=", "expanded_nodes=", "elapsed_ms=",
+                "start=", "goal=", "layer="):  # fmt: skip
+        assert key in report, report
+    assert res.to_dict()["failed_at"]["layers"]
+
+
+@pytest.mark.parametrize("mode", ["speed", "accuracy"])
+def test_presets_route_the_dense_board_cleanly(mode: str) -> None:
+    """Both presets (layer directions + coarse-to-fine) fully route the dense
+    fixture, and the committed copper passes the internal geometry check."""
+    from pcbrouter.routing.presets import RouteMode, adjust_board_settings
+
+    wb = working("router_dense.kicad_pcb")
+    base = RouteRequest("", candidates=1)
+    s = adjust_board_settings(BoardRouterSettings(base_request=base), base, RouteMode(mode))
+    assert s.base_request.coarse_factor > 1 and s.base_request.cost.wrong_way_factor > 1
+    res = BoardRouter(wb, s).run()
+    assert res.status is BoardStatus.FULLY_ROUTED, res.summary()
+    tracks, vias, removed = res.objects_for(None)
+    wb.commit_objects(tracks, vias, removed, "preset", Provenance.ROUTER_GENERATED)
+    assert not wb.engine.run_drc().errors

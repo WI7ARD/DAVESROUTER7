@@ -351,12 +351,15 @@ class AISession:
         selected_nets: tuple[str, ...] = (),
         selected_components: tuple[str, ...] = (),
         level: ContextLevel | None = None,
+        *,
+        preview: bool = False,
     ) -> BoardContext:
         return BoardContextBuilder(
             self.board,
             session_id=self.session_id,
             board_revision=self.board_revision,
             engine=self.engine,
+            preview=preview,
         ).build(
             level or self.config.context_level,
             self.config.limits,

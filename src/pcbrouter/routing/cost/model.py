@@ -23,6 +23,10 @@ soft regions          user corridors: ``prefer`` multiplies step cost by
                       ``corridor_avoid_factor`` (2.0) x step
 alternatives          cells used by an earlier candidate cost an extra
                       ``reuse_factor`` = 1.0 x step (diversity)
+layer direction       with ``wrong_way_factor`` > 1, routing layers alternate a
+                      preferred direction (first copper layer horizontal, next
+                      vertical, ...); a step against it costs that factor, a
+                      diagonal half of the extra (1.0 = off, the default)
 ====================  ==========================================================
 
 A lower cost means "better by this metric", not "electrically superior".
@@ -46,6 +50,7 @@ class CostModel:
     corridor_prefer_factor: float = 0.7
     corridor_avoid_factor: float = 2.0
     reuse_factor: float = 1.0
+    wrong_way_factor: float = 1.0
 
     def __post_init__(self) -> None:
         for f in fields(self):
@@ -53,6 +58,8 @@ class CostModel:
                 raise ValueError(f"cost component {f.name} must be >= 0")
         if self.nonpreferred_layer_factor < 1.0:
             raise ValueError("nonpreferred_layer_factor must be >= 1 (keeps A* admissible)")
+        if self.wrong_way_factor < 1.0:
+            raise ValueError("wrong_way_factor must be >= 1 (keeps A* admissible)")
         if not 0 < self.corridor_prefer_factor <= 1.0:
             raise ValueError("corridor_prefer_factor must be in (0, 1]")
 

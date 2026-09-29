@@ -112,8 +112,13 @@ class BoardContextBuilder:
         session_id: str = "",
         board_revision: int = 0,
         engine: BoardEngine | None = None,
+        preview: bool = False,
     ) -> None:
         self.board = board
+        #: preview (the panel's token/size label): skip facts that need board-wide
+        #: rasterisation (congestion maps, ~0.1-0.5 s on real boards) so it can run
+        #: on the GUI thread; a context that is actually sent always includes them
+        self.preview = preview
         self.facts = BoardFactService(board)
         self.session_id = session_id
         self.board_revision = board_revision
@@ -372,7 +377,8 @@ class BoardContextBuilder:
                 f"remaining_connections={info.remaining_connections} vias={info.via_count} "
                 f"status={info.status.name.lower()}"
             )
-            row += f" congestion_near_pads={self._congestion_near(info.pad_uids)}"
+            if not self.preview:
+                row += f" congestion_near_pads={self._congestion_near(info.pad_uids)}"
         return row
 
     def _congestion_near(self, pad_uids: list[str]) -> str:

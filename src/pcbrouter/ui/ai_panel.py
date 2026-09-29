@@ -12,7 +12,7 @@ import logging
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -361,6 +361,11 @@ class AIEngineeringPanel(QWidget):
         self.provider_combo.blockSignals(False)
         self._on_profile_changed()
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if getattr(self, "_context_stale", False):
+            self._update_context_label()
+
     def refresh_board(self) -> None:
         session = self.service.session
         self.conversation.clear()
@@ -509,7 +514,16 @@ class AIEngineeringPanel(QWidget):
         if session is None:
             self.context_label.setText("Open a board to use the AI assistant.")
             return
-        ctx = session.build_context(self.prompt.toPlainText() if hasattr(self, "prompt") else "")
+        if not self.isVisible():
+            # Building the context (net facts, congestion maps) takes up to several
+            # hundred ms on real boards: never on the GUI thread for a hidden panel.
+            # showEvent recomputes it when the panel is opened.
+            self._context_stale = True
+            return
+        self._context_stale = False
+        ctx = session.build_context(
+            self.prompt.toPlainText() if hasattr(self, "prompt") else "", preview=True
+        )
         who = profile.name if profile else "the provider"
         self.context_label.setText(
             f"Board context shared with {esc(who)}: {ctx.level.label} · "

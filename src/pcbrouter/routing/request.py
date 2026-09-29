@@ -85,6 +85,9 @@ class RouteRequest:
     #: 1 trade optimality for speed with a proven bound (cost at most weight x
     #: optimal); the exact validator still accepts or rejects every route.
     heuristic_weight: float = 1.0
+    #: coarse-to-fine search: a path on a grid this many times coarser guides a
+    #: corridor for the fine search (full fine search as fallback). 0 = off.
+    coarse_factor: int = 0
     soft_regions: tuple[SoftRegion, ...] = ()
     via_diameter: Nm | None = None
     via_drill: Nm | None = None

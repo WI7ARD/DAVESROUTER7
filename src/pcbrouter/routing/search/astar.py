@@ -5,10 +5,18 @@ and a via to any other routing layer where a through via fits. Turns sharper tha
 90 degrees are not generated (no acute angles). Diagonal moves require both
 orthogonal neighbours passable (no corner cutting between obstacles).
 
-Heuristic: octile distance to the bounding box of the target cells on each layer,
-plus the via cost when that layer differs, scaled by the smallest possible step
-factor — a lower bound of the true remaining cost, so the search is admissible
-(optimal with respect to the grid and the cost model).
+Heuristic: octile distance to the nearest target box (one box per unconnected
+pad group when the caller gives ``target_boxes``, merged to at most 16; else one
+box around all target cells per layer), plus the via cost when that layer
+differs, scaled by the smallest possible step factor — a lower bound of the true
+remaining cost, so the search is admissible (optimal with respect to the grid and
+the cost model). With preferred layer directions (``cost.wrong_way_factor`` >= 2)
+the distance is Manhattan, plus the cheaper of the wrong-way extra or two vias
+for same-layer targets across the layer's direction: still a lower bound.
+
+Coarse-to-fine (``coarse_factor``): a search on a coarser grid guides a corridor
+for the fine search; a full fine search is the fallback, and an optimistic
+coarse flood fill proves "no path" cheaply. See :func:`search`.
 
 Pruning: a state is not expanded when the same (layer, cell[, vias]) was already
 reached more than one 90-degree bend cheaper with another direction; equal f
@@ -36,7 +44,7 @@ import itertools
 import math
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 import numpy as np
@@ -80,6 +88,54 @@ class SearchProblem:
     max_vias: int | None
     octilinear: bool = True
     vias_enabled: bool = True
+    #: tighter heuristic targets: (layer, r0, r1, c0, c1) boxes that together cover
+    #: every target cell, e.g. one per unconnected pad group. Without them the
+    #: heuristic measures to ONE box around all targets per layer, which is ~0
+    #: almost everywhere on a net spread over the board (search degrades to a
+    #: Dijkstra flood: millions of nodes, then NODE_LIMIT/NO_PATH).
+    target_boxes: tuple[tuple[int, int, int, int, int], ...] = ()
+    #: preferred direction per layer: 0 none, 1 horizontal, 2 vertical; steps
+    #: against it cost ``cost.wrong_way_factor`` (>= 1: heuristic stays admissible)
+    layer_dirs: tuple[int, ...] = ()
+    #: coarse-to-fine: first search a grid ``coarse_factor`` times coarser, then
+    #: search the fine grid only inside a corridor around that path (full fine
+    #: search as fallback, so no route is lost). 0/1 = off.
+    coarse_factor: int = 0
+
+
+#: at most this many heuristic boxes (each costs one NumPy pass per layer)
+MAX_HEURISTIC_BOXES = 16
+
+
+def merge_boxes(
+    boxes: list[tuple[int, int, int, int, int]], limit: int = MAX_HEURISTIC_BOXES
+) -> list[tuple[int, int, int, int, int]]:
+    """Merge same-layer boxes (smallest area growth first) until at most ``limit``
+    remain. A merged box contains both inputs, so the distance to it is never
+    larger than to either: the heuristic stays a lower bound (admissible)."""
+    out = list(dict.fromkeys(boxes))
+
+    def area(b: tuple[int, int, int, int, int]) -> int:
+        return (b[2] - b[1] + 1) * (b[4] - b[3] + 1)
+
+    while len(out) > limit:
+        best: tuple[int, int, int] | None = None
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                p, q = out[i], out[j]
+                if p[0] != q[0]:
+                    continue
+                m = (p[0], min(p[1], q[1]), max(p[2], q[2]), min(p[3], q[3]), max(p[4], q[4]))
+                grow = area(m) - area(p) - area(q)
+                if best is None or grow < best[0]:
+                    best = (grow, i, j)
+        if best is None:
+            break  # one box per layer already
+        _g, i, j = best
+        p, q = out[i], out[j]
+        out[i] = (p[0], min(p[1], q[1]), max(p[2], q[2]), min(p[3], q[3]), max(p[4], q[4]))
+        del out[j]
+    return out
 
 
 @dataclass
@@ -101,7 +157,184 @@ def _bbox(mask: npt.NDArray[np.bool_]) -> tuple[int, int, int, int] | None:
     return int(rows[0]), int(rows[-1]), int(cols[0]), int(cols[-1])
 
 
+#: coarse-to-fine outcome counts for this process (diagnostics / benchmarks)
+C2F_STATS: dict[str, int] = {}
+
+
+def _count(key: str, nodes: int = 0) -> None:
+    C2F_STATS[key] = C2F_STATS.get(key, 0) + 1
+    if nodes:
+        C2F_STATS[key + "_nodes"] = C2F_STATS.get(key + "_nodes", 0) + nodes
+
+
+#: corridor half-width around the coarse path, in coarse cells
+CORRIDOR_RADIUS = 2
+#: below this many fine cells per layer a direct search is already cheap
+COARSE_MIN_CELLS = 40_000
+
+
+#: a coarse cell is passable when at least this share of its fine cells is: a
+#: path through nearly-blocked coarse cells mostly fails at fine resolution
+COARSE_FILL = 0.5
+#: corridor retry radius (coarse cells) before the full fine search
+CORRIDOR_RETRY_RADIUS = 5
+
+
+def _block_any(a: npt.NDArray[np.bool_], k: int) -> npt.NDArray[np.bool_]:
+    ny, nx = a.shape
+    py, px = -ny % k, -nx % k
+    if py or px:
+        a = np.pad(a, ((0, py), (0, px)))
+    return a.reshape(a.shape[0] // k, k, a.shape[1] // k, k).any(axis=(1, 3))
+
+
+def _block_fill(a: npt.NDArray[np.bool_], k: int, fill: float) -> npt.NDArray[np.bool_]:
+    ny, nx = a.shape
+    py, px = -ny % k, -nx % k
+    if py or px:
+        a = np.pad(a, ((0, py), (0, px)))
+    share = a.reshape(a.shape[0] // k, k, a.shape[1] // k, k).mean(axis=(1, 3))
+    return np.asarray(share >= fill)
+
+
+def _reachable_optimistic(problem: SearchProblem, k: int) -> bool:
+    """Can any target be reached on the OPTIMISTIC coarse grid (a coarse cell is
+    free when any of its fine cells is), with 8-neighbour moves, no turn rules and
+    vias anywhere a via fits? Every fine path projects onto such a coarse walk, so
+    False proves that no fine path exists."""
+    g = problem.grid
+    free = [_block_any(p, k) for p in g.passable]
+    tgt = [_block_any(t, k) for t in problem.targets]
+    via = None if (g.via_ok is None or not problem.vias_enabled) else _block_any(g.via_ok, k)
+    cny, cnx = free[0].shape
+    reach = [np.zeros((cny, cnx), dtype=np.bool_) for _ in free]
+    for li, cells in enumerate(problem.sources):
+        if cells.size:
+            r, c = np.divmod(cells, g.nx)
+            reach[li][r // k, c // k] = True
+    for li in range(len(free)):
+        reach[li] &= free[li] | tgt[li]
+    while True:
+        if any(bool((reach[li] & tgt[li]).any()) for li in range(len(free))):
+            return True
+        grown = []
+        for li, rm in enumerate(reach):
+            d = rm.copy()
+            d[1:, :] |= rm[:-1, :]
+            d[:-1, :] |= rm[1:, :]
+            d[:, 1:] |= rm[:, :-1]
+            d[:, :-1] |= rm[:, 1:]
+            d[1:, 1:] |= rm[:-1, :-1]
+            d[:-1, :-1] |= rm[1:, 1:]
+            d[1:, :-1] |= rm[:-1, 1:]
+            d[:-1, 1:] |= rm[1:, :-1]
+            grown.append(d & (free[li] | tgt[li]))
+        if via is not None and len(grown) > 1:
+            hop = np.zeros_like(via)
+            for gm in grown:
+                hop |= gm & via
+            grown = [gm | (hop & (free[li] | tgt[li])) for li, gm in enumerate(grown)]
+        if all(bool((grown[li] == reach[li]).all()) for li in range(len(free))):
+            return False
+        reach = grown
+
+
+def _coarse_problem(problem: SearchProblem, k: int, fill: float = COARSE_FILL) -> SearchProblem:
+    """The same problem on a k-times coarser grid. A coarse cell is passable when
+    any of its fine cells is (optimistic: the coarse path is only a guide; the
+    fine search inside its corridor, or the fallback, decides)."""
+    g = problem.grid
+    spec = g.spec
+    cny, cnx = -(-spec.ny // k), -(-spec.nx // k)
+    cspec = replace(spec, cell=spec.cell * k, nx=cnx, ny=cny)
+    passable = [_block_fill(p, k, fill) if fill > 0 else _block_any(p, k) for p in g.passable]
+    zeros = np.zeros((cny, cnx), dtype=np.bool_)
+    via_ok = None if g.via_ok is None else _block_any(g.via_ok, k)
+    grid = SearchGrid(cspec, g.layers, passable, [zeros for _ in g.layers], via_ok,
+                      [None for _ in g.layers], [None for _ in g.layers])  # fmt: skip
+    sources = []
+    for li, cells in enumerate(problem.sources):
+        r, c = np.divmod(cells, spec.nx)
+        cells_c = np.unique((r // k) * cnx + (c // k)).astype(np.int64)
+        passable[li].reshape(-1)[cells_c] = True  # pads may sit in crowded blocks
+        sources.append(cells_c)
+    targets = [_block_any(t, k) for t in problem.targets]
+    for li, t in enumerate(targets):
+        passable[li] |= t
+    boxes = tuple((b[0], b[1] // k, b[2] // k, b[3] // k, b[4] // k) for b in problem.target_boxes)
+    return replace(problem, grid=grid, sources=sources, targets=targets, target_boxes=boxes,
+                   coarse_factor=0)  # fmt: skip
+
+
 def search(
+    problem: SearchProblem,
+    *,
+    node_limit: int,
+    time_limit_s: float,
+    cancel: threading.Event | None = None,
+    record_explored: bool = False,
+    heuristic_weight: float = 1.0,
+) -> SearchOutcome:
+    """A* search; with ``problem.coarse_factor`` > 1 coarse-to-fine (see there)."""
+    k = problem.coarse_factor
+    g = problem.grid
+    if k <= 1 or g.n < COARSE_MIN_CELLS or record_explored:
+        return _search(problem, node_limit=node_limit, time_limit_s=time_limit_s,
+                       cancel=cancel, record_explored=record_explored,
+                       heuristic_weight=heuristic_weight)  # fmt: skip
+    t0 = time.perf_counter()
+    coarse = _coarse_problem(problem, k)
+    c_out = _search(coarse, node_limit=node_limit, time_limit_s=time_limit_s / 4,
+                    cancel=cancel, heuristic_weight=heuristic_weight)  # fmt: skip
+    expanded = c_out.expanded
+    _count(f"coarse_{c_out.status.value}", c_out.expanded)
+    if c_out.status is SearchStatus.NO_PATH:
+        # half-free coarse cells may close a narrow real channel: try the
+        # optimistic coarse grid (any free fine cell) before a full fine search
+        coarse = _coarse_problem(problem, k, fill=0.0)
+        c_out = _search(coarse, node_limit=node_limit, time_limit_s=time_limit_s / 4,
+                        cancel=cancel, heuristic_weight=heuristic_weight)  # fmt: skip
+        expanded += c_out.expanded
+        _count(f"coarse_any_{c_out.status.value}", c_out.expanded)
+    if c_out.status is SearchStatus.CANCELLED:
+        return c_out
+    if c_out.status is SearchStatus.FOUND:
+        cg = coarse.grid
+        for radius in (CORRIDOR_RADIUS, CORRIDOR_RETRY_RADIUS):
+            band = np.zeros((cg.ny, cg.nx), dtype=np.bool_)
+            for _li, idx in c_out.path:
+                r, c = divmod(idx, cg.nx)
+                band[max(0, r - radius) : r + radius + 1,
+                     max(0, c - radius) : c + radius + 1] = True  # fmt: skip
+            fine_band = np.kron(band, np.ones((k, k), dtype=np.bool_))[: g.ny, : g.nx]
+            narrowed = replace(g, passable=[p & fine_band for p in g.passable])
+            left = max(0.05, time_limit_s - (time.perf_counter() - t0))
+            f_out = _search(replace(problem, grid=narrowed, coarse_factor=0),
+                            node_limit=node_limit, time_limit_s=left / 2, cancel=cancel,
+                            heuristic_weight=heuristic_weight)  # fmt: skip
+            expanded += f_out.expanded
+            _count(f"corridor{radius}_{f_out.status.value}", f_out.expanded)
+            if f_out.status is SearchStatus.FOUND or f_out.status is SearchStatus.CANCELLED:
+                f_out.expanded = expanded
+                f_out.elapsed_s = time.perf_counter() - t0
+                return f_out
+    if c_out.status is SearchStatus.NO_PATH and not _reachable_optimistic(problem, k):
+        _count("proved_no_path")
+        c_out.expanded = expanded
+        c_out.elapsed_s = time.perf_counter() - t0
+        return c_out
+    # corridor too tight, or no/limited coarse path that could not be proved
+    # impossible: full fine search
+    left = max(0.05, time_limit_s - (time.perf_counter() - t0))
+    out = _search(problem, node_limit=node_limit, time_limit_s=left, cancel=cancel,
+                  heuristic_weight=heuristic_weight)  # fmt: skip
+    _count(f"fallback_{out.status.value}", out.expanded)
+    out.expanded += expanded
+    out.elapsed_s = time.perf_counter() - t0
+    return out
+
+
+def _search(
     problem: SearchProblem,
     *,
     node_limit: int,
@@ -135,11 +368,25 @@ def search(
     boxes2 = [(li, b) for li, b in boxes if b is not None]
     if not boxes2:
         return SearchOutcome(SearchStatus.NO_PATH, elapsed_s=time.perf_counter() - t0)
+    if problem.target_boxes:
+        boxes2 = [(b[0], (b[1], b[2], b[3], b[4])) for b in merge_boxes(list(problem.target_boxes))]
     min_factor = min(lf)
     if any(f is not None for f in factor):
         min_factor *= cm.corridor_prefer_factor
     via_h = problem.via_cost if vias_on else 0.0
     weight = max(1.0, heuristic_weight)
+    # With layer directions and wrong_way_factor >= 2 a diagonal step costs at
+    # least (1 + 2) / 2 * sqrt(2) > 2 straight steps, so Manhattan distance is
+    # still a lower bound on every layer — and tighter than octile.
+    manhattan = (
+        bool(problem.layer_dirs)
+        and cm.wrong_way_factor >= 2.0
+        and all(problem.layer_dirs[li] for li in range(min(nl, len(problem.layer_dirs))))
+        and len(problem.layer_dirs) >= nl
+    )
+    wwf = cm.wrong_way_factor
+    # cheapest extra per cell of cross-direction distance, beyond Manhattan cost
+    ww_extra = min(wwf - 1.0, (1.0 + wwf) / 2.0 * SQRT2 - 2.0)
 
     # Exact octile distance-to-target field per layer (R3): the same formula as
     # the old per-push heuristic, evaluated once with NumPy instead of once per
@@ -155,7 +402,19 @@ def search(
             dc = np.where(cols < c0, c0 - cols, np.where(cols > c1, cols - c1, 0.0))
             lo = np.minimum(dr, dc)
             hi = np.maximum(dr, dc)
-            h = ((hi - lo) + SQRT2 * lo) * cell * min_factor
+            if manhattan:
+                h = (hi + lo) * cell * min_factor
+                if bl == li:
+                    # same-layer target across this layer's preferred direction:
+                    # every cell of that distance costs wrong-way extra (straight
+                    # or diagonal, whichever is cheaper), unless two vias are paid
+                    perp = dr if problem.layer_dirs[li] == 1 else dc
+                    extra = perp * cell * min_factor * ww_extra
+                    if vias_on:
+                        extra = np.minimum(extra, 2.0 * via_h)
+                    h = h + extra
+            else:
+                h = ((hi - lo) + SQRT2 * lo) * cell * min_factor
             if bl != li:
                 h = h + via_h
             best_arr = h if best_arr is None else np.minimum(best_arr, h)
@@ -167,6 +426,21 @@ def search(
     # Turn bend-cost table [incoming dir 0..8][move]: None = disallowed (> 90°).
     # Step lengths per move (R3): hoisted out of the per-neighbour loop.
     step_len = [cell * (SQRT2 if dx and dy else 1.0) for dx, dy in DIRS]
+    # per-layer step length including the preferred-direction factor
+    ww = cm.wrong_way_factor
+    layer_step: list[list[float]] = []
+    for li in range(nl):
+        pref = problem.layer_dirs[li] if li < len(problem.layer_dirs) else 0
+        row_s: list[float] = []
+        for nd, (dx, dy) in enumerate(DIRS):
+            f = 1.0
+            if pref and ww > 1.0:
+                if dx and dy:
+                    f = (1.0 + ww) / 2.0
+                elif (pref == 1 and dy) or (pref == 2 and dx):
+                    f = ww
+            row_s.append(step_len[nd] * f)
+        layer_step.append(row_s)
     bend = (0.0, cm.bend45_nm, cm.bend90_nm)
     _turn_cost: list[list[float | None]] = []
     for d in range(9):
@@ -242,6 +516,7 @@ def search(
         base = (v * nl + li) * n
         turn_costs = _turn_cost[d]
         h_layer = hfield[li]
+        lstep = layer_step[li]
         for nd in dirs:
             bcost = turn_costs[nd]
             if bcost is None:
@@ -255,7 +530,7 @@ def search(
                 continue
             if dx and dy and not (pl[r * nx + cc] and pl[rr * nx + c]):
                 continue
-            step = step_len[nd]
+            step = lstep[nd]
             w = lf[li] * (float(fac[ni]) if fac is not None else 1.0)
             cost = step * w * (1.0 + prox * nr_l[ni])
             if pen is not None:

@@ -157,6 +157,17 @@ def candidate_items(shapes: Sequence[Shape], status: ValidationStatus) -> list[Q
     return [item]
 
 
+def preview_items(shapes: Sequence[Shape], status: ValidationStatus) -> list[QGraphicsItem]:
+    """Live routing preview: like :func:`candidate_items` but with a solid pen. A
+    dashed pen over hundreds of track outlines made each repaint take ~200 ms
+    (measured), stalling the GUI while the preview refreshes during routing."""
+    color = status_color(status)
+    item = _path_item(shape_path(shapes), _pen(color, 1.0), _alpha(color, 70),
+                      Z_OVERLAY_BASE + 10)  # fmt: skip
+    item.setToolTip(f"Routing preview (not on the board yet): {status.value}")
+    return [item]
+
+
 def envelope_items(raw: Sequence[Shape], envelope: Sequence[Shape]) -> list[QGraphicsItem]:
     color = theme.ENVELOPE_COLOR
     return [

@@ -38,7 +38,7 @@ from pcbrouter.domain.via import Via
 from pcbrouter.routing.connectivity import NetStatus, net_connectivity
 from pcbrouter.routing.occupancy import GridSpec
 from pcbrouter.routing.request import RouteRequest, with_user_constraints
-from pcbrouter.routing.result import FailureReason, RouteStatus
+from pcbrouter.routing.result import FailureReason, RouteResult, RouteStatus
 from pcbrouter.routing.router import Router
 from pcbrouter.routing.working_board import CommitError, Provenance, WorkingBoard
 
@@ -102,6 +102,16 @@ class BoardRoutingPlan:
     @property
     def nets(self) -> list[str]:
         return [t.net for t in self.tasks]
+
+
+def _failure_text(res: RouteResult) -> str:
+    """One line for the Routing Jobs panel: reason, where, and how hard it tried."""
+    at = res.failed_at or {}
+    where = f" between {at['start']} and {at['goal']} mm" if "start" in at else ""
+    return (
+        f"{res.message or 'no route'}{where} "
+        f"[{res.metrics.expanded_nodes:,} nodes, {res.metrics.elapsed_s:.1f} s]"
+    )
 
 
 @dataclass
@@ -475,6 +485,7 @@ class BoardRouter:
         deadline = t0 + s.budget_s
         self._deadline = deadline
         cancelled = False
+        out_of_time = False  # the budget ran out: not a user cancel
         last_partial = 0.0
 
         def emit_partial(force: bool = False) -> None:
@@ -530,7 +541,10 @@ class BoardRouter:
             still: list[RouteTask] = []
             for i, task in enumerate(failed):
                 if not control.checkpoint(deadline) or time.perf_counter() > deadline:
-                    cancelled = True
+                    if control.cancel_event.is_set():
+                        cancelled = True
+                    else:
+                        out_of_time = True
                     break
                 emit(
                     net=task.net,
@@ -548,7 +562,7 @@ class BoardRouter:
                 if not ok:
                     still.append(task)
                 emit_partial()
-            if cancelled:
+            if cancelled or out_of_time:
                 emit_partial(force=True)
                 break
             failed = still
@@ -562,7 +576,7 @@ class BoardRouter:
                 )
                 emit_partial()
         emit_partial(force=True)  # latest snapshot always matches the result below
-        if s.optimize and not cancelled:
+        if s.optimize and not cancelled and not out_of_time:
             from pcbrouter.routing.optimize import OptimizeGoal, optimize_nets
 
             done_nets = [n for n, o in outcomes.items() if o.status is RouteStatus.SUCCESS]
@@ -598,6 +612,18 @@ class BoardRouter:
                 o.status = RouteStatus.SUCCESS
             elif o.status is RouteStatus.SUCCESS:
                 o.status = RouteStatus.PARTIAL
+        if cancelled or out_of_time:
+            why = (
+                "cancelled by the user"
+                if cancelled
+                else f"the board time budget ({s.budget_s:.0f} s) ran out"
+            )
+            for o in outcomes.values():
+                if o.status is RouteStatus.NO_ROUTE and o.reason is None and not o.message:
+                    o.status = RouteStatus.CANCELLED if cancelled else RouteStatus.TIMEOUT
+                    o.reason = FailureReason.TIMEOUT
+                    o.message = f"not attempted: {why}"
+            job_log.append(f"stopped: {why}")
         metrics.nets_completed = completed
         metrics.nets_failed = len(outcomes) - completed
         metrics.total_length_nm = sum(t.length for t in added_tracks)
@@ -692,7 +718,7 @@ class BoardRouter:
             metrics.clean_nets += 1  # nothing to route: trivially clean
             return True
         if res.best is None:
-            o.status, o.reason, o.message = res.status, res.reason, res.message
+            o.status, o.reason, o.message = res.status, res.reason, _failure_text(res)
             job_log.append(
                 f"pass {pass_no}: {task.net} {res.status.value} "
                 f"{res.reason.value if res.reason else ''} {res.message}".strip()
@@ -707,7 +733,7 @@ class BoardRouter:
             return False
         o.status = res.status
         o.reason = res.reason if res.status is RouteStatus.PARTIAL else None
-        o.message = res.message
+        o.message = _failure_text(res) if res.status is RouteStatus.PARTIAL else res.message
         if res.status is RouteStatus.SUCCESS and res.metrics.repairs == 0:
             metrics.clean_nets += 1
         return res.status is RouteStatus.SUCCESS

@@ -94,6 +94,7 @@ class _Attempt:
     failure: FailureReason | None = None
     message: str = ""
     total: int = 0
+    where: dict[str, Any] | None = None
 
 
 #: source-cell budget per search (R6-power): pour interiors are redundant —
@@ -355,6 +356,7 @@ class Router:
         cancel: threading.Event | None,
     ) -> bool:
         seen: set[tuple[object, ...]] = set()
+        partial: _Attempt | None = None
         for k in range(norm.request.candidates):
             self._report(
                 phase="ROUTING",
@@ -366,7 +368,10 @@ class Router:
             if attempt.failure is not None and not attempt.connections:
                 if k == 0:
                     self._fail(result, attempt, norm, grid, groups, cancel)
+                    result.failed_at = attempt.where
                 break
+            if attempt.failure is not None and partial is None:
+                partial = attempt
             proposal = self._proposal(norm, attempt, k)
             key = (proposal.segments, proposal.vias)
             if key in seen:
@@ -409,7 +414,13 @@ class Router:
             # success clears any stale failure text from an earlier round
             result.reason, result.message = None, ""
         elif result.reason is None:
-            result.reason = FailureReason.NO_PATH
+            # keep the real reason (node/time limit, no path, ...) and say how far
+            result.reason = partial.failure if partial is not None else FailureReason.NO_PATH
+            result.message = (
+                f"{best.connections}/{result.connections_total} connection(s) routed; "
+                + (partial.message if partial is not None else "the rest found no path")
+            )
+            result.failed_at = partial.where if partial is not None else None
         return True
 
     def _attempt(
@@ -478,6 +489,14 @@ class Router:
                 )
                 return attempt
             limit = None if norm.max_vias is None else max(0, norm.max_vias - vias_used)
+            boxes: list[tuple[int, int, int, int, int]] = []
+            for j in remaining_idx:  # one heuristic box per unconnected group
+                for li in range(nl):
+                    cells = group_cells_all[j][li]
+                    if cells.size:
+                        rows, cols = np.divmod(cells, grid.nx)
+                        boxes.append((li, int(rows.min()), int(rows.max()),
+                                      int(cols.min()), int(cols.max())))  # fmt: skip
             problem = SearchProblem(
                 grid,
                 sources,
@@ -488,6 +507,9 @@ class Router:
                 limit,
                 octilinear=norm.request.routing_style.value == "45",
                 vias_enabled=norm.vias_allowed and limit != 0,
+                target_boxes=tuple(boxes),
+                layer_dirs=self._layer_dirs(norm, grid),
+                coarse_factor=norm.request.coarse_factor,
             )
             connection = None
             self._report(
@@ -545,6 +567,11 @@ class Router:
                         )
                 if outcome.status is not SearchStatus.FOUND:
                     attempt.failure, attempt.message = self._search_failure(outcome, result)
+                    attempt.where = self._where(
+                        grid,
+                        [groups[j] for j in sorted(connected_idx)],
+                        [groups[j] for j in remaining_idx],
+                    )
                     if outcome.explored is not None:
                         result.explored = {"spec": grid.spec, "cells": outcome.explored,
                                            "layers": grid.layers}  # fmt: skip
@@ -699,6 +726,28 @@ class Router:
         return None
 
     # ------------------------------------------------------------ helpers
+    def _where(
+        self, grid: SearchGrid, connected: list[list[str]], remaining: list[list[str]]
+    ) -> dict[str, Any]:
+        """Where a connection search failed: the connected copper closest to the
+        nearest unconnected pad group (millimetres), and the layers searched."""
+        geo = self.engine.geometry
+
+        def centres(uids: list[str]) -> list[Point]:
+            return [geo.copper[u].bounds.center for u in uids if u in geo.copper]
+
+        src = centres([u for g in connected for u in g])[:200]
+        dst = centres([u for g in remaining for u in g])[:200]
+        out: dict[str, Any] = {"layers": list(grid.layers), "remaining_groups": len(remaining)}
+        if src and dst:
+            a, b = min(
+                ((p, q) for p in src for q in dst),
+                key=lambda pq: (pq[0].x - pq[1].x) ** 2 + (pq[0].y - pq[1].y) ** 2,
+            )
+            out["start"] = (round(a.x / 1e6, 3), round(a.y / 1e6, 3))
+            out["goal"] = (round(b.x / 1e6, 3), round(b.y / 1e6, 3))
+        return out
+
     def _cells_of(
         self,
         grid: SearchGrid,
@@ -781,6 +830,14 @@ class Router:
     def _layer_factors(self, norm: NormalisedRequest, grid: SearchGrid) -> list[float]:
         f = norm.request.cost.nonpreferred_layer_factor
         return [1.0 if lay in norm.preferred_layers else f for lay in grid.layers]
+
+    @staticmethod
+    def _layer_dirs(norm: NormalisedRequest, grid: SearchGrid) -> tuple[int, ...]:
+        """Alternating preferred directions (H, V, H, ...) in stack order when the
+        cost model asks for them; () = no direction preference."""
+        if norm.request.cost.wrong_way_factor <= 1.0 or len(grid.layers) < 2:
+            return ()
+        return tuple(1 if i % 2 == 0 else 2 for i in range(len(grid.layers)))
 
     @staticmethod
     def _via_cost(norm: NormalisedRequest) -> float:
@@ -1023,4 +1080,6 @@ class Router:
             result.metrics.elapsed_s * 1e3,
             format_mm(result.width) if result.width else "-",
         )
+        if result.status not in (RouteStatus.SUCCESS, RouteStatus.ALREADY_CONNECTED):
+            log.info("[SEARCH] %s", result.failure_report().replace("\n", " "))
         return result
