@@ -310,6 +310,7 @@ def test_hover_reports_coordinates_and_object(
     c = window.canvas
     pos = scene_to_view(c, 113.0, 100.0)
     qtbot.mouseMove(c.viewport(), pos + QPoint(25, 25))  # ensure the next move is a real move
+    qtbot.wait(50)  # hover picks are throttled (~30 Hz); let the first one land
     with qtbot.waitSignal(c.cursorMoved) as blocker:
         qtbot.mouseMove(c.viewport(), pos)
     x, y = blocker.args

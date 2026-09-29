@@ -167,8 +167,22 @@ class _Rasterizer:
             return None
         return slice(r0, r1), slice(c0, c1)
 
-    def mark(self, shape: Shape, reach: float, state: CellState) -> None:
-        """Mark cells whose centre lies within ``reach`` of the shape's copper."""
+    def mark(
+        self,
+        shape: Shape,
+        reach: float,
+        state: CellState,
+        *,
+        overwrite_below: CellState | None = None,
+    ) -> None:
+        """Mark cells whose centre lies within ``reach`` of the shape's copper.
+
+        Marking takes the maximum (most severe wins), except that own-net
+        copper overwrites up to ``overwrite_below``: a centreline over its own
+        pad is legal even inside a foreign clearance band, and without this
+        escape source cells read as enclosed (spurious NO_ESCAPE). Harder
+        states (holes, keepouts, edge, outside) always win.
+        """
         box = shape.bounds.expanded(math.ceil(reach))
         win = self.window(box)
         if win is None:
@@ -185,7 +199,10 @@ class _Rasterizer:
             xs, ys = np.meshgrid(self.xs[cols], self.ys[rows])
             hit = (distance_field(core, xs, ys, box) - shape.radius) <= reach
         sub = self.cells[rows, cols]
-        np.maximum(sub, np.where(hit, np.uint8(state), np.uint8(0)).astype(np.uint8), out=sub)
+        if overwrite_below is None:
+            np.maximum(sub, np.where(hit, np.uint8(state), np.uint8(0)).astype(np.uint8), out=sub)
+        else:
+            sub[hit & (sub <= np.uint8(overwrite_below))] = np.uint8(state)
 
 
 def build_occupancy(
@@ -257,12 +274,14 @@ def build_occupancy(
             complete = False
         raster.mark(h.shape, r_track + (hole_req.value or 0) + seg_margin, CellState.BLOCKED)
 
-    # Copper.
+    # Copper. Own-net shapes are marked in a second pass so they win ties
+    # against foreign clearance bands (escape sources stay passable) while
+    # harder states (holes, keepouts, edge) marked above still win.
     unknown_pairs = 0
+    own_shapes: list[Shape] = []
     for obj in geo.copper_near(layer, spec.bounds):
         if net is not None and obj.net == net:
-            for s in obj.shapes:
-                raster.mark(s, r_track, CellState.SAME_NET)
+            own_shapes.extend(obj.shapes)
             continue
         if obj.kind is ItemKind.ZONE_FILL:
             continue  # refillable: consistent with the collision engine's default
@@ -274,6 +293,8 @@ def build_occupancy(
             unknown_pairs += 1
         for s in obj.shapes:
             raster.mark(s, r_track + (req.value or 0) + seg_margin, CellState.FOREIGN_NET)
+    for s in own_shapes:
+        raster.mark(s, r_track, CellState.SAME_NET, overwrite_below=CellState.FOREIGN_NET)
     if unknown_pairs:
         complete = False
         notes.append(f"clearance unknown for {unknown_pairs} object(s): only overlap blocked")

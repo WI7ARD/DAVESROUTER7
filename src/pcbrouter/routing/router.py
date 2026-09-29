@@ -37,7 +37,7 @@ from pcbrouter.domain.units import Nm, format_mm
 from pcbrouter.geometry.board import ItemKind
 from pcbrouter.routing.collision import CollisionResult, ValidationStatus
 from pcbrouter.routing.connectivity import net_connectivity
-from pcbrouter.routing.occupancy import CellState, GridSpec
+from pcbrouter.routing.occupancy import GridSpec
 from pcbrouter.routing.path.simplify import (
     _direction,
     collapse_collinear,
@@ -258,7 +258,16 @@ class Router:
                 else "already fully connected"
             )
             return
-        groups = self._order_groups(groups, norm.request)
+        groups, dropped, missed = self._order_groups(groups, norm.request)
+        if missed:
+            result.status = RouteStatus.INVALID_REQUEST
+            result.message = "source group matches no copper on this net"
+            return
+        if dropped:
+            result.details.append(
+                f"source/target selection leaves {dropped} copper group(s) "
+                "unrouted (not part of this request)"
+            )
         result.connections_total = len(groups) - 1
         windows: list[BoundingBox | None] = [self._window(groups)]
         if windows[0] is not None:
@@ -267,6 +276,12 @@ class Router:
             if cancel is not None and cancel.is_set():
                 result.status, result.reason = RouteStatus.CANCELLED, FailureReason.TIMEOUT
                 result.message = "cancelled by the user"
+                return
+            if self._deadline is not None and time.perf_counter() > self._deadline:
+                # budget spent: fail fast without burning a grid build + search
+                # that could only time out (stays TIMEOUT so passes escalate it)
+                result.status, result.reason = RouteStatus.TIMEOUT, FailureReason.TIMEOUT
+                result.message = "net time budget spent"
                 return
             self._report(
                 phase="BUILDING_GRID",
@@ -700,7 +715,16 @@ class Router:
         ]
 
     @staticmethod
-    def _order_groups(groups: list[list[str]], request: RouteRequest) -> list[list[str]]:
+    def _order_groups(
+        groups: list[list[str]], request: RouteRequest
+    ) -> tuple[list[list[str]], int, bool]:
+        """Order groups for source-first routing.
+
+        Returns (ordered, dropped, source_missed): ``dropped`` counts copper
+        groups a source/target selection leaves out (they stay unrouted — the
+        caller must say so instead of reporting full success);
+        ``source_missed`` means the requested source matches nothing.
+        """
         if request.source_group:
             src = set(request.source_group)
             first = [g for g in groups if src & set(g)]
@@ -708,10 +732,16 @@ class Router:
                 rest = [g for g in groups if g is not first[0]]
                 if request.target_group:
                     tgt = set(request.target_group)
-                    rest = [g for g in rest if tgt & set(g)]
-                return [first[0], *rest]
+                    kept = [g for g in rest if tgt & set(g)]
+                    return [first[0], *kept], len(rest) - len(kept), False
+                return [first[0], *rest], 0, False
+            return (
+                sorted(groups, key=lambda g: (-len(g), g)),
+                0,
+                True,
+            )
         # deterministic: largest group first (most pads), ties by uid order
-        return sorted(groups, key=lambda g: (-len(g), g))
+        return sorted(groups, key=lambda g: (-len(g), g)), 0, False
 
     def _window(self, groups: list[list[str]]) -> BoundingBox | None:
         geo = self.engine.geometry
@@ -890,15 +920,14 @@ class Router:
         result.message = attempt.message
         if result.status not in (RouteStatus.CANCELLED, RouteStatus.TIMEOUT):
             result.status = RouteStatus.NO_ROUTE
-        # blocking statistics (approximate: cell states in the searched window)
+        # blocking statistics from the searched grid itself: repairs already
+        # mutated passable, so this reflects what the search saw — without a
+        # full occupancy rebuild per failed net.
         stats: dict[str, int] = {}
-        for layer in grid.layers:
-            occ = self.engine.occupancy(
-                layer, norm.net, norm.width, grid.spec.cell, grid.spec.bounds
-            )
-            for state, count in occ.counts().items():
-                if state not in (CellState.FREE.label, CellState.SAME_NET.label):
-                    stats[f"{layer} {state} cells"] = stats.get(f"{layer} {state} cells", 0) + count
+        for layer, cells in zip(grid.layers, grid.passable, strict=True):
+            blocked = int((~cells.reshape(-1)).sum())
+            if blocked:
+                stats[f"{layer} blocked cells"] = blocked
         result.blockers = stats
         if attempt.failure is not FailureReason.NO_PATH:
             return
@@ -937,7 +966,10 @@ class Router:
 
     def _report(self, **info: Any) -> None:
         if self.progress is not None:
-            self.progress(info)
+            try:
+                self.progress(info)
+            except Exception:
+                log.exception("router progress callback failed")
 
     def _diagnose(
         self, request: RouteRequest, cancel: threading.Event | None

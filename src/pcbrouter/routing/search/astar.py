@@ -118,8 +118,10 @@ def search(
     passable = [p.reshape(-1).tobytes() for p in g.passable]
     near = [p.reshape(-1).tobytes() for p in g.near]
     target = [t.reshape(-1).tobytes() for t in problem.targets]
-    penalty = [None if p is None else p.reshape(-1) for p in g.penalty]
-    factor = [None if f is None else f.reshape(-1) for f in g.factor]
+    # Plain Python lists (not NumPy scalars): the hot loop indexes these
+    # millions of times, and each NumPy scalar materialisation costs ~100 ns.
+    penalty = [None if p is None else p.reshape(-1).tolist() for p in g.penalty]
+    factor = [None if f is None else f.reshape(-1).tolist() for f in g.factor]
     vias_on = problem.vias_enabled and g.via_ok is not None and nl > 1
     via_ok = g.via_ok.reshape(-1).tobytes() if vias_on and g.via_ok is not None else b""
     vlim = problem.max_vias
@@ -145,7 +147,7 @@ def search(
     ny = g.ny
     rows = np.arange(ny, dtype=np.float64).reshape(-1, 1)
     cols = np.arange(nx, dtype=np.float64).reshape(1, -1)
-    hfield: list[npt.NDArray[np.float64]] = []
+    hfield: list[list[float]] = []
     for li in range(nl):
         best_arr: npt.NDArray[np.float64] | None = None
         for bl, (r0, r1, c0, c1) in boxes2:
@@ -160,7 +162,7 @@ def search(
         assert best_arr is not None
         if weight != 1.0:
             best_arr = best_arr * weight
-        hfield.append(best_arr.reshape(-1))
+        hfield.append(best_arr.reshape(-1).tolist())
 
     # Turn bend-cost table [incoming dir 0..8][move]: None = disallowed (> 90°).
     # Step lengths per move (R3): hoisted out of the per-neighbour loop.

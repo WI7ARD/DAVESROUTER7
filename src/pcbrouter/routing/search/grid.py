@@ -5,7 +5,8 @@ routing layer it holds:
 
 * ``passable`` — cell centre is a legal place for the track *centreline*: FREE or
   own-net copper in the width-dependent occupancy map (obstacles inflated by half
-  the width plus the resolved clearance, keepouts, holes, board edge, cutouts);
+  the width plus the resolved clearance plus a half-cell-diagonal segment margin,
+  keepouts, holes, board edge, cutouts);
 * ``near`` — passable cell adjacent to a non-passable one (clearance-proximity cost);
 * ``via_ok`` — a through via of the requested size may be centred here: legal on
   *every* copper layer it spans (via-mode occupancy, keepouts forbidding vias).
@@ -20,6 +21,7 @@ from __future__ import annotations
 import math
 import threading
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -165,6 +167,34 @@ GridCache = dict[Any, Any]
 MAX_GRID_WORKERS = 4
 
 
+def _gather(
+    pool: ThreadPoolExecutor, futures: list[Future[Any]], cancel: threading.Event | None
+) -> list[Any]:
+    """Collect pool results in order, honouring cancel every 200 ms.
+
+    On success the pool is shut down cleanly (no thread leaks across the
+    hundreds of compiles in a board job); on cancel pending work is dropped
+    and occupied workers are abandoned instead of joined.
+    """
+    from concurrent.futures import TimeoutError
+
+    out: list[Any] = []
+    cancelled = False
+    try:
+        for fut in futures:
+            while True:
+                try:
+                    out.append(fut.result(timeout=0.2))
+                    break
+                except TimeoutError:
+                    if cancel is not None and cancel.is_set():
+                        cancelled = True
+                        raise GridCancelled() from None
+    finally:
+        pool.shutdown(wait=not cancelled, cancel_futures=cancelled)
+    return out
+
+
 @dataclass
 class _GridInputs:
     spec: GridSpec
@@ -215,8 +245,6 @@ def compile_grid(
             notes=list(saved.notes),
             rules_complete=saved.rules_complete,
         )
-    from concurrent.futures import ThreadPoolExecutor
-
     notes: list[str] = []
     complete = True
     passable: list[BoolGrid] = []
@@ -237,10 +265,12 @@ def compile_grid(
     if _cancelled():
         raise GridCancelled()
     workers = max(1, min(MAX_GRID_WORKERS, len(layers)))
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grid") as pool:
-        track_occs = list(
-            pool.map(lambda layer: engine.occupancy(layer, net, width, cell, window), layers)
-        )
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grid")
+    track_occs = _gather(
+        pool,
+        [pool.submit(engine.occupancy, layer, net, width, cell, window) for layer in layers],
+        cancel,
+    )
     for layer, occ in zip(layers, track_occs, strict=True):
         if _cancelled():
             raise GridCancelled()
@@ -255,15 +285,15 @@ def compile_grid(
         via_ok = np.ones((spec.ny, spec.nx), dtype=np.bool_)
         # a through via spans every copper layer; built in parallel like tracks
         via_workers = max(1, min(MAX_GRID_WORKERS, len(via_layers)))
-        with ThreadPoolExecutor(max_workers=via_workers, thread_name_prefix="grid-via") as pool:
-            via_occs = list(
-                pool.map(
-                    lambda layer: engine.occupancy(
-                        layer, net, via_diameter, cell, window, ItemType.VIA
-                    ),
-                    via_layers,
-                )
-            )
+        pool = ThreadPoolExecutor(max_workers=via_workers, thread_name_prefix="grid-via")
+        via_occs = _gather(
+            pool,
+            [
+                pool.submit(engine.occupancy, layer, net, via_diameter, cell, window, ItemType.VIA)
+                for layer in via_layers
+            ],
+            cancel,
+        )
         for layer, occ in zip(via_layers, via_occs, strict=True):
             if _cancelled():
                 raise GridCancelled()

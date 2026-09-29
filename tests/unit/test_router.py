@@ -795,6 +795,70 @@ def test_cells_within_band_path_matches_slow_path(tmp_path: Path) -> None:
     assert band == slow
 
 
+def test_source_group_miss_is_invalid_request(basic: WorkingBoard) -> None:
+    res = route(basic.engine, "B", source_group=["no-such-copper"], candidates=1)
+    assert res.status is RouteStatus.INVALID_REQUEST
+    assert "source group" in res.message
+
+
+def test_target_selection_warns_about_skipped_groups(basic: WorkingBoard) -> None:
+    conn = net_connectivity(basic.engine.geometry, "E")
+    members = [list(m) for m in conn.group_members]
+    assert len(members) >= 3
+    res = route(
+        basic.engine,
+        "E",
+        source_group=members[0][:1],
+        target_group=members[1][:1],
+        candidates=1,
+    )
+    assert any("leaves 1 copper group" in d for d in res.details)
+
+
+def test_throwing_progress_callback_keeps_candidates(basic: WorkingBoard) -> None:
+    router = Router(basic.engine)
+
+    def boom(info: object) -> None:
+        raise RuntimeError("ui boom")
+
+    router.progress = boom  # type: ignore[assignment]
+    res = router.route_net(RouteRequest("B", request_id="t-boom", candidates=1))
+    assert res.status is RouteStatus.SUCCESS, res.summary()
+
+
+def test_compile_grid_aborts_on_mid_build_cancel(
+    basic: WorkingBoard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from pcbrouter.routing.search.grid import GridCancelled, compile_grid
+
+    engine = basic.engine
+    real = engine.occupancy
+
+    def slow(*args: object, **kwargs: object) -> object:
+        time.sleep(0.6)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "occupancy", slow)
+    cancel = threading.Event()
+    errors: list[BaseException] = []
+
+    def build() -> None:
+        try:
+            compile_grid(engine, "B", ("F.Cu", "B.Cu"), MM(0.25), None, MM(0.1), None, None, cancel)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=build, daemon=True)
+    worker.start()
+    time.sleep(0.15)
+    cancel.set()
+    worker.join(timeout=10.0)
+    assert not worker.is_alive(), "cancelled compile must abort promptly"
+    assert any(isinstance(e, GridCancelled) for e in errors)
+
+
 def test_cells_within_band_path_honours_cancel(tmp_path: Path) -> None:
     """1.0-B: cancel lands inside big-pour rasterisation, not after it."""
     import threading

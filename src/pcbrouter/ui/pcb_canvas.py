@@ -67,6 +67,9 @@ MAX_PX_PER_MM = 5000.0
 LABEL_MIN_PX_PER_MM = 6.0
 GRID_MIN_PX = 9.0
 WHEEL_ZOOM_BASE = 1.0015  # per 1/8 degree of wheel rotation: one notch ~ 1.2x
+#: Minimum gap between hover picks: scene queries on every mouse move jank on
+#: dense boards, and 30 Hz hover feedback is indistinguishable from 60 Hz.
+HOVER_THROTTLE_MS = 33.0
 
 
 class ItemKind(Enum):
@@ -195,6 +198,7 @@ class PcbCanvas(QGraphicsView):
         self._space_down = False
         self._pan_last = QPointF()
         self._hover_key: tuple[ItemKind, str] | None = None
+        self._last_hover_s = 0.0
         self._generated: set[str] = set()
         self._view_mode = "working"
         self._draw_mode = False
@@ -318,14 +322,17 @@ class PcbCanvas(QGraphicsView):
         new_ids = {t.id for t in board.tracks} | {v.id for v in board.vias}
         old_ids = {t.id for t in old.tracks} | {v.id for v in old.vias}
         removed = old_ids - new_ids
+        gone: set[int] = set()
         for obj_id in removed:
             for kind in (ItemKind.TRACK, ItemKind.VIA):
                 for rec in self._by_id.pop((kind, obj_id), []):
                     self._scene.removeItem(rec.item)
-                    self._records.remove(rec)
+                    gone.add(id(rec))
                     self._by_item.pop(id(rec.item), None)
                     if rec.net is not None and rec in self._by_net.get(rec.net, []):
                         self._by_net[rec.net].remove(rec)
+        if gone:
+            self._records = [rec for rec in self._records if id(rec) not in gone]
         order = list(board.copper_layer_names)
         added = 0
         for t in board.tracks:
@@ -348,11 +355,20 @@ class PcbCanvas(QGraphicsView):
     def set_generated(self, ids: frozenset[str]) -> None:
         """Mark working-board (router-generated) copper: dashed outline overlay so
         it is distinguishable without relying on colour alone."""
-        self._generated = set(ids)
+        new_ids = set(ids)
+        if new_ids == self._generated:
+            return
+        old = self._generated
+        self._generated = new_ids
         for rec in self._records:
-            if rec.kind is ItemKind.TRACK and isinstance(rec.item, QGraphicsPathItem):
+            if (
+                rec.kind is ItemKind.TRACK
+                and isinstance(rec.item, QGraphicsPathItem)
+                and (rec.obj_id in new_ids) != (rec.obj_id in old)
+            ):
                 pen = rec.item.pen()
-                pen.setStyle(Qt.PenStyle.DashLine if rec.obj_id in ids else Qt.PenStyle.SolidLine)
+                style = Qt.PenStyle.DashLine if rec.obj_id in new_ids else Qt.PenStyle.SolidLine
+                pen.setStyle(style)
                 rec.item.setPen(pen)
 
     def is_generated(self, obj_id: str) -> bool:
@@ -838,6 +854,11 @@ class PcbCanvas(QGraphicsView):
         self.cursorMoved.emit(scene_pos.x(), scene_pos.y())
         if self._draw_mode:
             self.drawMoved.emit(scene_pos.x(), scene_pos.y())
+        now = time.perf_counter()
+        if (now - self._last_hover_s) * 1000.0 < HOVER_THROTTLE_MS:
+            super().mouseMoveEvent(event)
+            return
+        self._last_hover_s = now
         rec = self._pick(pos)
         key = (rec.kind, rec.obj_id) if rec is not None else None
         if key != self._hover_key:
@@ -867,6 +888,7 @@ class PcbCanvas(QGraphicsView):
 
     def leaveEvent(self, event: QEvent) -> None:
         self._hover_key = None
+        self._last_hover_s = 0.0
         self._hover_overlay.setPath(QPainterPath())
         super().leaveEvent(event)
 
