@@ -1,7 +1,7 @@
 # Architecture
 
-This document describes the architecture as of Stage 2 and the boundaries that later
-stages must respect. The AI subsystem has its own document:
+This document describes the architecture as of Stage 10 (1.0.0) and the boundaries
+that later work must respect. The AI subsystem has its own document:
 [ai_architecture.md](ai_architecture.md). The overriding principle:
 
 > **The LLM MUST NOT directly modify board geometry.**
@@ -43,13 +43,14 @@ stages must respect. The AI subsystem has its own document:
 |   settings/, app_logging/, utils/paths.py                                         |
 +-----------------------------------------------------------------------------------+
 
-AI flow. Stage 2 implements everything up to "approved"; the rest is Stages 3–9:
+AI flow. Stages 2–9 are implemented; this is the shipped path (Stage 7 agent loop
+included):
 
  User prompt --> BoardContextBuilder --> PromptBuilder --> AIProvider --> JSON text
       --> command_parser --> SemanticValidator --> CommandProposal preview
       --> user APPROVE / REJECT / EDIT (CommandBus, HistoryManager)
-      ...... Stage 4+: deterministic router --> geometry check --> DRC
-      --> RouteProposal preview/diff --> user ACCEPT --> KiCad writer (Stage 9)
+      ...... deterministic router --> geometry check --> DRC
+      --> RouteProposal preview/diff --> user ACCEPT --> KiCad writer (export)
 ```
 
 Dependency rule: arrows point downwards only. `domain` imports nothing from the rest of the
@@ -154,19 +155,22 @@ Full description: [ai_architecture.md](ai_architecture.md). In short:
 4. **Review:** every change becomes a `RouteProposal` shown as a diff and applied only on
    explicit user acceptance.
 
-## 7. Routing-engine boundary (future)
+## 7. Routing-engine boundary
 
-The router will live in its own package (e.g. `pcbrouter.routing`) and will expose
+The router lives in its own package (`pcbrouter.routing`) and exposes
 deterministic operations invoked only via commands. Inputs: an immutable `Board`, resolved
 constraints, a `ComputeBackend`. Output: a `RouteProposal` (added/removed tracks and vias) —
-never an in-place mutation. DRC runs on the proposal before it is shown.
+never an in-place mutation. Commits go to the working board (never the source file),
+are re-validated on commit, and participate in undo/redo. DRC runs on the proposal before it is shown.
 
 ## 8. Compute backends (`pcbrouter.compute`)
 
 - `ComputeBackend` ABC: `name`, `kind`, `available`, `capabilities`, `device_info()`,
   `initialize()`, `shutdown()`.
-- `CPUBackend` is always available. `GPUBackend` is a placeholder: never available, its
-  `initialize()` raises `BackendUnavailableError`, and it reports detection results.
+- `CPUBackend` is always available. GPU backends (CUDA/dpnp) activate when their
+  libraries are installed and a device is detected, otherwise the manager falls
+  back to the CPU and records why. Auto mode picks per-search by measured
+  thresholds.
 - `detection.py` never raises and never imports heavy libraries (only `find_spec`). It uses
   `nvidia-smi` (3 s timeout), then Linux sysfs PCI vendor ids or Windows CIM to classify:
   CUDA device detected / libraries not installed / unsupported GPU / CUDA unavailable.
@@ -177,11 +181,13 @@ never an in-place mutation. DRC runs on the proposal before it is shown.
 ## 9. History system (`pcbrouter.history`)
 
 - `HistoryManager`: undo/redo stacks of `UndoableAction`s with a depth limit and listeners.
-  Stage 1 exercised it with metadata-only actions. Stage 2 records AI proposal decisions
-  as `DecisionAction`s, which also apply or revert session locks. There are still no
-  board edits.
-- Future strategy: actions wrap small *change sets* relative to an immutable board rather
-  than full board copies; snapshots are written only as restore points before saves.
+  AI proposal decisions are recorded as `DecisionAction`s (which also apply or revert
+  session locks); route accepts, lock changes, and constraint/corridor edits are
+  recorded as working-board actions. Failed undo/redo restores the entry instead of
+  losing it, and throwing listeners are logged, not fatal.
+- Actions wrap small *change sets* relative to an immutable board: `WorkingBoard`
+  commits (validated, provenance-tracked) back `undo`/`redo`; snapshots are written
+  as restore points and crash-recovery state.
 - `SnapshotStore` / `MetadataSnapshotStore` (metadata only, writes nothing) and
   `RouteProposal` (pending → accepted/rejected, single transition) are in place.
 
@@ -192,7 +198,8 @@ invalid file → moved aside as `settings.json.corrupt-<timestamp>` and defaults
 writes are atomic (temp file + `os.replace`). Schema version 2 (Stage 2) replaces the inert
 `ai` placeholder with `AISettings`: provider profiles, default profile, mode, context
 level, limits, timeout, retries, privacy and anonymisation options. Migration from v1
-drops the old placeholder. `routing` and `gpu` are still pinned to `enabled = false`. The
+drops the old placeholder. `routing` (candidates, limits, strategy) and compute-backend
+choice are live settings. The
 schema contains no secret fields (tested; the settings file is searched for a fake key).
 
 ## 11. Logging (`pcbrouter.app_logging`)
@@ -209,9 +216,9 @@ masks API-key-shaped strings and `key=value` credentials.
   *unreadable*. Integration tests assert SHA-256, size and mtime are identical and no side
   files appear after open → inspect → close, from the command bus, the GUI and the CLI.
 - Each board has a **workspace** under the application data directory (keyed by a hash of
-  its path, case-normalised on Windows) for future snapshots and proposals. Stage 1
-  computes these paths but creates nothing.
-- **Stage 9 will implement safe KiCad writing:** write to a temp file inside the workspace,
+  its path, case-normalised on Windows) holding snapshots, proposals, AI sessions and
+  export state.
+- **Safe KiCad writing:** write to a temp file inside the workspace,
   re-parse it to validate, snapshot the previous version, then atomically replace — only on
   explicit user action, and never by an AI component.
 

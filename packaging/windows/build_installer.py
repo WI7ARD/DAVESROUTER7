@@ -70,6 +70,38 @@ def read_version(root: Path = ROOT) -> str:
     return match.group(1)
 
 
+def read_pyproject_version(root: Path = ROOT) -> str:
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    version = str(project.get("version") or "")
+    if not version:
+        raise BuildError("project.version missing in pyproject.toml")
+    return version
+
+
+def check_version_match(root: Path = ROOT) -> str:
+    """The two version sources must agree; silent drift ships wrong metadata."""
+    package = read_version(root)
+    project = read_pyproject_version(root)
+    if package != project:
+        raise BuildError(
+            f"version drift: src/pcbrouter/__init__.py says {package!r} but "
+            f"pyproject.toml says {project!r} (fix one of them)"
+        )
+    return package
+
+
+def check_build_inputs() -> None:
+    """Fail fast on missing assets instead of after a minutes-long PyInstaller run."""
+    missing = [p for p in (SPEC_FILE, NSI_SCRIPT, LICENSE_FILE) if not p.is_file()]
+    missing += [
+        ASSETS_DIR / name
+        for name in ("app.ico", "wizard.bmp", "header.bmp")
+        if not (ASSETS_DIR / name).is_file()
+    ]
+    if missing:
+        raise BuildError("missing build inputs: " + ", ".join(str(p) for p in missing))
+
+
 def read_publisher(root: Path = ROOT) -> str:
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     authors = project.get("authors") or [{}]
@@ -312,6 +344,17 @@ def run_pyinstaller(version: str, publisher: str, work: Path, dist: Path) -> Pat
     return dist / APP_NAME
 
 
+#: NSIS uses 32-bit offsets: installers must stay below 2 GB with margin.
+MAX_INSTALLER_BYTES = 1_900_000_000
+
+
+def write_sha256_file(outfile: Path, digest: str) -> Path:
+    """Coreutils-style ``<file>.sha256`` sidecar for the release page."""
+    sidecar = outfile.with_name(outfile.name + ".sha256")
+    sidecar.write_text(f"{digest}  {outfile.name}\n", encoding="utf-8")
+    return sidecar
+
+
 def sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -339,9 +382,10 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        version = args.version_override or read_version()
+        version = args.version_override or check_version_match()
         publisher = read_publisher()
         print(f"{APP_NAME} {version} (publisher: {publisher})")
+        check_build_inputs()
 
         if args.payload is None:
             if sys.platform != "win32" and not args.skip_installer:
@@ -376,9 +420,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BuildError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    size_mb = outfile.stat().st_size / 1e6
-    print(f"installer: {outfile} ({size_mb:.1f} MB)")
-    print(f"sha256:    {sha256_of(outfile)}")
+    size_bytes = outfile.stat().st_size
+    if size_bytes > MAX_INSTALLER_BYTES:
+        raise BuildError(
+            f"installer is {size_bytes / 1e6:.0f} MB, past the "
+            f"{MAX_INSTALLER_BYTES / 1e6:.0f} MB NSIS limit (trim the payload)"
+        )
+    digest = sha256_of(outfile)
+    sidecar = write_sha256_file(outfile, digest)
+    print(f"installer: {outfile} ({size_bytes / 1e6:.1f} MB)")
+    print(f"sha256:    {digest}")
+    print(f"sidecar:   {sidecar}")
     return 0
 
 

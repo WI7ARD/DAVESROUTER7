@@ -16,7 +16,8 @@
    board.
 5. **The LLM never edits geometry, files or code.** Output is parsed as JSON only
    (never `eval`/`exec`/pickle/YAML), validated against a closed schema and the board,
-   previewed, and needs explicit approval. Stage 2 executes no routing at all.
+   previewed, and needs explicit approval. Routing runs only in the deterministic
+   router after approval.
 6. **Board text is data, not instructions.** It is quoted/escaped inside
    `<pcb_context>` and the system prompt says so.
 7. **No secrets in logs.** A redaction filter masks key-shaped strings on every log
@@ -41,22 +42,24 @@
 | Threat | Mitigation |
 |---|---|
 | Prompt injection via component values/net names | escaped quoted data in delimiters; system prompt; schema cannot express actions beyond 15 bounded operations; semantic validation; human approval |
+| Prompt injection via replayed conversation history | history contents re-neutralised at request build (roles are protocol, content is data) |
+| Instruction override dropping safety rules | overrides must restate JSON-only output plus approval/validation gates; refused at build otherwise |
 | Model invents nets/components | validator rejects unknown entities with suggestions; no auto-substitution |
 | Model emits code / shell / file text | no field can carry it; unknown keys rejected; nothing is executed |
 | Malicious/unexpected server response (proxy HTML, truncated JSON) | adapter shape checks; JSON-only parser; size limits |
 | Response arriving for a different board | request id + session id + fingerprint → STALE, never approvable |
 | Endpoint redirection via environment variables | base URL and key passed explicitly to SDKs |
-| Key sent in clear to a remote `http://` endpoint | profile flags non-local `http` base URLs (`is_insecure_remote_http`) |
+| Key sent in clear to a remote `http://` endpoint | keyed clients refuse to build on non-local `http` (`is_insecure_remote_http` enforced in `_client`) |
 | Orphaned keys | keys saved in a cancelled dialog or for removed profiles are deleted |
 | HTML/markup injection into the UI from model output | all model/board text HTML-escaped; links disabled |
 
-## Audit (Stage 2)
+## Audit (Stage 2; re-check critical paths per release)
 
 Searched for API keys (`sk-`, `x-api-key`, `Authorization:`), `eval`, `exec`,
 `pickle`, `yaml.load`, `shell=True`, `os.system`, `subprocess`, debug prints,
 TODO/FIXME, `NotImplementedError`, active mocks and board-writing code. Findings: only
-obviously fake test keys; `subprocess` only in Stage 1 GPU detection (fixed argument
-lists, no shell, timeout); `.exec()` hits are Qt dialog calls; the only file writes are
-settings (atomic) and user-requested AI-session JSON exports, which refuse
-`.kicad_pcb` targets. No mock is reachable from application code (the mock provider
-lives under `tests/`).
+obviously fake test keys; `subprocess` in GPU detection, KiCad CLI, Freerouting setup
+and worker spawn (fixed argument lists, no shell, timeouts); `.exec()` hits are Qt
+dialog calls; file writes are settings (atomic), workspaces/snapshots, user-requested
+AI-session JSON exports (which refuse `.kicad_pcb` targets) and explicit board exports.
+No mock is reachable from application code (the mock provider lives under `tests/`).

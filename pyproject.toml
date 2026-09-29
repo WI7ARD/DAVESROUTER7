@@ -7,19 +7,21 @@ name = "ai-pcb-router"
 # Plain PEP 440 since 1.0.0. The user-facing version string lives in
 # pcbrouter.__version__.
 version = "1.0.0"
-description = "Desktop PCB inspection and (future) AI-assisted autorouting for KiCad boards."
+description = "Desktop PCB inspection and AI-assisted autorouting for KiCad boards."
 readme = "README.md"
 license = { text = "Proprietary" }
 requires-python = ">=3.12"
 authors = [{ name = "Henderson Engineering" }]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: X11 Applications :: Qt",
+    "Environment :: Win32 (MS Windows)",
     "Intended Audience :: Science/Research",
     "License :: Other/Proprietary License",
-    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
 dependencies = [
@@ -38,7 +40,7 @@ openai = ["openai>=3.19", "keyring>=25"]  # OpenAI and OpenAI-compatible endpoin
 gpu-cuda = ["cupy-cuda12x>=13"]  # NVIDIA GPUs with a CUDA 12 driver
 gpu-intel = ["dpnp>=0.16"]  # Intel GPUs (Iris Xe, Arc) with the oneAPI GPU runtime
 anthropic = ["anthropic>=1.8", "keyring>=25"]
-ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25"]
+ai = ["openai>=3.19", "anthropic>=1.8", "keyring>=25", "tiktoken>=0.7"]
 # Windows installer build (packaging/windows/build_installer.py); NSIS is separate.
 packaging = ["pyinstaller>=6.22"]
 dev = [

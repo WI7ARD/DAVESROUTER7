@@ -5,7 +5,8 @@ autorouter used by many KiCad users. AI PCB Router runs it as a **separate progr
 and checks everything it produces before you can accept it.
 
 ## License
-Freerouting is **GPL-3.0**. This app (MIT) does **not include, copy or modify** it:
+Freerouting is **GPL-3.0**. This app (proprietary, see `LICENSE`) does **not include,
+copy or modify** it:
 you install Freerouting yourself and the app starts it as an external process, the
 same way you would run it by hand.
 

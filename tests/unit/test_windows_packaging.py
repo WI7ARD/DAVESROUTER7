@@ -50,6 +50,20 @@ def _payload(tmp_path: Path, extra: dict[str, str] | None = None) -> Path:
 
 def test_version_comes_from_the_package() -> None:
     assert b.read_version() == pcbrouter.__version__
+
+
+def test_pyproject_version_matches_package() -> None:
+    assert b.check_version_match() == pcbrouter.__version__
+    assert b.read_pyproject_version() == pcbrouter.__version__
+
+
+def test_sha256_sidecar_uses_coreutils_format(tmp_path: Path) -> None:
+    target = tmp_path / "AI-PCB-Router-1.0.0-Setup-x64.exe"
+    target.write_bytes(b"fake-installer")
+    sidecar = b.write_sha256_file(target, b.sha256_of(target))
+    assert sidecar.name == target.name + ".sha256"
+    text = sidecar.read_text(encoding="utf-8")
+    assert re.fullmatch(r"[0-9a-f]{64}  AI-PCB-Router-1\.0\.0-Setup-x64\.exe\n", text)
     assert b.read_publisher() == "Henderson Engineering"
 
 
