@@ -72,7 +72,7 @@ python3.12 -m venv .venv
 # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"      # app + AI SDKs + keyring + test tools
 # or, for a user install:
-pip install -e ".[ai]"       # app + OpenAI/Anthropic/Gemini SDKs + keyring
+pip install -e ".[ai]"       # app + OpenAI/Anthropic SDKs + keyring (+ Gemini via OpenAI-compatible endpoint)
 pip install -e .             # app only (AI shows "not installed")
 ```
 
@@ -114,13 +114,19 @@ in the Route panel. For a large synthetic board:
 |---|---|
 | `Ctrl+O` / `Ctrl+W` | Open / close PCB |
 | `R` | Route selected net |
+| `T` | Hand-draw a trace (click points, `V` via, `Enter` finish, `Esc` cancel) |
+| `L` | Lock / unlock selection |
+| `Shift+R` | Reroute selected section |
 | `Ctrl+Shift+R` | Route board |
 | `Ctrl+I` | Show AI Engineering panel |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Undo / redo |
 | `F` / `G` | Zoom to fit / toggle grid |
 | `Ctrl+,` | Settings |
 | Middle drag, or `Space` + left drag | Pan |
 | `Ctrl+Q` | Exit |
+
+Single-letter shortcuts yield while you type in a filter box, prompt, or
+spin box.
 
 ### Where files go
 

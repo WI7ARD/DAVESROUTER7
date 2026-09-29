@@ -31,7 +31,8 @@ What the 1.x line will not break out from under users, scripts, and files.
   on explicit user action:
   * AI providers you configure (OpenAI/Anthropic/compatible) — bounded,
     previewable summaries only, never the `.kicad_pcb` file;
-  * Ollama at `http://localhost…` only (anything else is refused);
+  * Keyed profiles refuse plain-HTTP to non-local hosts (keys would travel in
+    clear); local loopback HTTP (Ollama-style) and keyless endpoints are allowed;
   * Freerouting release lookup during Freerouting setup.
 * API keys live in the OS credential store (or session memory); never in
   settings, logs, history, or exports.
@@ -41,3 +42,12 @@ What the 1.x line will not break out from under users, scripts, and files.
 * `THIRD-PARTY-NOTICES.md` and `LICENSE` ship at the top of the installed app
   (bundled by `pcbrouter.spec`, removed again by the exact-file uninstaller).
   Qt/PySide6 LGPL rights (including library replacement) are preserved.
+
+## Known limitations (1.x)
+
+* Placed vias always span the full copper stack: a via the search uses between
+  two inner layers is still committed (and validated) as a through via.
+  Blind/buried intent is not preserved.
+* Large dense boards can need minutes per net in Accuracy mode. The Speed toggle
+  (coarser grid, bounded weighted search) is the intended first pass (typically
+  the majority of nets); Accuracy finishes the leftovers.
