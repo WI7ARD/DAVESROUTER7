@@ -574,7 +574,21 @@ class Router:
             end_li, end_idx = connection.cells[-1]
             hit = cell_to_group[end_li].get(int(end_idx))
             if hit is None or hit not in remaining_idx:
-                hit = remaining_idx[0]
+                # Shared cells map first-wins above; attribute exactly instead
+                # of guessing remaining_idx[0] (a wrong guess ends the loop
+                # early and reports SUCCESS with a group still isolated).
+                hit = next(
+                    (
+                        j
+                        for j in remaining_idx
+                        if np.any(group_cells_all[j][end_li] == int(end_idx))
+                    ),
+                    None,
+                )
+            if hit is None:
+                attempt.failure = FailureReason.VALIDATION
+                attempt.message = "routed endpoint touches no remaining copper group"
+                return attempt
             remaining_idx.remove(hit)
             connected_idx.add(hit)
             for seg in connection.segments:
