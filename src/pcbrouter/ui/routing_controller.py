@@ -256,6 +256,10 @@ class RoutingController(QObject):
         return self.w.engine_ui._selected_net() or self.w.canvas.highlighted_net
 
     def route_selected_net(self) -> bool:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if typing_focus():
+            return False
         net = self.selected_net()
         if net is None:
             self.w.statusBar().showMessage("Select a net (or a pad/track of it) first.", 5000)
@@ -785,6 +789,7 @@ class RoutingController(QObject):
             self.w.ai_panel.refresh_board()
         self.w.engine_ui.refresh_engine()
         self._update_actions()
+        self.w._update_undo_actions()
         self.w.refresh_statistics()
         self.w.workbench.on_working_changed()
 

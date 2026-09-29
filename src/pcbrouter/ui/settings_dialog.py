@@ -51,14 +51,16 @@ class SettingsDialog(QDialog):
         self._ai_controller = ai_controller
 
         tabs = QTabWidget()
-        tabs.addTab(self._general_tab(), "General")
-        tabs.addTab(self._viewer_tab(), "Viewer")
-        tabs.addTab(self._compute_tab(compute), "Compute")
-        tabs.addTab(self._ai_tab(), "AI Providers")
-        tabs.addTab(self._routing_tab(), "Routing")
-        tabs.addTab(self._gpu_tab(compute), "GPU")
-        tabs.addTab(self._geometry_tab(), "Geometry")  # appended: keeps tab indices stable
-        tabs.addTab(self._export_tab(), "Export")
+        tabs.addTab(self._scroll(self._general_tab()), "General")
+        tabs.addTab(self._scroll(self._viewer_tab()), "Viewer")
+        tabs.addTab(self._scroll(self._compute_tab(compute)), "Compute")
+        tabs.addTab(self._ai_tab(), "AI Providers")  # already scrolls internally
+        tabs.addTab(self._scroll(self._routing_tab()), "Routing")
+        tabs.addTab(self._scroll(self._gpu_tab(compute)), "GPU")
+        tabs.addTab(
+            self._scroll(self._geometry_tab()), "Geometry"
+        )  # appended: keeps tab indices stable
+        tabs.addTab(self._scroll(self._export_tab()), "Export")
         self.tabs = tabs
 
         buttons = QDialogButtonBox(
@@ -71,6 +73,13 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     # ------------------------------------------------------------------ tabs
+    @staticmethod
+    def _scroll(page: QWidget) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(page)
+        return scroll
+
     def _general_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)

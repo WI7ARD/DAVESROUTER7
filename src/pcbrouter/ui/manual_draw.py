@@ -90,6 +90,11 @@ class ManualDrawController(QObject):
 
     # ------------------------------------------------------------ lifecycle
     def _on_toggled(self, on: bool) -> None:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if on and typing_focus():
+            self.act_draw.setChecked(False)
+            return
         if on:
             if not self.start():
                 self.act_draw.setChecked(False)

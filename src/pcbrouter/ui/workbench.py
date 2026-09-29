@@ -8,6 +8,7 @@ nothing reaches the working board without an explicit accept.
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -85,6 +87,45 @@ class LockAction(UndoableAction):
 
     def revert(self) -> None:
         self.wb.restore_lock_state(self.before)
+
+
+class ConstraintsAction(UndoableAction):
+    """Net-constraints / corridor edits as history entries (undoable)."""
+
+    def __init__(
+        self,
+        wb: WorkingBoard,
+        label: str,
+        before: tuple[dict[str, Any], list[Any]],
+        after: tuple[dict[str, Any], list[Any]],
+    ) -> None:
+        self.wb, self._label, self.before, self.after = wb, label, before, after
+
+    @property
+    def label(self) -> str:
+        return self._label
+
+    @property
+    def kind(self) -> str:
+        return "constraints"
+
+    @property
+    def metadata(self) -> Mapping[str, Any]:
+        return {"nets": sorted(self.after[0])}
+
+    def apply(self) -> None:
+        self.wb.net_constraints = copy.deepcopy(self.after[0])
+        self.wb.corridors = copy.deepcopy(self.after[1])
+
+    def revert(self) -> None:
+        self.wb.net_constraints = copy.deepcopy(self.before[0])
+        self.wb.corridors = copy.deepcopy(self.before[1])
+
+
+def _constraints_snapshot(
+    wb: WorkingBoard,
+) -> tuple[dict[str, Any], list[Any]]:
+    return copy.deepcopy(wb.net_constraints), copy.deepcopy(wb.corridors)
 
 
 def _mm_spin(value: float, lo: float = -10_000, hi: float = 10_000) -> QDoubleSpinBox:
@@ -201,8 +242,13 @@ class NetConstraintsDialog(QDialog):
         self.apply_all_button.clicked.connect(self._apply_all)
         self.bulk_applied = 0
         self.bulk_skipped = 0
+        form_host = QWidget()
+        form_host.setLayout(form)
+        scroller = QScrollArea()
+        scroller.setWidgetResizable(True)
+        scroller.setWidget(form_host)
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.addWidget(scroller)
         layout.addWidget(self.error)
         bulk_row = QHBoxLayout()
         bulk_row.addWidget(self.apply_all_button)
@@ -388,6 +434,10 @@ class WorkbenchController(QObject):
         return sel
 
     def toggle_lock(self) -> bool:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if typing_focus():
+            return False
         wb, sel = self.working, self._selection()
         if wb is None or sel is None:
             self.w.statusBar().showMessage("Select a track, via, net or component to lock.", 5000)
@@ -483,11 +533,22 @@ class WorkbenchController(QObject):
             self.w.statusBar().showMessage("Select a net first.", 5000)
             return False
         dlg = NetConstraintsDialog(wb, net, self.w)
+        before = _constraints_snapshot(wb)
         if self.w.run_dialog(dlg) != QDialog.DialogCode.Accepted:
             return False
         if dlg.bulk:
             # _apply_all already wrote every net and closed the dialog: report,
             # don't apply a second time.
+            self.w.bus.context.history.push(
+                ConstraintsAction(
+                    wb,
+                    f"Bulk constraints ({dlg.bulk_applied} nets)",
+                    before,
+                    _constraints_snapshot(wb),
+                ),
+                already_applied=True,
+            )
+            self.w._update_undo_actions()
             self.w.statusBar().showMessage(
                 f"Routing constraints applied to {dlg.bulk_applied} net(s)"
                 + (
@@ -497,10 +558,18 @@ class WorkbenchController(QObject):
             )
             return True
         values = dlg.result_constraints()
+        current = wb.net_constraints.get(net)
+        if (values or None) == (current or None):
+            return True  # nothing changed: no history entry
         if values:
             wb.net_constraints[net] = values
         else:
             wb.net_constraints.pop(net, None)
+        self.w.bus.context.history.push(
+            ConstraintsAction(wb, f"Constraints {net}", before, _constraints_snapshot(wb)),
+            already_applied=True,
+        )
+        self.w._update_undo_actions()
         self.w.statusBar().showMessage(
             f"Routing constraints for {net}: {values or 'rules only'}", 8000
         )
@@ -519,14 +588,26 @@ class WorkbenchController(QObject):
                 return False
             box, avoid = dlg.box_nm(), dlg.avoid.isChecked()
         kind = SoftRegionKind.AVOID if avoid else SoftRegionKind.PREFER
+        before = _constraints_snapshot(wb)
         wb.corridors.append(SoftRegion(kind, box))
+        self.w.bus.context.history.push(
+            ConstraintsAction(wb, f"{kind.value} corridor", before, _constraints_snapshot(wb)),
+            already_applied=True,
+        )
+        self.w._update_undo_actions()
         self._corridor_overlay()
         return True
 
     def clear_corridors(self) -> None:
         wb = self.working
-        if wb is not None:
+        if wb is not None and wb.corridors:
+            before = _constraints_snapshot(wb)
             wb.corridors.clear()
+            self.w.bus.context.history.push(
+                ConstraintsAction(wb, "Clear corridors", before, _constraints_snapshot(wb)),
+                already_applied=True,
+            )
+            self.w._update_undo_actions()
         self._corridor_overlay()
 
     def _corridor_overlay(self) -> None:
@@ -549,6 +630,10 @@ class WorkbenchController(QObject):
 
     # ------------------------------------------------------------ local reroute
     def reroute_section(self) -> bool:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if typing_focus():
+            return False
         wb, sel = self.working, self._selection()
         if wb is None or sel is None or sel[0] is not ItemKind.TRACK:
             self.w.statusBar().showMessage("Select a router-generated track first.", 5000)

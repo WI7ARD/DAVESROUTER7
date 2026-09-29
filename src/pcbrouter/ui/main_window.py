@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         )
         self.act_exit = self._action("E&xit", self.close, "Ctrl+Q", "Quit")
         self.act_fit = self._action(
-            "Zoom to &Fit", self.canvas.zoom_to_fit, "F", "Fit the whole board in view"
+            "Zoom to &Fit", self._zoom_fit_guarded, "F", "Fit the whole board in view"
         )
         self.act_zoom_in = self._action(
             "Zoom &In", lambda: self.canvas.zoom_by(1.25), "Ctrl+=", "Zoom in"
@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
             "Zoom &Out", lambda: self.canvas.zoom_by(0.8), "Ctrl+-", "Zoom out"
         )
         self.act_grid = self._action(
-            "&Grid", self._on_grid_toggled, "G", "Toggle the grid", checkable=True
+            "&Grid", self._on_grid_toggled_guarded, "G", "Toggle the grid", checkable=True
         )
         self.act_compute = self._action(
             "&Compute Backend Information…",
@@ -265,9 +265,10 @@ class MainWindow(QMainWindow):
             "&Undo",
             self.undo,
             "Ctrl+Z",
-            "Undo the last AI proposal decision (never touches geometry)",
+            "Undo the last change (route accept, lock, constraints, AI decision)",
         )
         self.act_redo = self._action("&Redo", self.redo, "Ctrl+Shift+Z", "Redo")
+        self.act_redo.setShortcuts([QKeySequence("Ctrl+Shift+Z"), QKeySequence("Ctrl+Y")])
         self.act_about = self._action(f"&About {APP_NAME}", lambda: dialogs.show_about(self))
 
     def _build_menus(self) -> None:
@@ -596,6 +597,22 @@ class MainWindow(QMainWindow):
         self.act_grid.setChecked(v.grid_visible)
         self.act_grid.blockSignals(False)
 
+    def _zoom_fit_guarded(self) -> None:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if not typing_focus():
+            self.canvas.zoom_to_fit()
+
+    def _on_grid_toggled_guarded(self, checked: bool) -> None:
+        from pcbrouter.ui.shortcuts import typing_focus
+
+        if typing_focus():
+            self.act_grid.blockSignals(True)
+            self.act_grid.setChecked(not checked)
+            self.act_grid.blockSignals(False)
+            return
+        self._on_grid_toggled(checked)
+
     def _on_grid_toggled(self, checked: bool) -> None:
         self.settings.viewer.grid_visible = checked
         self.canvas.set_grid(checked)
@@ -722,26 +739,35 @@ class MainWindow(QMainWindow):
     def open_ollama_setup(self) -> None:
         from pcbrouter.ui.ollama_dialog import OllamaDialog
 
-        dlg = OllamaDialog(self)
-        dlg.setModal(False)
+        dlg = getattr(self, "_ollama_dialog", None)
+        if dlg is None:
+            dlg = OllamaDialog(self)
+            dlg.setModal(False)
+            self._ollama_dialog = dlg
         dlg.show()
-        self._ollama_dialog = dlg
+        dlg.raise_()
 
     def open_freerouting_setup(self) -> None:
         from pcbrouter.ui.freerouting_dialog import FreeroutingDialog
 
-        dlg = FreeroutingDialog(self)
-        dlg.setModal(False)
+        dlg = getattr(self, "_freerouting_dialog", None)
+        if dlg is None:
+            dlg = FreeroutingDialog(self)
+            dlg.setModal(False)
+            self._freerouting_dialog = dlg
         dlg.show()
-        self._freerouting_dialog = dlg
+        dlg.raise_()
 
     def open_gpu_setup(self) -> None:
         from pcbrouter.ui.gpu_setup_dialog import GpuSetupDialog
 
-        dlg = GpuSetupDialog(self)
-        dlg.setModal(False)
+        dlg = getattr(self, "_gpu_setup_dialog", None)
+        if dlg is None:
+            dlg = GpuSetupDialog(self)
+            dlg.setModal(False)
+            self._gpu_setup_dialog = dlg
         dlg.show()
-        self._gpu_setup_dialog = dlg
+        dlg.raise_()
 
     def start_gpu_probe(self) -> None:
         """Probe for a GPU device in the background (nvidia-smi/PowerShell can take
@@ -941,6 +967,7 @@ class MainWindow(QMainWindow):
     def _after_history_change(self) -> None:
         self.ai_panel.refresh_board()
         self.ai_history.refresh()
+        self.workbench.on_working_changed()
         self._update_undo_actions()
 
     def _update_undo_actions(self) -> None:
