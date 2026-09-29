@@ -21,3 +21,8 @@ not start until the previous stage is accepted.
 - 3D board preview.
 - KiCad IPC API live connection (KiCad 9+).
 - Push-and-shove interactive routing.
+- Faster large-board search (bidirectional A* / hierarchical coarse-to-fine).
+  Measured on a 120×80 mm, 104-pad, 32-net stress board: Speed clears ~60% in
+  ~10 min, Accuracy adds more over ~1 h, stubborn nets die at search limits
+  (millions of nodes each). Small/medium boards already route fully in
+  seconds–minutes; the stress board needs algorithmic work, not bigger limits.
