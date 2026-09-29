@@ -374,6 +374,40 @@ class TestContract:
 
 
 # ------------------------------------------------------------------ adapter specifics
+def test_remote_plain_http_with_key_is_refused_before_any_traffic() -> None:
+    """A keyed profile on remote http:// must never build a client (clear-text keys)."""
+    profile = ProviderProfile(
+        profile_id="evil-remote",
+        name="evil",
+        kind=ProviderKind.OPENAI_COMPATIBLE,
+        model_id="m",
+        base_url="http://keys.example.invalid/v1",
+        requires_api_key=True,
+    )
+    assert profile.is_insecure_remote_http
+    creds = CredentialService(secure=SessionCredentialStore())
+    creds.save(profile.credential_ref, FAKE_KEY, session_only=True)
+    provider = OpenAICompatibleProvider(profile, creds)
+    with pytest.raises(AINotConfiguredError, match="clear text") as info:
+        provider._client()
+    assert "unencrypted HTTP" in info.value.user_message
+    result = run(provider.test_connection())
+    assert result.status is ConnectionStatus.NOT_CONFIGURED
+
+
+def test_loopback_http_with_key_still_works() -> None:
+    """The refusal is scoped to remote hosts: local Ollama-style URLs are fine."""
+    profile = ProviderProfile(
+        profile_id="local-ok",
+        name="local",
+        kind=ProviderKind.OPENAI_COMPATIBLE,
+        model_id="m",
+        base_url="http://localhost:1234/v1",
+        requires_api_key=True,
+    )
+    assert not profile.is_insecure_remote_http
+
+
 def test_openai_uses_responses_api_strict_schema_and_no_storage() -> None:
     provider, rec = make(KINDS[0], lambda r: httpx2.Response(200, json=openai_response()))
     resp = run(provider.generate(request()))

@@ -24,6 +24,17 @@ from pcbrouter.settings.settings import AISettings
 
 BOARDS = Path(__file__).parent.parent / "fixtures" / "boards"
 
+#: Realistic safe override: short, but restates the safety invariants an
+#: override must keep (JSON-only output, approval + validation gates).
+SAFE_ANALYZE = (
+    "Be brief. Reply with exactly one JSON object. "
+    "Wait for user approval; commands are validated locally."
+)
+SAFE_PLAN = (
+    "Be brief. Reply with exactly one JSON object. "
+    "Wait for user approval; commands are validated locally."
+)
+
 
 def board() -> Board:
     return load_board(BOARDS / "can_node.kicad_pcb").board
@@ -59,7 +70,7 @@ def test_builder_uses_strategy_and_records_id() -> None:
     from pcbrouter.ai.context_builder import BoardContextBuilder
 
     context = BoardContextBuilder(board()).build(user_prompt="hi")
-    tuned = PromptStrategy(name="t", mode_instructions={"analyze": "Be brief."})
+    tuned = PromptStrategy(name="t", mode_instructions={"analyze": SAFE_ANALYZE})
     request = PromptBuilder().build(
         PromptInputs(
             mode=AIMode.ANALYZE,
@@ -70,7 +81,7 @@ def test_builder_uses_strategy_and_records_id() -> None:
         ),
         Conversation(),
     )
-    assert "Be brief." in request.system_prompt
+    assert SAFE_ANALYZE in request.system_prompt
     assert request.metadata["strategy_id"] == tuned.strategy_id
     plain = PromptBuilder().build(
         PromptInputs(mode=AIMode.ANALYZE, user_prompt="hi", context=context, model="m"),
@@ -108,15 +119,33 @@ def test_settings_round_trip_with_strategies() -> None:
 
 
 def test_session_config_carries_strategy() -> None:
-    tuned = PromptStrategy(name="t", mode_instructions={"analyze": "Be brief."})
+    tuned = PromptStrategy(name="t", mode_instructions={"analyze": SAFE_ANALYZE})
     session = AISession(board(), session_id="s", config=AIRuntimeConfig(strategy=tuned))
     prepared = session.prepare("hi", AIMode.ANALYZE, model="m", provider_name="p")
-    assert "Be brief." in prepared.request.system_prompt
+    assert SAFE_ANALYZE in prepared.request.system_prompt
+
+
+def test_unsafe_override_is_refused_at_build() -> None:
+    from pcbrouter.ai.context_builder import BoardContextBuilder
+
+    context = BoardContextBuilder(board()).build(user_prompt="hi")
+    bare = PromptStrategy(name="bare", mode_instructions={"analyze": "Be brief."})
+    with pytest.raises(ValueError, match="drops safety rules"):
+        PromptBuilder().build(
+            PromptInputs(
+                mode=AIMode.ANALYZE,
+                user_prompt="hi",
+                context=context,
+                model="m",
+                strategy=bare,
+            ),
+            Conversation(),
+        )
 
 
 def test_deterministic_benchmark_and_comparison() -> None:
     tuned = PromptStrategy(
-        name="brief", note="shorter analyze", mode_instructions={"analyze": "Be brief."}
+        name="brief", note="shorter analyze", mode_instructions={"analyze": SAFE_ANALYZE}
     )
     reports, comparison = benchmark_all([None, tuned], str(BOARDS))
     assert len(reports) == 2
@@ -127,4 +156,14 @@ def test_deterministic_benchmark_and_comparison() -> None:
         if not c.ok
     ]
     assert comparison is not None
-    assert comparison["instruction_diff"]["analyze"]["after_chars"] == len("Be brief.")
+    assert comparison["instruction_diff"]["analyze"]["after_chars"] == len(SAFE_ANALYZE)
+
+
+def test_safety_issues_flags_dropped_invariants() -> None:
+    from pcbrouter.ai.strategy import safety_issues
+
+    assert safety_issues(SAFE_ANALYZE) == []
+    issues = safety_issues("Be brief.")
+    assert len(issues) == 3
+    partial = safety_issues("Reply in JSON. Be brief.")
+    assert any("approval" in i for i in partial)

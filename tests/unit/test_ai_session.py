@@ -381,6 +381,50 @@ def test_usage_tracker_never_invents_cost() -> None:
     assert s.estimated_cost.startswith("Unavailable")
 
 
+def test_usage_tracker_bounds_memory_and_counts_drops() -> None:
+    from pcbrouter.ai.usage import MAX_RECORDS
+
+    t = UsageTracker()
+    for i in range(MAX_RECORDS + 50):
+        t.add(UsageRecord(f"r{i}", "openai", "p", "m", 1, 1, 0.1, True))
+    s = t.summary()
+    assert s.requests == MAX_RECORDS
+    assert s.dropped_records == 50
+    assert len(t.records) == MAX_RECORDS
+
+
+def test_model_cache_expires_stale_listings() -> None:
+    import time
+
+    from pcbrouter.ai.models import AIModelInfo
+    from pcbrouter.ai.service import ModelCache
+
+    cache = ModelCache(ttl_s=60.0)
+    models = [AIModelInfo(provider_kind="openai_compatible", model_id="m1")]
+    cache["p"] = models
+    assert cache.get("p") == models
+    cache._items["p"] = (models, time.time() - 61.0)  # age past TTL
+    assert cache.get("p") == []
+    cache["p"] = models
+    cache.pop("p")
+    assert cache.get("p") == []
+
+
+def test_prepare_refuses_oversize_context_for_known_window(can_board: Board) -> None:
+    from pcbrouter.ai.models import AIModelInfo
+    from pcbrouter.ai.proposals import ProposalStateError
+
+    s = session_for(can_board)
+    tiny = AIModelInfo(provider_kind="openai_compatible", model_id="tiny", context_window=100)
+    with pytest.raises(ProposalStateError, match="allows"):
+        s.prepare("hi", AIMode.ANALYZE, model="tiny", provider_name="p", model_info=tiny)
+    roomy = AIModelInfo(
+        provider_kind="openai_compatible", model_id="roomy", context_window=10_000_000
+    )
+    prepared = s.prepare("hi", AIMode.ANALYZE, model="roomy", provider_name="p", model_info=roomy)
+    assert prepared.request.model == "roomy"
+
+
 def test_prompts_and_context_are_not_logged_by_default(
     can_board: Board, caplog: pytest.LogCaptureFixture
 ) -> None:

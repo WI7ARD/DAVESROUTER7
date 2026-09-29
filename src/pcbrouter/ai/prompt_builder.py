@@ -11,12 +11,13 @@ Message layout (identical for every provider)::
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from pcbrouter.ai.context_builder import BoardContext
 from pcbrouter.ai.conversation import Conversation
 from pcbrouter.ai.requests import AIMode, AIRequest, ChatMessage, new_request_id
-from pcbrouter.ai.strategy import PromptStrategy, resolve_instructions
+from pcbrouter.ai.strategy import PromptStrategy, resolve_instructions, safety_issues
 from pcbrouter.ai.system_prompts import (
     PLANNER_SYSTEM_PROMPT,
     SCHEMA_FALLBACK_INSTRUCTION,
@@ -25,13 +26,17 @@ from pcbrouter.ai.wire_schema import compact_schema_text, planner_wire_schema
 
 MAX_USER_PROMPT_CHARS = 8000
 _TAGS = ("pcb_context", "session_state", "user_request")
+_TAG_RE = re.compile(r"</?(?:pcb_context|session_state|user_request)\b", re.IGNORECASE)
 
 
 def neutralise_tags(text: str) -> str:
-    """Stop text from opening/closing our delimiter tags."""
-    for tag in _TAGS:
-        text = text.replace(f"<{tag}", f"‹{tag}").replace(f"</{tag}", f"‹/{tag}")
-    return text
+    """Stop text from opening/closing our delimiter tags.
+
+    Case-insensitive: ``<PCB_CONTEXT>`` or ``</User_Request>`` smuggle just as
+    well as lowercase. The match (bracket included) is replaced by a single
+    angle quote so no tag survives in any casing.
+    """
+    return _TAG_RE.sub("‹", text)
 
 
 def schema_instruction() -> str:
@@ -59,6 +64,14 @@ class PromptBuilder:
             raise ValueError("the prompt is empty")
         if len(prompt) > MAX_USER_PROMPT_CHARS:
             raise ValueError(f"the prompt is longer than {MAX_USER_PROMPT_CHARS} characters")
+        if inputs.strategy is not None and inputs.mode.value in inputs.strategy.mode_instructions:
+            issues = safety_issues(inputs.strategy.mode_instructions[inputs.mode.value])
+            if issues:
+                raise ValueError(
+                    "instruction override for mode "
+                    f"{inputs.mode.value!r} drops safety rules ({'; '.join(issues)}); "
+                    "restate them in the override"
+                )
         instructions = resolve_instructions(inputs.strategy)
         system = f"{PLANNER_SYSTEM_PROMPT}\n{instructions[inputs.mode]}\n"
         state = "\n".join(inputs.session_state_lines) or "none"
@@ -73,7 +86,13 @@ class PromptBuilder:
             f"{neutralise_tags(prompt)}\n"
             "</user_request>"
         )
-        history = conversation.history_messages() if conversation is not None else []
+        prior = conversation.history_messages() if conversation is not None else []
+        # Prior turns are untrusted replay: a pasted component value or an old
+        # user turn could carry delimiter tags or instructions. Neutralise them
+        # the same way as fresh input (roles are protocol, content is data).
+        history: tuple[ChatMessage, ...] = tuple(
+            ChatMessage(m.role, neutralise_tags(m.content)) for m in prior
+        )
         return AIRequest(
             request_id=new_request_id(),
             mode=inputs.mode,

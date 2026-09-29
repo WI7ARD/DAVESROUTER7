@@ -44,6 +44,7 @@ from pcbrouter.ai.context_builder import (
 from pcbrouter.ai.conversation import Conversation, ConversationTurn
 from pcbrouter.ai.exceptions import AIProviderError, AIRequestCancelled
 from pcbrouter.ai.memory import BoardMemory, MemoryKind
+from pcbrouter.ai.models import AIModelInfo
 from pcbrouter.ai.prompt_builder import PromptBuilder, PromptInputs
 from pcbrouter.ai.proposals import CommandProposal, CommandState, ProposalStateError
 from pcbrouter.ai.requests import AIMode, AIRequest
@@ -426,10 +427,19 @@ class AISession:
         selected_nets: tuple[str, ...] = (),
         selected_components: tuple[str, ...] = (),
         timeout_s: float | None = None,
+        model_info: AIModelInfo | None = None,
     ) -> PreparedRequest:
         if self.closed:
             raise ProposalStateError("the AI session for this board has been closed")
         context = self.build_context(prompt, selected_nets, selected_components)
+        if model_info is not None and model_info.context_window is not None:
+            need = context.token_estimate + self.config.max_output_tokens
+            if need > model_info.context_window:
+                raise ProposalStateError(
+                    f"prompt needs ~{need:,} tokens but {model} allows "
+                    f"{model_info.context_window:,} (shorten the request or pick "
+                    "a larger-context model)"
+                )
         sent_prompt = self.anonymizer.anonymize_text(prompt.strip())
         state = [*self.session_state_lines()]
         if selected_nets or selected_components:

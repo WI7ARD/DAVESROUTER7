@@ -62,6 +62,22 @@ def resolve_instructions(strategy: PromptStrategy | None) -> dict[AIMode, str]:
     return resolved
 
 
+#: Safety invariants every instruction override must restate. Overrides
+#: *replace* the base text for their mode, so an override that drops these
+#: silently un-guards the planner (prose instead of JSON, unapproved actions).
+_SAFETY_MARKERS = (
+    ("json", "must require exactly-one-JSON-object output"),
+    ("approv", "must require user approval before anything runs"),
+    ("validat", "must require local deterministic validation"),
+)
+
+
+def safety_issues(text: str) -> list[str]:
+    """Missing safety invariants in an instruction override (empty = safe)."""
+    lowered = text.lower()
+    return [why for marker, why in _SAFETY_MARKERS if marker not in lowered]
+
+
 def snapshot_effective(
     name: str, note: str, base: PromptStrategy | None, resolved: dict[AIMode, str]
 ) -> PromptStrategy:

@@ -52,14 +52,24 @@ class UsageSummary:
     requests_without_usage: int
     by_model: dict[str, int]
     estimated_cost: str = "Unavailable (pricing is not tracked)"
+    dropped_records: int = 0
+
+
+#: Long sessions must not grow memory without bound; oldest records are
+#: dropped first and counted (see ``UsageSummary.dropped_records``).
+MAX_RECORDS = 2000
 
 
 class UsageTracker:
     def __init__(self) -> None:
         self._records: list[UsageRecord] = []
+        self.dropped_records = 0
 
     def add(self, record: UsageRecord) -> None:
         self._records.append(record)
+        if len(self._records) > MAX_RECORDS:
+            del self._records[0]
+            self.dropped_records += 1
 
     @property
     def records(self) -> list[UsageRecord]:
@@ -80,4 +90,5 @@ class UsageTracker:
                 1 for r in ok if r.input_tokens is None or r.output_tokens is None
             ),
             by_model=by_model,
+            dropped_records=self.dropped_records,
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,34 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+#: Model listings go stale (renames, deletes); entries older than this are
+#: refetched instead of served.
+MODEL_CACHE_TTL_S = 300.0
+
+
+class ModelCache:
+    """Profile-id -> model listing with expiry (dict-compatible subset)."""
+
+    def __init__(self, ttl_s: float = MODEL_CACHE_TTL_S) -> None:
+        self._ttl_s = ttl_s
+        self._items: dict[str, tuple[list[AIModelInfo], float]] = {}
+
+    def __setitem__(self, profile_id: str, models: list[AIModelInfo]) -> None:
+        self._items[profile_id] = (models, time.time())
+
+    def get(self, profile_id: str, default: list[AIModelInfo] | None = None) -> list[AIModelInfo]:
+        found = self._items.get(profile_id)
+        if found is None:
+            return default if default is not None else []
+        models, stored = found
+        if time.time() - stored > self._ttl_s:
+            del self._items[profile_id]
+            return default if default is not None else []
+        return models
+
+    def pop(self, profile_id: str, default: Any = None) -> Any:
+        return self._items.pop(profile_id, default)
+
 
 class AIService:
     def __init__(
@@ -46,7 +75,7 @@ class AIService:
         self._runner = runner
         self.usage = UsageTracker()
         self.connection_status: dict[str, ConnectionResult] = {}
-        self.model_cache: dict[str, list[AIModelInfo]] = {}
+        self.model_cache = ModelCache()
         self.session: AISession | None = None
 
     @property

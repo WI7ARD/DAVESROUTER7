@@ -164,6 +164,14 @@ class SDKProvider(AIProvider):
         return secret.get_secret_value()
 
     def _client(self) -> Any:
+        if self.profile.requires_api_key and self.profile.is_insecure_remote_http:
+            raise AINotConfiguredError(
+                f"profile {self.provider_id} uses plain HTTP to a remote host; "
+                "an API key would travel in clear text. Use https:// or a "
+                "loopback address.",
+                user_message="Refused: this profile would send your API key over "
+                "unencrypted HTTP. Switch it to https://.",
+            )
         key = self._api_key()
         if self._client_factory is not None:
             return self._client_factory(key)
