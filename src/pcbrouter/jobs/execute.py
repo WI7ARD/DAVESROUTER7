@@ -312,8 +312,10 @@ def working_from(snapshot: WorkingSnapshot, ctx: JobContext) -> Any:
             wb = snapshot.build()
             _CACHE.clear()
             _CACHE.update(key=snapshot.key, wb=wb)
+    ctx.check_cancel()  # each preparation step is a cancel point (seconds on big boards)
     t0 = time.perf_counter()
     geo = wb.engine.geometry
+    ctx.check_cancel()
     log.info(
         "[route:%s] board prepared: %d copper objects, %.2f s",
         ctx.job_id,
@@ -385,6 +387,7 @@ def _route_board(job: RouteBoardJob, ctx: JobContext) -> Any:
     wb = working_from(job.snapshot, ctx)
     ctx.phase(JobPhase.PLANNING.value)
     plan = make_plan(wb, job.settings)
+    ctx.check_cancel()
     log.info(
         "[route:%s] routing %d net(s), up to %d pass(es)",
         ctx.job_id,

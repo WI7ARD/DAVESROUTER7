@@ -118,19 +118,47 @@ def status_color(status: ValidationStatus) -> QColor:
     return theme.CANDIDATE_VALID_COLOR
 
 
+#: violation outlines larger than this are drawn as their bounding box
+MAX_OUTLINE_POINTS = 2_000
+
+
 # ---------------------------------------------------------------- item builders
 def violation_items(
     violations: Sequence[DRCViolation], object_shapes: dict[str, tuple[Shape, ...]]
 ) -> list[QGraphicsItem]:
-    """A ring + cross at each located violation and an outline of the objects."""
+    """A ring + cross at each located violation and an outline of the objects.
+
+    Each involved object is outlined ONCE (in the colour of its worst violation),
+    and objects with very large outlines (zone fills: thousands of vertices) as
+    their bounding box: rebuilding a pour outline per violation froze the GUI
+    thread for ~1.8 s on a real board (measured)."""
     items: list[QGraphicsItem] = []
+    rank = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+    worst: dict[str, Severity] = {}
+    for v in violations:
+        for uid in (v.object_a, v.object_b):
+            if (
+                uid
+                and uid in object_shapes
+                and (uid not in worst or rank[v.severity] < rank[worst[uid]])
+            ):
+                worst[uid] = v.severity
+    for uid, sev in worst.items():
+        shapes = object_shapes[uid]
+        if not shapes:
+            continue
+        points = sum(len(outline_points(s)) for s in shapes[:50])
+        if len(shapes) > 50 or points > MAX_OUTLINE_POINTS:
+            path = QPainterPath()
+            box = shapes[0].bounds
+            for s in shapes[1:]:
+                box = box.union(s.bounds)
+            path.addRect(rect_mm(box))
+        else:
+            path = shape_path(shapes)
+        items.append(_path_item(path, _pen(severity_color(sev), 1.0), None, Z_OVERLAY_BASE))
     for v in violations:
         color = severity_color(v.severity)
-        involved = [
-            s for uid in (v.object_a, v.object_b) if uid for s in object_shapes.get(uid, ())
-        ]
-        if involved:
-            items.append(_path_item(shape_path(involved), _pen(color, 1.0), None, Z_OVERLAY_BASE))
         if v.location is None:
             continue
         c = _qp(v.location)
