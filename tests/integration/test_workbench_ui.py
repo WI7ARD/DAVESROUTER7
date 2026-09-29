@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QDialogButtonBox
 from pytestqt.qtbot import QtBot
 
 from pcbrouter.routing.result import RouteStatus
@@ -108,16 +108,21 @@ def test_bulk_constraints_dialog_applies_to_all_nets(
     assert len(nets) >= 3
     dlg = NetConstraintsDialog(wb, "GND", window)
     dlg.show()
+    assert dlg.layout() is not None and dlg.layout().count() >= 4
+    box = dlg.findChild(QDialogButtonBox)
+    assert box is not None and box.button(QDialogButtonBox.StandardButton.Save).isVisibleTo(dlg)
+    assert dlg.apply_all_button.isVisibleTo(dlg)
     dlg.width_spin.setValue(0.3)
     dlg._apply_all()
-    assert dlg.bulk_applied == len(nets)
+    assert dlg.result() == QDialog.DialogCode.Accepted, "bulk-apply finishes the dialog"
+    assert dlg.bulk and dlg.bulk_applied == len(nets)
     assert dlg.bulk_skipped == 0
     assert all(wb.net_constraints[n].get("width_mm") == 0.3 for n in nets)
-    dlg.done(QDialog.DialogCode.Rejected)
     # empty values never clear anything: reset to "from rules" first
     dlg2 = NetConstraintsDialog(wb, "GND", window)
     dlg2.show()
     dlg2.width_spin.setValue(0.0)
     dlg2._apply_all()
-    assert dlg2.bulk_applied == 0
+    assert dlg2.result() == QDialog.DialogCode.Accepted
+    assert not dlg2.bulk and dlg2.bulk_applied == 0
     assert all(wb.net_constraints[n].get("width_mm") == 0.3 for n in nets)

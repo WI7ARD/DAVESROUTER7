@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -140,12 +141,12 @@ def apply_constraints_to_all(wb: WorkingBoard, values: dict[str, Any]) -> tuple[
 
 
 class NetConstraintsDialog(QDialog):
-    """Router â–, Net Constraints: user preferences for one net, validated against the
+    """Router –, Net Constraints: user preferences for one net, validated against the
     hard rules (a width below the minimum is refused here and by the router)."""
 
     def __init__(self, wb: WorkingBoard, net: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Routing Constraints â€” {net}")
+        self.setWindowTitle(f"Routing Constraints — {net}")
         self.wb, self.net = wb, net
         cur = dict(wb.net_constraints.get(net, {}))
         rules = wb.engine.resolver.width_rules(net)
@@ -198,6 +199,16 @@ class NetConstraintsDialog(QDialog):
             "the width would violate are skipped)."
         )
         self.apply_all_button.clicked.connect(self._apply_all)
+        self.bulk_applied = 0
+        self.bulk_skipped = 0
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.error)
+        bulk_row = QHBoxLayout()
+        bulk_row.addWidget(self.apply_all_button)
+        bulk_row.addStretch(1)
+        layout.addLayout(bulk_row)
+        layout.addWidget(buttons)
 
     @property
     def bulk(self) -> bool:
@@ -205,17 +216,23 @@ class NetConstraintsDialog(QDialog):
         return bool(self.bulk_applied or self.bulk_skipped)
 
     def _apply_all(self) -> None:
-        """Apply the current constraints to every net on the board."""
-        values = self.result_constraints()
+        """Apply the current constraints to every net, then finish the dialog.
+
+        Bulk-apply is immediate (and reported); finishing here keeps Save from
+        applying the same values a second time. Cancelling the dialog reverts
+        nothing yet — bulk edits join undo history in a later stage.
+        """
+        try:
+            values = self.result_constraints()
+        except ValueError as exc:
+            self.error.setText(str(exc))
+            return
         applied, skipped = apply_constraints_to_all(self.wb, values)
         self.bulk_applied = applied
         self.bulk_skipped = skipped
-        self.error.setText(
-            f"Applied to {applied} net(s)"
-            + (f", skipped {skipped} (below rule minimum)" if skipped else "")
-        )
         self.use_prefer.setChecked("prefer_box" in values)
         self.use_avoid.setChecked("avoid_box" in values)
+        self.accept()
 
     def _default_box(self) -> tuple[float, float, float, float]:
         b = self.wb.board.bounds
@@ -308,10 +325,10 @@ class WorkbenchController(QObject):
             self.view_actions[mode] = act
         self.view_actions["working"].setChecked(True)
         self.act_lock = a("&Lock / Unlock Selected", self.toggle_lock, "L")
-        self.act_lock_region = a("Lock &Regionâ€¦", self.lock_region)
+        self.act_lock_region = a("Lock &Region…", self.lock_region)
         self.act_unlock_all = a("&Unlock All", self.unlock_all)
-        self.act_constraints = a("Net Routing &Constraintsâ€¦", self.edit_constraints)
-        self.act_corridor = a("Add Routing &Corridorâ€¦", self.add_corridor)
+        self.act_constraints = a("Net Routing &Constraints…", self.edit_constraints)
+        self.act_corridor = a("Add Routing &Corridor…", self.add_corridor)
         self.act_clear_corridors = a("Clear Corridors", self.clear_corridors)
         self.act_reroute = a("&Reroute Selected Section", self.reroute_section, "Shift+R")
         self.act_explain = a("&Explain Route Vias", self.explain_selected)
@@ -362,7 +379,7 @@ class WorkbenchController(QObject):
         wb = self.working
         added = len(wb.generated_ids()) if wb else 0
         self.w.statusBar().showMessage(
-            f"View: {mode} â€” {added} router/user-added object(s) on the working board", 6000
+            f"View: {mode} — {added} router/user-added object(s) on the working board", 6000
         )
 
     # ------------------------------------------------------------ locks
@@ -455,7 +472,7 @@ class WorkbenchController(QObject):
         items = overlays.outline_items(shapes, theme.SELECTION_COLOR, dashed=True)
         items += overlays.bounds_items(wb.locked_regions, theme.KEEPOUT_COLOR)
         for it in items:
-            it.setToolTip("LOCKED â€” the router and optimiser will not change this")
+            it.setToolTip("LOCKED — the router and optimiser will not change this")
         ov.set_group("locks", items)
 
     # ------------------------------------------------------------ constraints / corridors
@@ -468,15 +485,18 @@ class WorkbenchController(QObject):
         dlg = NetConstraintsDialog(wb, net, self.w)
         if self.w.run_dialog(dlg) != QDialog.DialogCode.Accepted:
             return False
-        values = dlg.result_constraints()
-        if getattr(dlg, "bulk", False):
-            applied, skipped = apply_constraints_to_all(wb, values)
+        if dlg.bulk:
+            # _apply_all already wrote every net and closed the dialog: report,
+            # don't apply a second time.
             self.w.statusBar().showMessage(
-                f"Routing constraints applied to {applied} net(s)"
-                + (f", skipped {skipped} (below rule minimum)" if skipped else ""),
+                f"Routing constraints applied to {dlg.bulk_applied} net(s)"
+                + (
+                    f", skipped {dlg.bulk_skipped} (below rule minimum)" if dlg.bulk_skipped else ""
+                ),
                 8000,
             )
             return True
+        values = dlg.result_constraints()
         if values:
             wb.net_constraints[net] = values
         else:
@@ -542,7 +562,7 @@ class WorkbenchController(QObject):
         track = wb.board.index.tracks_by_id[sel[1]]
         net = track.net_name or ""
         req = self.w.routing_ui.request_for(net)
-        self.w.statusBar().showMessage(f"Rerouting {len(ids)} segment(s) of {net}â€¦", 6000)
+        self.w.statusBar().showMessage(f"Rerouting {len(ids)} segment(s) of {net}…", 6000)
         # the worker removes the section from its own copy and routes around it
         return self.w.routing_ui.route_net(req, remove_ids=tuple(ids))
 
@@ -631,7 +651,7 @@ class WorkbenchController(QObject):
     def play_search(self) -> bool:
         if self._play_data is None:
             self.w.statusBar().showMessage(
-                "No recorded search. Enable Router â–, Search Debug â–, Record Failed Search.", 6000
+                "No recorded search. Enable Router –, Search Debug –, Record Failed Search.", 6000
             )
             return False
         self._play_pos = 0

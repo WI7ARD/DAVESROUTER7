@@ -116,7 +116,7 @@ class HistoryManager:
     def push(self, action: UndoableAction, *, already_applied: bool = False) -> HistoryEntry:
         """Apply (unless ``already_applied``) and record ``action``; clears redo."""
         if not already_applied:
-            action.apply()
+            action.apply()  # raises: nothing recorded, redo untouched
         entry = HistoryEntry(
             sequence=next(self._seq),
             label=action.label,
@@ -136,7 +136,11 @@ class HistoryManager:
         if not self._undo:
             return None
         entry, action = self._undo.pop()
-        action.revert()
+        try:
+            action.revert()
+        except Exception:
+            self._undo.append((entry, action))  # restore: entry is lost nowhere
+            raise
         self._redo.append((entry, action))
         log.debug("history.undo seq=%d label=%r", entry.sequence, entry.label)
         self._notify()
@@ -146,7 +150,11 @@ class HistoryManager:
         if not self._redo:
             return None
         entry, action = self._redo.pop()
-        action.apply()
+        try:
+            action.apply()
+        except Exception:
+            self._redo.append((entry, action))  # restore: entry is lost nowhere
+            raise
         self._undo.append((entry, action))
         log.debug("history.redo seq=%d label=%r", entry.sequence, entry.label)
         self._notify()
@@ -162,4 +170,7 @@ class HistoryManager:
 
     def _notify(self) -> None:
         for listener in list(self._listeners):
-            listener()
+            try:
+                listener()
+            except Exception:
+                log.exception("history listener failed")
