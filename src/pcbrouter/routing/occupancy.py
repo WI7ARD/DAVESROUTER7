@@ -293,8 +293,15 @@ def build_occupancy(
             unknown_pairs += 1
         for s in obj.shapes:
             raster.mark(s, r_track + (req.value or 0) + seg_margin, CellState.FOREIGN_NET)
+    # The overwrite lets a TRACK centreline leave its own pad through a foreign
+    # clearance band (escape). A VIA must never get it: its radius is the reach
+    # here, so every cell within one via radius of an own pad became "legal" for a
+    # via centre even inside a neighbouring pad's clearance band. At 0.5 mm pitch
+    # that offered vias overlapping the next pad; the exact validator refused them
+    # repair after repair until the net failed (measured on a 4-layer board).
+    own_overwrite = CellState.FOREIGN_NET if item is ItemType.TRACK else None
     for s in own_shapes:
-        raster.mark(s, r_track, CellState.SAME_NET, overwrite_below=CellState.FOREIGN_NET)
+        raster.mark(s, r_track, CellState.SAME_NET, overwrite_below=own_overwrite)
     if unknown_pairs:
         complete = False
         notes.append(f"clearance unknown for {unknown_pairs} object(s): only overlap blocked")

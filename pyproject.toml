@@ -103,6 +103,7 @@ allowed-confusables = ["×", "–", "‹", "ℹ"]
 "src/pcbrouter/app/cli.py" = ["T20"]
 "src/pcbrouter/app/application.py" = ["T20"]
 "src/pcbrouter/app/freeroute_cli.py" = ["T20"]
+"src/pcbrouter/app/route_cli.py" = ["T20"]
 "src/pcbrouter/app/maintenance.py" = ["T20"]
 "packaging/**" = ["T20"]
 # Qt signals follow Qt's camelCase naming (e.g. objectSelected), matching the Qt API.

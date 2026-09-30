@@ -142,6 +142,24 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, metavar="OUT", help="output .kicad_pcb")
     parser.add_argument(
+        "--route",
+        action="store_true",
+        help="route BOARD without the GUI (its KiCad rules, validated copper) and export "
+        "the result to --output (a new file; the source is never changed)",
+    )
+    parser.add_argument("--mode", choices=["speed", "accuracy"], default="accuracy",
+                        help="routing preset for --route (default: accuracy)")  # fmt: skip
+    parser.add_argument("--workers", type=int, default=-1, metavar="N",
+                        help="parallel helper processes for --route: -1 auto (default), "
+                        "0/1 single worker")  # fmt: skip
+    parser.add_argument("--budget", type=float, default=600.0, metavar="S",
+                        help="routing time budget in seconds for --route")  # fmt: skip
+    parser.add_argument("--report", type=Path, metavar="JSON",
+                        help="write a JSON result report (--route)")  # fmt: skip
+    parser.add_argument("--kicad-drc", action="store_true",
+                        help="also run KiCad's DRC on the exported board when kicad-cli "
+                        "is installed (--route)")  # fmt: skip
+    parser.add_argument(
         "--passes", type=int, metavar="N", help="maximum Freerouting passes (--freeroute)"
     )
     parser.add_argument(
@@ -281,6 +299,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report["library_loads"] else 1
     if args.setup_gpu:
         return setup_gpu_cli()
+    if args.route:
+        from pcbrouter.app.route_cli import route_cli
+
+        if args.board is None:
+            print("--route needs a BOARD.kicad_pcb")
+            return 2
+        setup_logging(None, logging.WARNING, console=sys.stderr is not None)
+        return route_cli(args.board, args.output, args.mode, args.workers, args.budget,
+                         args.report, args.kicad_drc)  # fmt: skip
     if args.setup_freerouting or args.freeroute:
         from pcbrouter.app.freeroute_cli import freeroute_cli, setup_freerouting_cli
 
@@ -439,6 +466,8 @@ def run_gui(args: argparse.Namespace, log_file: Path | None) -> int:
         )
     if args.board is not None:
         window.open_board(args.board)
+    elif not settings.welcome_shown:
+        window.show_welcome()
 
     code = app.exec()
     # The loop can end without the window being closed (app.quit(), OS logout), so save

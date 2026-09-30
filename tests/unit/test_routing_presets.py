@@ -40,7 +40,7 @@ def test_speed_trades_quality_for_time() -> None:
     settings = adjust_board_settings(
         BoardRouterSettings(max_passes=3, allow_ripup=True), base_request(), RouteMode.SPEED
     )
-    assert settings.max_passes == 1
+    assert settings.max_passes == 2  # every net first (fair slice), then the unfinished
     assert settings.allow_ripup is False
     assert settings.optimize is False
     assert settings.base_request.heuristic_weight == 1.5

@@ -8,7 +8,8 @@ built to force many crossings: both route 32/32 nets with 0 DRC errors):
   coarse-to-fine search (x4). Each search is optimal inside a corridor around a
   coarse route, with a full search as fallback, so no route is lost.
 * Speed: coarser grid floor (200 µm), weighted search (1.5, proven bound:
-  cost at most 1.5x optimal), single candidates, one pass, no rip-up, stronger
+  cost at most 1.5x optimal), single candidates, two passes (every net first,
+  then the unfinished ones), no rip-up, stronger
   layer directions (4) and coarse-to-fine (x4).
 
 Layer directions alternate H/V in stack order (first copper layer horizontal);
@@ -69,7 +70,7 @@ def adjust_board_settings(
         return replace(settings, base_request=adjust_request(base_request, mode))
     return replace(
         settings,
-        max_passes=1,
+        max_passes=2,  # pass 1 gives every net a fair time slice, pass 2 finishes
         allow_ripup=False,
         optimize=False,
         base_request=adjust_request(base_request, mode),

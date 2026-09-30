@@ -251,7 +251,13 @@ def test_retry_budgets_follow_last_failure_reason() -> None:
     router = BoardRouter(wb)
     plan = make_plan(wb, router.settings)
     task = next(t for t in plan.tasks if t.net == "S3")
-    base = router._request(task, 1)
+    from pcbrouter.routing.board_router import PASS1_NODE_LIMIT
+
+    first = router._request(task, 1)  # pass 1: capped so every net gets a fair try
+    assert first.node_limit <= PASS1_NODE_LIMIT
+    assert first.total_time_limit_s is not None
+    base = router.settings.base_request  # later passes start from the configured limits
+    assert first.grid_resolution == base.grid_resolution
     router._outcomes[task.net] = NetOutcome(task.net, RouteStatus.NO_ROUTE)
     router._outcomes[task.net].reason = FailureReason.NO_PATH
     slim = router._request(task, 2)

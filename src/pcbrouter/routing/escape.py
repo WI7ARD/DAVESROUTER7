@@ -6,7 +6,8 @@ collision engine at the net's preferred width. The result also reports the neare
 foreign copper, nearby same-net pads and the distance to the board edge.
 
 This only *describes* the neighbourhood (for Stage 4 start directions and for AI
-context). It generates no route.
+context). It generates no route. "Nearest foreign copper" ignores zone (pour)
+fills: they are refilled around new copper, as the router assumes everywhere.
 """
 
 from __future__ import annotations
@@ -76,15 +77,27 @@ def analyse_pin_escape(geo: BoardGeometry, engine: CollisionEngine, pad: CopperI
     box = pad.bounds.expanded(NEARBY_RADIUS_NM)
     best: tuple[float, str] | None = None
     same: list[str] = []
+    pb = pad.bounds
     for layer in sorted(pad.layers):
         for item in geo.copper_near(layer, box):
             if item.uid == pad.uid:
                 continue
-            gap = min(gap_between(a, b) for a in pad.shapes for b in item.shapes)
             if item.net == pad.net and pad.net is not None:
                 if item.kind is ItemKind.PAD and item.label not in same:
                     same.append(item.label)
-            elif best is None or gap < best[0]:
+                continue  # same net: only the label is reported, no gap needed
+            if item.kind is ItemKind.ZONE_FILL:
+                # refillable pour copper (KiCad refills around new tracks; the router
+                # treats it the same way). Exact distances to pours with thousands of
+                # vertices made planning take ~95 s on a 4-layer board (measured).
+                continue
+            ib = item.bounds
+            dx = max(0, ib.min_x - pb.max_x, pb.min_x - ib.max_x)
+            dy = max(0, ib.min_y - pb.max_y, pb.min_y - ib.max_y)
+            if best is not None and math.hypot(dx, dy) >= best[0]:
+                continue  # its bounding box is already farther than the best gap
+            gap = min(gap_between(a, b) for a in pad.shapes for b in item.shapes)
+            if best is None or gap < best[0]:
                 best = (gap, item.label)
     result.nearest_foreign = best
     result.same_net_nearby = same

@@ -142,6 +142,9 @@ class RoutingSettings(_Model):
     ] = "congestion_aware"  # fmt: skip
     max_passes: int = Field(default=3, ge=1, le=5)
     allow_ripup: bool = True
+    #: helper processes for parallel board routing (CPU backend only):
+    #: -1 = automatic (CPU cores - 1, at most 4), 0 or 1 = off
+    parallel_workers: int = Field(default=-1, ge=-1, le=16)
     #: external Freerouting engine: freerouting.exe (installer build) or a .jar
     freerouting_path: str | None = None
     freerouting_passes: int = Field(default=100, ge=1, le=10_000)
@@ -196,6 +199,8 @@ class AppSettings(_Model):
     geometry: GeometrySettings = Field(default_factory=GeometrySettings)
     gpu: GPUSettings = Field(default_factory=GPUSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
+    #: the first-run welcome was dismissed with "show at startup" unticked
+    welcome_shown: bool = False
 
     @field_validator("recent_boards")
     @classmethod

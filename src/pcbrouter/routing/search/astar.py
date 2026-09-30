@@ -171,6 +171,32 @@ def _count(key: str, nodes: int = 0) -> None:
 CORRIDOR_RADIUS = 2
 #: below this many fine cells per layer a direct search is already cheap
 COARSE_MIN_CELLS = 40_000
+#: when the source copper already lies within this many cells of a target box,
+#: the direct search is cheap and a coarse corridor only adds work (measured on a
+#: 4-layer board: GND plane connections found directly in ~600 nodes, while the
+#: coarse corridor failed twice first, ~1 s per connection)
+COARSE_NEAR_CELLS = 40
+
+
+def _source_near_target(problem: SearchProblem) -> bool:
+    nx = problem.grid.nx
+    boxes = list(problem.target_boxes)
+    if not boxes:
+        for li, t in enumerate(problem.targets):
+            b = _bbox(t)
+            if b is not None:
+                boxes.append((li, *b))
+    for cells in problem.sources:
+        if cells.size == 0:
+            continue
+        r, c = np.divmod(cells, nx)
+        r0, r1, c0, c1 = int(r.min()), int(r.max()), int(c.min()), int(c.max())
+        for _bl, br0, br1, bc0, bc1 in boxes:
+            dr = max(0, br0 - r1, r0 - br1)
+            dc = max(0, bc0 - c1, c0 - bc1)
+            if max(dr, dc) <= COARSE_NEAR_CELLS:
+                return True
+    return False
 
 
 #: a coarse cell is passable when at least this share of its fine cells is: a
@@ -278,7 +304,7 @@ def search(
     """A* search; with ``problem.coarse_factor`` > 1 coarse-to-fine (see there)."""
     k = problem.coarse_factor
     g = problem.grid
-    if k <= 1 or g.n < COARSE_MIN_CELLS or record_explored:
+    if k <= 1 or g.n < COARSE_MIN_CELLS or record_explored or _source_near_target(problem):
         return _search(problem, node_limit=node_limit, time_limit_s=time_limit_s,
                        cancel=cancel, record_explored=record_explored,
                        heuristic_weight=heuristic_weight)  # fmt: skip

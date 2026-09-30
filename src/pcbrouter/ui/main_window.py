@@ -347,6 +347,11 @@ class MainWindow(QMainWindow):
         act_guides.triggered.connect(lambda: self.open_guides())
         help_menu.addAction(act_guides)
         self.act_guides = act_guides
+        act_welcome = QAction("&Welcome…", self)
+        act_welcome.setStatusTip("What the app does, what it supports, where files are saved")
+        act_welcome.triggered.connect(self.show_welcome)
+        help_menu.addAction(act_welcome)
+        self.act_welcome = act_welcome
         help_menu.addSeparator()
         help_menu.addAction(self.act_about)
         self.menu_help = help_menu
@@ -735,6 +740,14 @@ class MainWindow(QMainWindow):
 
     def _guide_bundle(self) -> None:
         self.export_ui.export_bundle()
+
+    def show_welcome(self) -> None:
+        from pcbrouter.ui.welcome import WelcomeDialog
+
+        dlg = WelcomeDialog(self)
+        dlg.setModal(False)
+        dlg.show()
+        self._welcome_dialog = dlg
 
     def open_ollama_setup(self) -> None:
         from pcbrouter.ui.ollama_dialog import OllamaDialog

@@ -68,6 +68,13 @@ class SettingsDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        restore = buttons.addButton("Restore Defaults", QDialogButtonBox.ButtonRole.ResetRole)
+        restore.setToolTip(
+            "Reset every setting to its default. AI provider profiles (and their stored "
+            "keys) and the recent-boards list are kept."
+        )
+        restore.clicked.connect(self._restore_defaults)
+        self.reset_requested = False
         layout = QVBoxLayout(self)
         layout.addWidget(tabs)
         layout.addWidget(buttons)
@@ -213,6 +220,18 @@ class SettingsDialog(QDialog):
             "Allow rip-up of router-generated copper (never source copper)"
         )
         self.route_ripup.setChecked(r.allow_ripup)
+        self.route_workers = QComboBox()
+        for label, value in (("Auto (recommended)", -1), ("Single worker", 0), ("2 workers", 2),
+                             ("3 workers", 3), ("4 workers", 4)):  # fmt: skip
+            self.route_workers.addItem(label, value)
+        idx = self.route_workers.findData(r.parallel_workers)
+        self.route_workers.setCurrentIndex(idx if idx >= 0 else 0)
+        self.route_workers.setToolTip(
+            "Parallel board routing on the CPU: helper processes route nets that do not "
+            "overlap at the same time; every result is still checked before it is kept. "
+            "Auto uses CPU cores - 1 (at most 4) on boards with 12+ nets. Ignored in GPU mode."
+        )
+        form.addRow("Parallel routing:", self.route_workers)
         form.addRow(self.route_ripup)
         self.ai_autonomy = QComboBox()
         for key, label in (
@@ -322,7 +341,26 @@ class SettingsDialog(QDialog):
         self.clear_recent.setText("Clear recent boards (0)")
         self.clear_recent.setEnabled(False)
 
+    def _restore_defaults(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Restore default settings?",
+            "Every setting returns to its default. AI provider profiles and the recent-boards "
+            "list are kept. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.reset_requested = True
+            self.accept()
+
     def result_settings(self) -> AppSettings:
+        if self.reset_requested:
+            fresh = AppSettings()
+            fresh.ai = self._settings.ai
+            fresh.recent_boards = list(self._settings.recent_boards)
+            fresh.welcome_shown = self._settings.welcome_shown
+            return fresh
         s = self._settings
         s.theme = self.theme_combo.currentData()
         s.viewer.grid_visible = self.grid_visible.isChecked()
@@ -335,6 +373,7 @@ class SettingsDialog(QDialog):
         s.routing.strategy = self.route_strategy.currentData()
         s.routing.max_passes = self.route_passes.value()
         s.routing.allow_ripup = self.route_ripup.isChecked()
+        s.routing.parallel_workers = int(self.route_workers.currentData())
         s.ai.autonomy_mode = self.ai_autonomy.currentData()
         s.geometry.conservative_rules = self.conservative_rules.isChecked()
         s.geometry.grid_resolution_mm = self.grid_resolution.currentData()

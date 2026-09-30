@@ -298,16 +298,20 @@ class RoutingController(QObject):
         from dataclasses import replace
 
         from pcbrouter.routing.board_router import Strategy
+        from pcbrouter.routing.parallel import auto_workers
         from pcbrouter.routing.presets import adjust_board_settings
 
         st = self.w.settings.routing
         base = replace(self.request_for(""), candidates=1)
+        # parallel helpers only for the CPU backend (no GPU contexts in helpers)
+        workers = auto_workers(st.parallel_workers) if self._mode() == "cpu" else 0
         return adjust_board_settings(
             BoardRouterSettings(
                 strategy=Strategy(st.strategy),
                 max_passes=st.max_passes,
                 allow_ripup=st.allow_ripup,
                 base_request=base,
+                parallel_workers=workers,
             ),
             base,
             self.route_mode(),

@@ -63,7 +63,8 @@ def test_route_mode_toggle_changes_requests_and_board_settings(
     assert req.grid_resolution >= 200_000
     assert req.candidates == 1
     board = ui.board_settings()
-    assert board.max_passes == 1 and board.allow_ripup is False
+    # Speed: pass 1 gives every net a fair time slice, pass 2 finishes (no rip-up)
+    assert board.max_passes == 2 and board.allow_ripup is False
     assert board.base_request.heuristic_weight == 1.5
     ui.panel.mode_combo.setCurrentIndex(ui.panel.mode_combo.findData("accuracy"))
     assert ui.route_mode() is RouteMode.ACCURACY
