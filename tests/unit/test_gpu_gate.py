@@ -58,7 +58,14 @@ def test_every_gpu_entry_point_goes_through_the_gate() -> None:
     """Static guard for current *and future* GPU stages: GPU libraries may only be
     loaded by compute/gpu_backend.py (whose initialize() is gated) and compute/probe.py;
     any tool that touches the GPU must call gpu_gate()."""
-    allowed = {"src/pcbrouter/compute/gpu_backend.py", "src/pcbrouter/compute/probe.py"}
+    allowed = {
+        "src/pcbrouter/compute/gpu_backend.py",
+        "src/pcbrouter/compute/probe.py",
+        # staged diagnostic: runs in a crash-isolated child (--gpu-probe-child)
+        "src/pcbrouter/compute/sycl_check.py",
+        # fused kernel: only constructed by the gated backend / the diagnostic
+        "src/pcbrouter/compute/sycl_relax.py",
+    }
     pattern = re.compile(r"^\s*(import (cupy|dpnp|dpctl)|from (cupy|dpnp|dpctl)\b)", re.M)
     offenders = []
     for path in [*ROOT.glob("src/**/*.py"), *ROOT.glob("tools/*.py")]:

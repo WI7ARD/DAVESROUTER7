@@ -22,6 +22,17 @@
   - each failed net says why and where (coordinates, nodes, time);
   - nets that were never tried say so.
 
+**GPU (Intel, optional; CPU stays the default)**
+- **`--gpu-check` is a staged diagnostic**, run in a crash-isolated child process (this also works in the installed app):
+  - stages: library → SYCL devices (backend, driver, memory) → explicitly selected GPU (Level Zero, then OpenCL) → queue → allocation (verified to land on the GPU) → kernel → result verified against NumPy → routing kernel → benchmark;
+  - exit 0 only when computation on the GPU was verified.
+- **The dpnp backend is pinned to the selected GPU.** dpnp's default device can be a CPU.
+- **New integer relaxation search** (`routing/search/relax.py`) with a fused SYCL kernel (`compute/sycl_relax.py`):
+  - one kernel launch per sweep, with arrays kept on the device;
+  - distance fields bit-identical to the NumPy reference;
+  - exactly optimal against an independent Dijkstra;
+  - its routes pass the exact validator.
+
 **Removed**
 - The Freerouting integration: menu entries, setup dialog, `--freeroute` / `--setup-freerouting`, and the KiCad Specctra bridge. Old settings files that still contain Freerouting fields load normally.
 

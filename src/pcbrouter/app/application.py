@@ -129,9 +129,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--gpu-check",
         action="store_true",
-        help="print which app copy runs, whether the GPU library (dpnp/CuPy) loads, and "
-        "the GPU devices found (JSON); exit 0 when the library loads",
+        help="staged GPU diagnostic (JSON): library, SYCL devices, selected GPU, "
+        "allocation, a verified kernel, the routing kernel and a benchmark; exit 0 only "
+        "when computation on the GPU was verified",
     )
+    parser.add_argument("--gpu-probe-child", nargs="?", const="gpu", help=argparse.SUPPRESS)
     parser.add_argument(
         "--setup-gpu",
         action="store_true",
@@ -185,10 +187,25 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def gpu_check_cli() -> dict[str, Any]:
-    """Which copy of the app is this, and can it load the GPU library? (No GUI.)"""
+    """``--gpu-check``: which app copy runs, whether the GPU library loads, then the
+    staged SYCL diagnostic (devices → selected GPU → queue → allocation → kernel →
+    verified vs NumPy → fused routing kernel → benchmark) in a crash-isolated child
+    process. ``gpu_ready`` is true only when computation on a GPU was verified."""
     from pcbrouter.compute.probe import gpu_library_report
+    from pcbrouter.compute.sycl_check import run_in_child
 
-    return gpu_library_report()
+    report = gpu_library_report()
+    if report.get("library") == "dpnp" and report.get("library_loads"):
+        diag = run_in_child("gpu")
+        report["diagnostic"] = diag
+        report["gpu_ready"] = bool(diag.get("compute_verified")) and all(
+            s.get("ok") for s in diag.get("stages", []) if s.get("name") == "fused_kernel"
+        )
+        report["verdict"] = diag.get("verdict")
+    else:
+        report["gpu_ready"] = False
+        report["verdict"] = report.get("problem") or "no GPU library"
+    return report
 
 
 def setup_gpu_cli() -> int:
@@ -211,19 +228,11 @@ def setup_gpu_cli() -> int:
         if subprocess.run(cmd, check=False, timeout=1800).returncode != 0:
             print("pip install failed; see the output above.")
             return 1
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from pcbrouter.compute.probe import probe_gpu; " "print(probe_gpu().summary())",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    print(probe.stdout.strip() or probe.stderr.strip()[-500:])
-    ok = "GPU available" in probe.stdout
+    from pcbrouter.compute.sycl_check import run_in_child
+
+    diag = run_in_child("gpu")  # a fresh process: sees a library installed just now
+    print(diag.get("verdict"))
+    ok = bool(diag.get("compute_verified"))
     print(
         "GPU ready: choose GPU in Settings ▸ Compute (or Tools ▸ Set Up GPU…)."
         if ok
@@ -300,10 +309,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.setup_ollama:
         return setup_ollama_cli(args.setup_ollama)
+    if args.gpu_probe_child:
+        from pcbrouter.compute.sycl_check import child_main
+
+        return child_main(args.gpu_probe_child)
     if args.gpu_check:
         report = gpu_check_cli()
-        print(json.dumps(report, indent=2))
-        return 0 if report["library_loads"] else 1
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if report["gpu_ready"] else 1
     if args.setup_gpu:
         return setup_gpu_cli()
     if args.route:

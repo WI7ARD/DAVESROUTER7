@@ -66,6 +66,8 @@ class GPUBackend(ComputeBackend):
         self._free_bytes: int | None = None
         self._total_bytes: int | None = None
         self._device_name: str | None = None
+        #: the explicitly selected SYCL GPU (dpnp only); the fused kernel runs on it
+        self.sycl_device: Any = None
         #: latch a failed init so the cheap ``available`` property does not
         #: re-run a kernel launch on every search; cleared by ``reset()``.
         self._failed: bool = False
@@ -195,16 +197,32 @@ class GPUBackend(ComputeBackend):
             raise BackendUnavailableError(f"{self._error} {GPU_NOT_IMPLEMENTED_NOTE}")
         try:
             cp = self._loader(module)
-            probe = cp.arange(16, dtype=cp.float32)
+            if module == "dpnp":
+                # Explicit device: dpnp's default device can be a CPU (OpenCL CPU
+                # runtime), which must never be reported or used as "the GPU".
+                import dpctl
+
+                from pcbrouter.compute.sycl_check import describe_device, select_device
+
+                dev, how = select_device(dpctl, "gpu")
+                if dev is None:
+                    raise RuntimeError(f"no SYCL GPU device ({how})")
+                queue = dpctl.SyclQueue(dev)
+                probe = cp.arange(16, dtype=cp.float32, sycl_queue=queue)
+                placed = describe_device(probe.sycl_device).get("filter_string")
+                if placed != dev.filter_string:
+                    raise RuntimeError(f"self-test array landed on {placed}, not the GPU")
+                self.sycl_device = dev
+                info = describe_device(dev)
+                self._device_name = f"{info['name']} ({info['backend']})"
+            else:
+                probe = cp.arange(16, dtype=cp.float32)
             if float((probe * 2).sum()) != 240.0:  # tiny kernel: device really works
                 raise RuntimeError("GPU self-test returned a wrong result")
             if module == "cupy":
                 props = cp.cuda.runtime.getDeviceProperties(0)
                 name = props.get("name", b"CUDA device")
                 self._device_name = name.decode() if isinstance(name, bytes) else str(name)
-            else:
-                dev = getattr(probe, "sycl_device", None)
-                self._device_name = str(getattr(dev, "name", "Intel GPU (oneAPI)"))
         except Exception as exc:
             self._error = f"GPU backend unavailable ({exc!r})."
             self._failed = True

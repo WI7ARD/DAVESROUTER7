@@ -122,6 +122,11 @@ module = ["pcbrouter.ui.*"]
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
+# optional Intel GPU stack (dpnp/dpctl): imported lazily, never required
+module = ["dpctl", "dpctl.*", "dpnp", "dpnp.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["tests.*"]
 # pytest-qt's QtBot methods are unannotated. Assertions after state transitions trip
 # mypy's literal narrowing (comparison-overlap false positives).

@@ -85,6 +85,14 @@ $gpuText = (& $cli --gpu-check) -join "`n"
 Write-Host $gpuText
 $gpu = $gpuText | ConvertFrom-Json
 Check ($gpu.library -eq 'dpnp' -and $gpu.library_loads) "installed app loads bundled dpnp (see the report above)"
+# Staged SYCL diagnostic in a crash-isolated child of the installed exe. The CI
+# machine has no Intel GPU: the SYCL runtime must load and the verdict must say
+# where it stopped (no crash, no hang, no false "GPU ready").
+$stage = @{}
+foreach ($s in $gpu.diagnostic.stages) { $stage[$s.name] = $s.ok }
+Check ($stage['dpctl_import'] -and $stage['dpnp_import']) "SYCL runtime (dpctl + dpnp) loads in the installed app"
+Check ($gpu.verdict -and $gpu.verdict -notmatch 'crashed|hung|could not start') "GPU diagnostic verdict: $($gpu.verdict)"
+Check ($gpu.gpu_ready -eq [bool]$stage['fused_kernel']) "gpu_ready only when the routing kernel ran and was verified ($($gpu.gpu_ready))"
 
 
 # ---------------------------------------------------------------- product routing

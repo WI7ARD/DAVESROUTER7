@@ -238,7 +238,10 @@ def _probe(deep: bool) -> GpuProbe:
 
 
 def gpu_library_report() -> dict[str, Any]:
-    """Which copy of the app is this, and can it load the GPU library? (No GUI.)"""
+    """Which copy of the app is this, and can it load the GPU library? (No GUI.)
+
+    Devices, allocation and computation are checked by the staged diagnostic
+    (``compute/sycl_check.py``), which ``--gpu-check`` runs in a child process."""
     import sys
 
     from pcbrouter import __version__
@@ -271,57 +274,6 @@ def gpu_library_report() -> dict[str, Any]:
     except Exception as exc:  # DLL/runtime problems are reported, not raised
         report["problem"] = f"{lib} is present but failed to load: {exc!r}"
         return report
-    if lib == "dpnp":
-        if getattr(sys, "frozen", False):
-            # The frozen CLI cannot spawn a crash-proof device query (its own
-            # executable is the app, not Python): library loading is checked
-            # here; SYCL devices are probed in the watchdog-supervised routing
-            # worker (Tools ▸ Test GPU on this board).
-            report["device_query"] = "skipped in the frozen CLI; see Tools ▸ Test GPU"
-            return report
-        native_out, native_why = _native_query(
-            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
-            "prepare_gpu_runtime();"
-            "import dpctl,json;"
-            "devs=dpctl.get_devices();"
-            "gpus=[d.name for d in devs if 'gpu' in str(d.device_type)];"
-            "out={'devices':[d.name for d in devs],'gpus':gpus};"
-            "print(json.dumps(out))",
-            "dpctl device query",
-        )
-        if native_out is None:
-            report["problem"] = native_why
-            return report
-        try:
-            import json
-
-            info = json.loads(native_out.strip().splitlines()[-1])
-        except (ValueError, TypeError):
-            report["problem"] = f"device query had no answer: {native_out[-200:]!r}"
-            return report
-        report["sycl_devices"] = info.get("devices", [])
-        gpus = info.get("gpus", [])
-        report["gpu_device_found"] = bool(gpus)
-        if not gpus:
-            report["problem"] = (
-                "dpnp loads but no SYCL GPU device: install/update the Intel graphics "
-                "driver (it provides the GPU compute runtime)"
-            )
-            return report
-        native_out, native_why = _native_query(
-            "from pcbrouter.compute.gpu_runtime import prepare_gpu_runtime;"
-            "prepare_gpu_runtime();"
-            "import dpnp;"
-            "x=dpnp.arange(1000,dtype=dpnp.float32);print(float(x.sum()))",
-            "dpnp GPU compute test",
-        )
-        if native_out is None:
-            report["problem"] = native_why
-            return report
-        try:
-            report["gpu_compute_test"] = float(native_out.strip().splitlines()[-1]) == 499500.0
-        except ValueError:
-            report["problem"] = f"compute test had no answer: {native_out[-200:]!r}"
     return report
 
 
