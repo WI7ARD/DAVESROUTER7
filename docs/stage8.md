@@ -1,5 +1,7 @@
 # Stage 8 — interactive routing workbench
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 Version 0.8.0-stage8. All panels are dockable (View menu). Default layout: left —
 Project, Layers; centre — PCB canvas; right — Inspector/Nets, AI Engineering /
 Route Review; bottom — Log, AI History, Internal Geometry Check, Routing Rules,

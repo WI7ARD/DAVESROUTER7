@@ -1,5 +1,7 @@
 # Stage 9 — reliability: safe KiCad export, sessions, recovery, audits
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 Version 0.9.0-stage9.
 
 ## Export (File ▸ Export Routed Board…, Ctrl+E)

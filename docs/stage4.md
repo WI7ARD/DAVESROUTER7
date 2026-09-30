@@ -1,5 +1,7 @@
 # Stage 4 — CPU autorouter v1
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 Version 0.4.0-stage4.
 
 ```

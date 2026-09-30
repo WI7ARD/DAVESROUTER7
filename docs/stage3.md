@@ -1,5 +1,7 @@
 # Stage 3 — PCB geometry + design-rule engine
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md). Statements below that routing arrives in a later stage are obsolete.
+
 Version 0.3.0-stage3. The deterministic engine is authoritative; the AI never
 decides legality.
 

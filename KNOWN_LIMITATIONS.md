@@ -3,7 +3,7 @@
 Also see `docs/stability.md` ("Known limitations (1.x)").
 
 ## Routing
-- **Dense 4-layer boards are only partly routed.** `kit-dev-coldfire` (4 layers, 209 nets) with a 600 s budget: Speed + Auto parallel (3 helpers) **150/209**, Speed single worker **135/209**, Accuracy single worker **169/209**. That's up from 16/209 at the start of v1.1.1 work. All routed copper is DRC-clean. The remaining failures are:
+- **Dense 4-layer boards are only partly routed.** `kit-dev-coldfire` (4 layers, 209 nets) with a 600 s budget: Speed + Auto parallel (3 helpers) **150/209**, Speed single worker **152/209** (after the 1.1.1 retry fix; Auto parallel not re-measured since), Accuracy single worker **169/209**. That's up from 16/209 at the start of v1.1.1 work. All routed copper is DRC-clean. The remaining failures are:
   - *no legal path* at 0.5 mm-pitch QFP escapes (the pad rows are boxed in on the routing grid);
   - congested areas;
   - partial power nets (GND, +3.3V) that hit the per-net time limit.
@@ -19,6 +19,13 @@ Also see `docs/stability.md` ("Known limitations (1.x)").
 - **The DRC repair loop is not built.** Routed copper is DRC-clean by construction (the exact validator gates every commit), so no route → DRC → rip-up loop exists.
 - **Through vias only.** Blind/buried vias are not generated, and routing is tested only on 2- and 4-layer boards. Boards with more copper layers load, but routing them is untested.
 - **Straight segments only** (0/45/90°). No arcs.
+
+## AI constraints (see docs/CAPABILITIES.md)
+- **Differential pairs are a soft preference.** The two nets are routed one after the other and the second follows a soft corridor along the first. Gap, skew and impedance are **not** controlled; gap and skew are measured and reported after routing.
+- **No impedance control.** `impedance_target_ohm` is rejected: stack-up data and a field solver are not implemented.
+- **No length tuning.** `max_length_mm` / `target_length_mm` are measured and reported (within / EXCEEDS, met / NOT met); the router does not add meanders.
+- **Rejected as unsupported:** `avoid_nets`, `avoid_net_classes`, `keep_near`, `keep_away_from`, shielding, component movement, blind/buried/micro vias, a clearance on routing commands (use `set_net_constraint` or a KiCad net class), widths on `route_board`, and rip-up on single-net routing.
+- **Routes you accepted are never ripped up by later jobs.** `ripup_user_accepted` exists in the router settings but is not exposed in the UI or to the AI in 1.1.1. To re-route an accepted net, undo it or use the Workbench's local reroute.
 
 ## GPU (Intel, optional)
 - **Not yet measured on a real Iris Xe with the new kernel.** The development machine has no GPU. The fused relaxation kernel was verified on the OpenCL CPU device (SYCL runtime):

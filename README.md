@@ -8,9 +8,12 @@ copper validated and approved by you before it lands on the board.
 
 > **The AI model is a planner, not the router.** It analyses the board and
 > proposes structured commands. Every proposal is validated locally and needs
-> your approval. **Routing runs deterministically in a worker process; every
-> candidate passes the exact geometry validator, and exports write a new
-> `.kicad_pcb` — your source files are never modified in place.**
+> your approval. **Routing runs deterministically in a worker process and every
+> candidate passes the exact geometry validator.** Normal routing, preview,
+> proposal, and export workflows operate on working copies and do not modify the
+> source board. An explicit expert overwrite action (`--overwrite`, or the export
+> setting) may replace the source board only after deliberate confirmation and
+> backup safeguards.
 
 ---
 
@@ -22,10 +25,13 @@ nanometre domain model: 2D viewer (pan/zoom/select), Inspector, Nets, Layers
 and Project panels. Unknown values show as *unknown*, never invented.
 
 **Route** — Single-net and full-board autorouting on a working copy:
-- CPU A* (optimal) and array-wavefront GPU path (NVIDIA CUDA / Intel oneAPI),
-  AUTO selection, CPU fallback; weighted search with a proven cost bound.
+- CPU A* (optimal); an optional GPU search (Intel SYCL kernel, not yet measured
+  on an Iris Xe, so AUTO stays on the CPU) with CPU fallback; weighted search with
+  a proven cost bound.
 - **Accuracy / Speed toggle** in the Route panel: full-resolution optimal
-  routing, or coarse-grid weighted routing (~17× faster, ≤1.5× optimal cost).
+  routing, or coarse-grid weighted routing (≤1.5× optimal cost; how much faster
+  depends on the board: from no gain to about 5× on the suite boards in
+  docs/BENCHMARKS.md).
 - 2- and 4-layer boards (x, y, layer search with legal through vias); preferred
   layer directions; coarse-to-fine search inside a corridor.
 - **Parallel routing** (Settings ▸ Routing: Auto / Single worker / 2–4): helper
@@ -84,7 +90,7 @@ pip install -e ".[ai]"       # app + OpenAI/Anthropic SDKs + keyring (+ Gemini v
 pip install -e .             # app only (AI shows "not installed")
 ```
 
-Intel GPU support: `pip install dpnp` (oneAPI). NVIDIA: `pip install cupy-cuda12x`.
+Intel GPU support: `pip install dpnp` (oneAPI; brings `dpctl`, which runs the fused SYCL search kernel — check with `pcbrouter --gpu-check`). NVIDIA: `pip install cupy-cuda12x`.
 Minimal Linux installs need Qt system libraries: `sudo apt install libegl1 libgl1
 libxkbcommon0 libfontconfig1 libdbus-1-3`. Secure key storage on Linux needs a
 Secret Service provider (GNOME Keyring or KWallet).
@@ -101,7 +107,7 @@ pcbrouter --version
 pcbrouter --diagnostics                # JSON: versions, paths, Qt, AI SDKs, key storage
 pcbrouter --gpu-check                  # GPU library/devices report
 
-# route without the window (same pipeline, source never modified):
+# route without the window (same pipeline; writes a new file unless --overwrite):
 pcbrouter board.kicad_pcb --route --mode speed --workers -1 --budget 600 \
     --output routed.kicad_pcb --report result.json [--kicad-drc]
 # options: --backend cpu|auto|gpu  --layers F.Cu,B.Cu  --grid MM  --overwrite (backs up first)

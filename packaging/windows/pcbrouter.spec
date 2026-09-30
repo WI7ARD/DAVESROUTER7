@@ -41,6 +41,7 @@ datas = [
     (str(ROOT / "docs" / "QUICK_START.md"), "docs"),
     (str(ROOT / "docs" / "USER_GUIDE.md"), "docs"),
     (str(ROOT / "docs" / "TROUBLESHOOTING.md"), "docs"),
+    (str(ROOT / "docs" / "CAPABILITIES.md"), "docs"),
     (str(ROOT / "KNOWN_LIMITATIONS.md"), "docs"),
     (str(ROOT / "CHANGELOG.md"), "docs"),
 ]

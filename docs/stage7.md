@@ -1,5 +1,7 @@
 # Stage 7 — AI engineering planner connected to the router
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md). Since 1.1.1 AI routing commands carry one board policy into execution and unsupported constraints are rejected: see docs/CAPABILITIES.md.
+
 Version 0.7.0-stage7. The AI decides **what** to attempt; the deterministic router
 decides **how**; the Stage 3 engine decides **legality**; the user decides
 **acceptance**.

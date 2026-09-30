@@ -2,6 +2,33 @@
 
 ## v1.1.1 — 4-layer routing, parallel routing, installable release
 
+**Fixed**
+- **Partial acceptance could leave a net disconnected.** A board job that ripped up net X to route Y records the removal against X. Accepting only Y then applied the removal of X's old route without X's new route. Now:
+  - each removed object belongs to its owner net;
+  - each net's result lists the nets whose copper was moved for it (`dependencies`, found from copper overlap);
+  - accepting a net also accepts that closure (the table says which nets come along);
+  - the accept command re-checks connectivity on the working board and is atomic: it refuses, and undoes itself, if any net that was connected would open.
+- **A rip-up could leave the displaced net unrouted.** A rip-up that would leave any displaced net disconnected is now rolled back, including nets accepted in earlier jobs.
+- **AI board routing ignored the approved policy.** It ran with default settings (rip-up on) while the approval said "no rip-up". See *AI constraint handling*.
+- **`max_ripups_per_net` was per pass.** It now counts the whole job.
+- **Speed's fine-grid retry cost completion on congested boards.** It now follows only small failures (boxed-in fine-pitch pads).
+- **Version drift.** The router recorded `1.0.0` in route metadata; it now records the release version, and a test ties the package, `pyproject.toml`, changelog, README and installer together.
+
+**Safety / correctness**
+- **Accepted copper is user-approved.** Accepting a board batch commits `USER_ACCEPTED` provenance (it was `ROUTER_GENERATED`). Later jobs rip up accepted or applied-optimisation copper only with `ripup_user_accepted`, which AI plans can never set.
+- **`preserve_existing`** (router setting): rip-up may only move copper created by the current job. It is the default for AI plans.
+- Copper loaded from the file and locked copper are never ripped up, as before.
+
+**AI constraint handling**
+- **One policy from approval to execution.** An AI plan carries a `BoardPolicy`: rip-up, preserve-existing, mode, priorities, differential pairs, and board-wide layer/via limits. Execution builds its `BoardRouterSettings` only from it. The approval panel's **What will run**, the running message and the `ROUTER_RESULT` facts are all produced from that same settings object.
+- **Capability matrix** (`docs/CAPABILITIES.md`, `ai/capabilities.py`). Every constraint field is classified per operation:
+  - ENFORCED, SOFT, ANALYSIS ONLY or UNSUPPORTED;
+  - the approval panel labels each constraint;
+  - unsupported constraints make the command INVALID instead of being "recorded only": `avoid_nets`, `avoid_net_classes`, `keep_near` / `keep_away_from`, impedance, shielding, component movement, blind/micro vias, clearance on routing commands, widths on `route_board`, and rip-up on single-net routing.
+- **Differential pairs** are a soft preference: routed together, with a corridor. Gap, skew and impedance are not controlled; gap and skew are measured and reported.
+- **Length targets** are measured and reported after routing. There is no length tuning.
+- `set_routing_priority` now orders later AI board jobs. The Speed/Accuracy preset applies to AI requests too.
+
 **Routing**
 - **4-layer boards:**
   - Via cells are no longer marked free by own-net copper on other layers. This was the main 4-layer blocker.
@@ -36,7 +63,7 @@
 **Removed**
 - The Freerouting integration: menu entries, setup dialog, `--freeroute` / `--setup-freerouting`, and the KiCad Specctra bridge. Old settings files that still contain Freerouting fields load normally.
 
-**Product**
+**Product / packaging**
 - **Headless routing:** `pcbrouter board.kicad_pcb --route [--mode speed|accuracy] [--workers N] [--timeout S] [--backend cpu|auto|gpu] [--layers F.Cu,B.Cu] [--grid MM] [--output F] [--report JSON] [--kicad-drc] [--overwrite]`.
   - Exit codes: 0 fully routed, 3 partial (file written), 1 error, 2 usage.
   - The source board is never modified unless `--overwrite` is given; then a timestamped backup is written first.
@@ -56,6 +83,32 @@
   - the AI context no longer rasterizes congestion on the GUI thread;
   - the DRC overlay draws 6× faster;
   - the live preview uses a solid pen.
+
+**Testing**
+- New regression suites:
+  - `test_partial_acceptance.py`: dependency closure, tampered results refused atomically, rip-up rollback, every selection keeps nets connected;
+  - `test_ai_policy.py`: approval text == executed settings for every rip-up/preserve/mode combination, preserve-existing enforced end to end, and every constraint field classified and carried or rejected;
+  - `test_accept_provenance.py`;
+  - `test_version_consistency.py`.
+- CI (`ci.yml`):
+  - lint and types;
+  - tests on Linux and Windows with Python 3.12 and 3.13;
+  - a coverage floor.
+
+  GPU tests skip without a device.
+- `tools/run_benchmarks.py` records board SHA-256, versions, git commit and CPU, and takes `--trials N` (median).
+
+**Documentation**
+- `docs/CAPABILITIES.md` (new).
+- Source-mutation wording is exact: normal workflows use working copies; only the explicit expert overwrite replaces the source, after confirmation and a backup.
+- Stage design notes are marked historical, including the obsolete Stage 6 dpnp description.
+
+**Known limitations** — see `KNOWN_LIMITATIONS.md`. In short:
+- dense 4-layer boards are partly routed;
+- no impedance control or length tuning;
+- differential pairs are soft;
+- no Iris Xe measurements yet;
+- the installer is unsigned.
 
 ## v1.1.0 — audit repairs + dense-board routing
 

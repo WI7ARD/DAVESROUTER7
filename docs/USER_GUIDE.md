@@ -77,6 +77,24 @@ The Routing Jobs panel and the status bar show, e.g.
 not KiCad's DRC: the export summary says **ROUTED** vs **ROUTED + KiCad DRC** (the
 latter only when `kicad-cli` is installed and Settings ▸ Export ▸ Run KiCad DRC is on).
 
+## Accepting part of a result
+Tick the nets you want and press **Accept Checked**. If routing a net moved another
+net's route (a rip-up), accepting it also accepts the moved route. The Message
+column says so ("Accepting it also accepts X"), and the status line names the nets
+that came along. An acceptance that would leave any connected net open is refused
+and changes nothing.
+
+Accepted copper is yours: later routing jobs never rip it up. To re-route an
+accepted net, undo the acceptance or use the Workbench's local reroute.
+
+## AI commands: what is enforced
+Each constraint in an AI proposal is labelled **enforced**, **preference (not
+guaranteed)**, **reported after routing** or rejected as **not supported**. The
+**What will run** block shows the mode, rip-up and whether existing routes are
+kept. It is produced from the settings the router will actually use. Differential
+pairs are routed together, but gap, skew and impedance are not controlled. Length
+targets are measured and reported, not tuned. Full table: `CAPABILITIES.md`.
+
 ## Files
 * Output: `<name>_routed.kicad_pcb` next to the source (a sidecar `.pcbrouter.json`
   records provenance). Overwriting the source must be enabled explicitly (Settings ▸

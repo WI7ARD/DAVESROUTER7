@@ -1,5 +1,7 @@
 # Stage 5 — full-board routing and optimisation
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md). Since 1.1.1 partial acceptance of a board job is dependency-safe (accepting a net also accepts the routes that were moved for it), and `max_ripups_per_net` counts the whole job.
+
 Version 0.5.0-stage5. Module `routing/board_router.py`, `routing/optimize.py`,
 `routing/diffpair.py`; commands `RouteBoardCommand`, `AcceptBoardRoutingCommand`,
 `OptimizeNetCommand`; UI: Router ▸ Route Board (Ctrl+Shift+R), *Routing Jobs* dock,

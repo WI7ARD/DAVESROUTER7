@@ -7,6 +7,29 @@ commit, export, and a reload of the written file.
 Reproduce: `python tools/run_benchmarks.py --out bench_out` (boards come from
 `tests/fixtures/benchmark_suite.py`; `--boards esc_4layer` adds Davi's ESC).
 
+## Procedure (how to get comparable numbers)
+
+1. Use a quiet machine: nothing else CPU-heavy, on AC power, the same power plan.
+   Budget-limited boards (the 4-layer and real boards) route *fewer nets* when
+   the CPU is shared, not just slower.
+2. Run `python tools/run_benchmarks.py --out bench_out --trials 3 [--boards …]`.
+   The table reports the **median** route time and keeps the min–max range in
+   `results.json`. Completion, vias and length come from the median run;
+   single-worker runs are deterministic, so they repeat exactly.
+3. `bench_out/environment.json` records:
+   - the SHA-256 of every board file;
+   - the pcbrouter version and git commit;
+   - the Python and NumPy versions;
+   - the OS and the CPU model / logical core count.
+
+   Compare two runs only when the board hashes match. Treat a time difference
+   under about 10 % as noise.
+4. Parallel runs (`--workers -1` or ≥ 2) are not bit-for-bit repeatable (see
+   KNOWN_LIMITATIONS.md). Compare their completion and validity, and use time
+   ranges.
+5. Speed-ups are per board. A number like "17× faster" holds for the board and
+   mode it was measured on, never in general.
+
 *Workers* is the requested helper count. With `-1` (Auto) helpers only start when
 the nets are spread out enough to route side by side (`estimate_speedup` ≥ 1.5).
 Crowded boards therefore run on one worker, which is why their Auto rows equal the
@@ -63,8 +86,21 @@ Crowded boards (all nets through one QFP, the benchmark board) measured slower a
 |---|---|---|---|---|---|---|
 | Router_Benchmark_RevA (2L, 32 nets) | accuracy | 1 | 32/32 | 135 | 83 | 0 |
 | kit-dev-coldfire (4L, 209 nets, 600 s) | speed | auto (3) | 150/209 | 300 | 600 | 0 |
-| kit-dev-coldfire | speed | 1 | 135/209 | – | 600 | 0 |
+| kit-dev-coldfire | speed | 1 | **152/209** | 308 | 613 | 0 |
 | kit-dev-coldfire | accuracy | 1 | 169/209 | – | 600 | 0 |
+
+Speed's fine-grid retry is restricted to small failures in 1.1.1. The A/B below is
+coldfire Speed, 1 worker, 600 s, same code otherwise (`--trials 1`):
+
+| Fine-grid retry | Nets | Vias |
+|---|---|---|
+| unconditional | 121/209 | – |
+| off | 134/209 | 258 |
+| only after a failure of ≤ 20 000 expanded nodes (released) | **152/209** | 308 |
+
+The suite boards were re-run after the change (1 worker, 300 s budget). Nets,
+vias and lengths matched the table above: small_2layer 11/11 both modes,
+medium_4layer 40/44 (Speed) and 44/44 (Accuracy), dense_2layer 35/35 both modes.
 | hhkittesc ESC (4L, 94 nets, 900 s) | accuracy | auto (3) | 92/94 | 274 | 922 | 0 (31 pre-existing) |
 
 ## GPU kernel (SYCL), measured on the OpenCL **CPU** device

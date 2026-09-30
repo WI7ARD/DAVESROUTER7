@@ -1,5 +1,7 @@
 # Stage 2 — AI Provider Layer + Prompt-to-Constraint Compiler
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md). Statements below that routing "becomes available in Stage 4" or that constraints are "recorded only" are obsolete: see docs/CAPABILITIES.md.
+
 Version `0.2.0-stage2`. The AI planner turns natural language into **validated,
 previewable PCB commands**. Stage 2 stops at *command preview + approval*: it routes
 nothing, moves nothing, modifies no copper and saves no files.

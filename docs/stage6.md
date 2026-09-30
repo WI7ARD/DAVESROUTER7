@@ -1,5 +1,7 @@
 # Stage 6 — optional GPU acceleration
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md). In 1.1.1 the GPU search is the fused integer relaxation kernel (`compute/sycl_relax.py`, run through `dpctl`), bit-identical to its NumPy reference; the dpnp/CuPy array wavefront below is the original Stage 6 design. *Auto* keeps Intel GPUs on the CPU router until they are measured faster (docs/BENCHMARKS.md). No Iris Xe numbers exist yet.
+
 Version 0.6.0-stage6. The CPU A* router is the authority and the reference; the GPU
 is an optional accelerator for the search only.
 

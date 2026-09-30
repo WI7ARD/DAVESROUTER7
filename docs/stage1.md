@@ -1,5 +1,7 @@
 # Stage 1 — Foundation + KiCad Board Inspector
 
+> **Historical design note.** This page records the stage as it was built. Current behaviour is described in [USER_GUIDE.md](USER_GUIDE.md), [CAPABILITIES.md](CAPABILITIES.md) and [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md).
+
 Version `0.1.0-stage1`. Status: **complete** (see the acceptance checklist below).
 
 Stage 1 is a **read-only** inspector. It performs **no autorouting** and **no AI API calls**,
