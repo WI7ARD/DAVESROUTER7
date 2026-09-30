@@ -268,6 +268,28 @@ class AISession:
                 )
         return overrides
 
+    def ai_priorities(self) -> dict[str, int]:
+        """Routing order from approved Set Routing Priority proposals (soft: it only
+        reorders AI board-routing jobs)."""
+        from pcbrouter.ai.route_bridge import CRITICALITY_RANK, PRIORITY_RANK
+
+        out: dict[str, int] = {}
+        for p in self.proposals.values():
+            cmd = p.current
+            if (
+                p.state not in (CommandState.APPROVED, CommandState.EXECUTED)
+                or cmd.operation is not Operation.SET_ROUTING_PRIORITY
+            ):
+                continue
+            c = cmd.effective_constraints
+            rank = max(
+                PRIORITY_RANK.get(c.priority or "normal", 0),
+                CRITICALITY_RANK.get(c.criticality or "normal", 0),
+            )
+            for net in self._command_nets(cmd):
+                out[net] = rank
+        return out
+
     @staticmethod
     def _command_nets(cmd: AICommand) -> list[str]:
         nets: list[str] = []

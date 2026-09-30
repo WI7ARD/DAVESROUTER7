@@ -130,6 +130,11 @@ class AIEngineeringPanel(QWidget):
         self.refresh_profiles()
         self.refresh_board()
 
+    def _route_mode(self) -> str | None:
+        """The Speed/Accuracy mode an AI routing job would run with now."""
+        mode = str(getattr(self.settings.routing, "route_mode", ""))
+        return mode if mode in ("speed", "accuracy") else None
+
     # ================================================================ pages
     def _build_empty_page(self) -> QWidget:
         page = QWidget()
@@ -704,7 +709,9 @@ class AIEngineeringPanel(QWidget):
                 "AI suggests a structured command.</i>"
             )
         else:
-            self.proposal_view.setHtml(proposal_html(p, BoardFactService(session.board)))
+            self.proposal_view.setHtml(
+                proposal_html(p, BoardFactService(session.board), self._route_mode())
+            )
             self.targetNetsChanged.emit(session._command_nets(p.current))
         self._update_buttons()
 

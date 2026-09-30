@@ -302,9 +302,11 @@ def test_analyze_then_command_approve_reject_edit(
         "[AI OBSERVATION]",
         "[DRC RESULT]",
         "Nothing here is a DRC result",
-        "Validation: VALID WITH WARNINGS",
+        "Validation: VALID",
         "✓ Referenced nets and components exist",
-        "SWITCHING_POWER",
+        "preference (not guaranteed)",  # every constraint is labelled with its class
+        "What will run",
+        "Rip-up: off",
     ):
         assert needle in html, needle
     assert panel.approve_button.isEnabled()

@@ -72,9 +72,13 @@ class EditProposalCommand(BaseCommand):
         return CommandResult.ok(f"Constraints updated; re-validated: {status}.", p)
 
 
-def approved_plan(ctx: CommandContext, proposal_id: str) -> Any:
+def approved_plan(
+    ctx: CommandContext, proposal_id: str, *, mode: str = "accuracy", parallel_workers: int = 0
+) -> Any:
     """The router plan of an *approved* AI routing proposal (checks autonomy, state
-    and category). Raises ValueError/BridgeError with a user-facing message."""
+    and category). Raises ValueError/BridgeError with a user-facing message.
+    ``mode`` is the Speed/Accuracy preset the job runs with; priorities approved
+    with Set Routing Priority order board jobs."""
     from pcbrouter.ai.command_schema import OperationCategory
     from pcbrouter.ai.route_bridge import AutonomyMode, plan_from_command
 
@@ -90,7 +94,12 @@ def approved_plan(ctx: CommandContext, proposal_id: str) -> Any:
         raise ValueError(f"Proposal is {p.state.value}; only approved commands run.")
     if p.category is not OperationCategory.ROUTING:
         raise ValueError("Only routing operations run through the router.")
-    return plan_from_command(p.current)
+    return plan_from_command(
+        p.current,
+        mode=mode,
+        priorities=session.ai_priorities(),
+        parallel_workers=parallel_workers,
+    )
 
 
 @dataclass

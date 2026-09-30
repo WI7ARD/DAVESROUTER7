@@ -168,6 +168,9 @@ class BoardRouterSettings:
     max_passes: int = DEFAULT_MAX_PASSES
     allow_ripup: bool = True
     ripup_user_accepted: bool = False
+    #: rip-up may only remove copper this job created: every route that was on
+    #: the board when the job started stays exactly where it is
+    preserve_existing: bool = False
     max_ripups_per_net: int = DEFAULT_MAX_RIPUPS_PER_NET
     max_total_ripups: int = DEFAULT_MAX_TOTAL_RIPUPS
     budget_s: float = DEFAULT_BUDGET_S
@@ -175,6 +178,9 @@ class BoardRouterSettings:
     optimize: bool = False
     priorities: dict[str, int] = field(default_factory=dict)
     groups: tuple[RouteGroup, ...] = ()
+    #: explicit differential pairs (positive, negative) in addition to the ones
+    #: detected by name; a pair is routed consecutively with a soft corridor
+    pairs: tuple[tuple[str, str], ...] = ()
     #: helper processes for parallel routing (see routing/parallel.py); 0/1 = off.
     #: The caller only sets it for the CPU backend.
     parallel_workers: int = 0
@@ -470,6 +476,11 @@ def make_plan(
     ]
     notes: list[str] = []
     pairs = diff_pairs(candidates)
+    paired = {n for pair in pairs for n in pair}
+    for a, b in settings.pairs:
+        if a in candidates and b in candidates and not {a, b} & paired:
+            pairs.append((a, b))
+            paired |= {a, b}
     partner = {a: b for a, b in pairs} | {b: a for a, b in pairs}
     group_of = {n: g.name for g in settings.groups for n in g.nets}
     group_prio = {g.name: g.priority for g in settings.groups}
@@ -583,6 +594,8 @@ class BoardRouter:
 
         self.router_factory = factory
         self._all_tasks: list[RouteTask] = []
+        self._base_ids: set[str] = set()
+        self._ripup_tries: dict[str, int] = {}
         self._outcomes: dict[str, NetOutcome] = {}
         self._deadline: float | None = None
         self._emit: Callable[..., None] = lambda **_kw: None
@@ -600,6 +613,10 @@ class BoardRouter:
         fork = self.base.fork()
         base_board = fork.board
         base_ids = {t.id for t in base_board.tracks} | {v.id for v in base_board.vias}
+        self._base_ids = base_ids
+        #: rip-up attempts per net over the WHOLE job (every pass), so
+        #: max_ripups_per_net is a job limit, not a per-pass one
+        self._ripup_tries = {}
         plan = plan or make_plan(fork, s)
         self._all_tasks = list(plan.tasks)
         metrics = BoardMetrics(nets_attempted=len(plan.tasks))
@@ -1067,10 +1084,13 @@ class BoardRouter:
         if self.settings.ripup_user_accepted:
             ok.add(Provenance.USER_ACCEPTED)
         idx = fork.board.index
+        keep = self._base_ids if self.settings.preserve_existing else set()
         out = []
         for obj_id, prov in fork.provenance.items():
             obj = idx.tracks_by_id.get(obj_id) or idx.vias_by_id.get(obj_id)
             if obj is None or prov not in ok or fork.is_locked(obj_id, obj.net_name):
+                continue
+            if obj_id in keep:
                 continue
             out.append(obj_id)
         return sorted(out)
@@ -1087,7 +1107,7 @@ class BoardRouter:
     ) -> list[RouteTask]:
         s = self.settings
         remaining: list[RouteTask] = []
-        tries: dict[str, int] = {}
+        tries = self._ripup_tries
         for task in failed:
             if not control.checkpoint(deadline) or time.perf_counter() > deadline:
                 remaining.append(task)

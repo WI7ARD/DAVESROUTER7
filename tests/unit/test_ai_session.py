@@ -85,7 +85,7 @@ def test_successful_command_becomes_validated_proposal(can_board: Board) -> None
     assert inter.kind is InteractionKind.PROPOSALS
     p = s.proposals[inter.proposal_ids[0]]
     assert p.state is CommandState.VALID
-    assert p.validation is not None and p.validation.status.value == "valid_with_warnings"
+    assert p.validation is not None and p.validation.status.value == "valid"
     assert p.original.effective_constraints.min_clearance_mm is None  # null was stripped
     assert p.board_fingerprint == can_board.fingerprint
 
@@ -320,7 +320,7 @@ def test_export_contains_session_but_no_secrets(can_board: Board) -> None:
     text = json.dumps(data)
     assert data["board"]["fingerprint"] == can_board.fingerprint
     assert len(data["interactions"]) == 2 and data["proposals"][0]["state"] == "approved"
-    assert data["proposals"][0]["validation"]["status"] == "valid_with_warnings"
+    assert data["proposals"][0]["validation"]["status"] == "valid"
     for forbidden in (FAKE_KEY, "sk-", "authorization", "x-api-key", "Bearer"):
         assert forbidden not in text
     assert "<pcb_context>" not in text  # full context is not exported, only its fingerprint

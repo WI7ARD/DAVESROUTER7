@@ -112,8 +112,18 @@ def _fmt(value: object) -> str:
 
 
 def constraint_rows(cmd: AICommand) -> list[tuple[str, str]]:
+    """Every specified constraint with what the application does with it
+    (pcbrouter.ai.capabilities): enforced, preference, reported only, unsupported."""
+    from pcbrouter.ai.capabilities import capability
+
     c = cmd.effective_constraints
-    rows = [(k.replace("_", " ").capitalize(), _fmt(v)) for k, v in c.specified_fields().items()]
+    rows = [
+        (
+            k.replace("_", " ").capitalize(),
+            f"{_fmt(v)} — {capability(k, cmd.operation, c).capability.label}",
+        )
+        for k, v in c.specified_fields().items()
+    ]
     if c.preserve_existing_routes is None:
         rows.append(("Preserve existing routes", "Yes (safe default)"))
     if c.allow_component_movement is None:
@@ -133,7 +143,25 @@ def _net_names(cmd: AICommand) -> list[str]:
     return out
 
 
-def proposal_html(p: CommandProposal, facts: BoardFactService | None) -> str:
+def execution_lines(cmd: AICommand, mode: str | None = None) -> list[str]:
+    """What running this routing command would do, from the same plan the run uses."""
+    from pcbrouter.ai.command_schema import OperationCategory
+    from pcbrouter.ai.route_bridge import BridgeError, plan_from_command
+
+    if cmd.operation.category is not OperationCategory.ROUTING:
+        return []
+    try:
+        lines = plan_from_command(cmd, mode=mode or "accuracy").describe()
+    except (BridgeError, ValueError) as exc:
+        return [f"Cannot run: {exc}"]
+    if mode is None:
+        lines.append("Speed/Accuracy: the mode selected when you run it")
+    return lines
+
+
+def proposal_html(
+    p: CommandProposal, facts: BoardFactService | None, mode: str | None = None
+) -> str:
     cmd = p.current
     color = _STATE_COLORS.get(p.state, "#d29922")
     parts = [
@@ -151,6 +179,13 @@ def proposal_html(p: CommandProposal, facts: BoardFactService | None) -> str:
         )
         + "</table>",
     ]
+    run = execution_lines(cmd, mode)
+    if run:
+        parts.append(
+            "<p><b>What will run</b> (from the plan the router executes)<br>"
+            + "<br>".join(esc(line) for line in run)
+            + "</p>"
+        )
     if cmd.reasoning_summary:
         parts.append(
             f"<p>{badge(LABEL_AI)} <b>AI engineering summary</b><br>"

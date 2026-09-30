@@ -79,7 +79,6 @@ COMMAND_PAYLOAD: dict[str, Any] = {
                 "allow_component_movement": False,
                 "minimize_vias": True,
                 "max_vias": 4,
-                "avoid_net_classes": ["SWITCHING_POWER"],
                 "preferred_layers": ["F.Cu", "B.Cu"],
                 "priority": "critical",
                 # Nullable-but-required wire fields arrive as null and are stripped.

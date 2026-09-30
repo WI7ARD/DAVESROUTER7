@@ -17,6 +17,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from pcbrouter.ai.anonymizer import Anonymizer, EntityKind
+from pcbrouter.ai.capabilities import Capability, OpKind, assess, op_kind
 from pcbrouter.ai.command_schema import (
     AICommand,
     AreaTarget,
@@ -251,6 +252,7 @@ class SemanticValidator:
                 "constraints",
             )
 
+        self._check_capabilities(cmd, c, target_nets, add)
         self._check_constraints(cmd, c, target_nets, add)
         rule_checks: list[RuleCheck] = []
         if self.engine is not None:
@@ -286,6 +288,58 @@ class SemanticValidator:
                 CheckResult("Deterministic design rules (geometry engine)", "rules" not in failed),
             )
         return ValidationReport(status, tuple(issues), checks, resolved, tuple(rule_checks))
+
+    def _check_capabilities(
+        self, cmd: AICommand, c: RoutingConstraints, target_nets: list[str], add: Any
+    ) -> None:
+        """Reject constraints the application does not implement; label the rest
+        (see pcbrouter.ai.capabilities). Nothing is silently ignored."""
+        kind = op_kind(cmd.operation)
+        soft: list[str] = []
+        analysis: list[str] = []
+        for name, fc in assess(cmd.operation, c):
+            label = name.replace("_", " ")
+            if fc.capability is Capability.UNSUPPORTED:
+                if kind is OpKind.OTHER:
+                    add(
+                        Severity.WARNING,
+                        "constraint_ignored",
+                        f"{label} has no effect on {cmd.operation.label}; it is ignored.",
+                    )
+                else:
+                    add(
+                        Severity.ERROR,
+                        "unsupported_constraint",
+                        f"Unsupported constraint {label}: {fc.how}.",
+                        "constraints",
+                    )
+            elif fc.capability is Capability.SOFT:
+                soft.append(label)
+            elif fc.capability is Capability.ANALYSIS_ONLY and name != "additional_notes":
+                analysis.append(label)
+        if soft:
+            add(
+                Severity.INFO,
+                "soft_constraints",
+                "Preferences, not guarantees: " + ", ".join(soft) + ".",
+            )
+        if analysis:
+            add(
+                Severity.WARNING,
+                "analysis_only",
+                "Measured and reported after routing, not enforced: " + ", ".join(analysis) + ".",
+            )
+        dp = c.differential_pair
+        if dp is not None and kind is OpKind.ROUTE_GROUP:
+            missing = [n for n in (dp.positive_net, dp.negative_net) if n not in target_nets]
+            if missing:
+                add(
+                    Severity.ERROR,
+                    "pair_not_target",
+                    "Differential-pair net(s) " + ", ".join(missing) + " are not routed by "
+                    "this command; add them to the targets.",
+                    "constraints",
+                )
 
     # ------------------------------------------------------------------ resolution
     def _resolve(self, command: AICommand, add: Any) -> AICommand | None:
@@ -543,39 +597,12 @@ class SemanticValidator:
                 "constraints",
             )
 
-        if c.avoid_net_classes:
-            add(
-                Severity.WARNING,
-                "net_classes_unknown",
-                "Net classes ("
-                + ", ".join(c.avoid_net_classes)
-                + ") cannot be verified: net-class "
-                "data is not loaded yet. The constraint is recorded but unchecked.",
-            )
         dp = c.differential_pair
         if dp is not None:
             for n in (dp.positive_net, dp.negative_net):
                 self._check_net(n, "Differential-pair net", add)
-                if target_nets and n not in target_nets:
-                    add(
-                        Severity.WARNING,
-                        "pair_not_target",
-                        f'Differential-pair net "{n}" is not among the command targets.',
-                    )
-            add(
-                Severity.WARNING,
-                "pair_rules_unavailable",
-                "Differential pair rules are not yet available from deterministic geometry "
-                "rules (planned for Stage 6); the pair intent is recorded only.",
-            )
         elif c.pair_gap_mm is not None or c.pair_skew_tolerance_mm is not None:
             add(Severity.WARNING, "pair_params", "Pair gap/skew given without a differential pair.")
-        if c.impedance_target_ohm is not None:
-            add(
-                Severity.WARNING,
-                "impedance",
-                "Impedance targets need stackup data that is not available; recorded only.",
-            )
 
     def _check_rules(
         self,
@@ -830,8 +857,8 @@ class SemanticValidator:
             add(
                 Severity.INFO,
                 "stage",
-                "Routing execution becomes available in Stage 4. "
-                "Approving records the intent only; no copper changes.",
+                "Approving lets you run this with the deterministic router. The result "
+                "is a preview; nothing changes on the board until you accept it.",
             )
             for net in dict.fromkeys(target_nets):
                 st = idx.net_statistics.get(net)
@@ -843,7 +870,17 @@ class SemanticValidator:
                         "few_pads",
                         f'Net "{net}" has {st.pad_count} pad(s); there is nothing to connect.',
                     )
-                if st.track_count and not c.effective_preserve_existing_routes:
+                if (
+                    st.track_count
+                    and not c.effective_preserve_existing_routes
+                    and (
+                        cmd.operation in (Operation.OPTIMIZE_NET, Operation.REDUCE_VIAS)
+                        or (
+                            c.effective_allow_ripup
+                            and cmd.operation in (Operation.ROUTE_GROUP, Operation.ROUTE_BOARD)
+                        )
+                    )
+                ):
                     add(
                         Severity.WARNING,
                         "replace_routes",
@@ -857,6 +894,6 @@ class SemanticValidator:
             add(
                 Severity.INFO,
                 "defaults",
-                "No constraints given: safe defaults apply (preserve "
-                "existing routes, no rip-up, no component movement).",
+                "No constraints given: safe defaults apply (existing routes kept, "
+                "no rip-up, components never move).",
             )

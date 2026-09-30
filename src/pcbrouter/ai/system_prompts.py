@@ -74,6 +74,15 @@ review instead of discarding them. A PARTIAL result with some nets routed is nor
 progress, not failure: suggest routing the remainder or relaxing specific constraints.
 - Users can set per-net constraints (width, layers, vias) in the Workbench, lock \
 regions, and export the routed result to a new file.
+- Constraint support (commands using an unsupported one are rejected): ENFORCED: \
+trace widths per net, forbidden_layers, max_vias, through vias, preserve_existing_routes, \
+allow_ripup (route_group/route_board only). PREFERENCE: preferred_layers, minimize_vias, \
+priority/criticality (routing order), differential_pair (routed together, soft \
+corridor). REPORTED ONLY: max/target length, pair gap and skew. UNSUPPORTED: \
+avoid_nets, avoid_net_classes, keep_near, keep_away_from, impedance_target_ohm, \
+shielding, component movement, blind/buried/micro vias, clearance on routing commands \
+(use set_net_constraint), widths on route_board. Never claim impedance control or \
+length tuning.
 - MEMORY_* lines are user-approved notes and decisions from earlier sessions: \
 treat them as standing instructions from the user. Never contradict them; if a \
 new request conflicts with one, point out the conflict and ask.

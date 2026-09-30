@@ -47,7 +47,7 @@ def test_existing_net_is_valid(can_board: Board) -> None:
     r = validate(can_board, route("CAN_H"))
     assert r.status is ValidationStatus.VALID
     assert all(c.passed for c in r.checks)
-    assert "stage" in codes(r, Severity.INFO)  # routing needs Stage 4: info, not an error
+    assert "stage" in codes(r, Severity.INFO)  # "preview first": info, not an error
 
 
 def test_unknown_net_is_invalid_with_suggestions_but_no_substitution(can_board: Board) -> None:
@@ -96,8 +96,11 @@ def test_move_locked_component_is_invalid(can_board: Board) -> None:
     )
     assert r.status is ValidationStatus.INVALID and "locked_component" in codes(r)
     # Nets touching the locked U2: movement allowed elsewhere, but warned.
+    # the router never moves parts: movement is rejected as unsupported (1.1.1),
+    # and the locked parts on the nets are still named
     w = validate(can_board, route("CAN_H", allow_component_movement=True))
-    assert w.status is ValidationStatus.VALID_WITH_WARNINGS and "locked_on_nets" in codes(w)
+    assert w.status is ValidationStatus.INVALID
+    assert {"unsupported_constraint", "locked_on_nets"} <= codes(w)
 
 
 def test_locked_tracks_cannot_be_ripped_up(can_board: Board) -> None:
@@ -187,7 +190,9 @@ def test_constraint_consistency(can_board: Board) -> None:
     assert "near_away" in codes(near_away)
 
 
-def test_unverifiable_constraints_are_warnings(can_board: Board) -> None:
+def test_unsupported_constraints_are_rejected_not_recorded(can_board: Board) -> None:
+    """1.1.1: constraints the router does not implement make the command INVALID
+    instead of being "recorded only" and silently ignored."""
     r = validate(
         can_board,
         {
@@ -200,8 +205,30 @@ def test_unverifiable_constraints_are_warnings(can_board: Board) -> None:
             },
         },
     )
+    assert r.status is ValidationStatus.INVALID
+    bad = [i.message for i in r.issues if i.code == "unsupported_constraint"]
+    assert len(bad) == 2 and any("avoid net classes" in m for m in bad)
+    assert any("impedance" in m for m in bad)
+    # the pair itself is supported as a soft preference and is labelled as such
+    assert any("differential pair" in i.message for i in r.issues if i.code == "soft_constraints")
+
+
+def test_pair_with_gap_and_skew_is_soft_plus_analysis(can_board: Board) -> None:
+    r = validate(
+        can_board,
+        {
+            "operation": "route_group",
+            "targets": [{"type": "net_group", "names": ["CAN_H", "CAN_L"]}],
+            "constraints": {
+                "differential_pair": {"positive_net": "CAN_H", "negative_net": "CAN_L"},
+                "pair_gap_mm": 0.2,
+                "pair_skew_tolerance_mm": 0.5,
+            },
+        },
+    )
     assert r.status is ValidationStatus.VALID_WITH_WARNINGS
-    assert {"net_classes_unknown", "pair_rules_unavailable", "impedance"} <= codes(r)
+    analysis = next(i.message for i in r.issues if i.code == "analysis_only")
+    assert "pair gap mm" in analysis and "pair skew tolerance mm" in analysis
 
 
 def test_high_confidence_does_not_override_validation(can_board: Board) -> None:
@@ -212,7 +239,18 @@ def test_high_confidence_does_not_override_validation(can_board: Board) -> None:
 
 
 def test_nothing_to_route_warnings(can_board: Board) -> None:
-    r = validate(can_board, route("CAN_L", preserve_existing_routes=False))
+    # single-net routing only adds copper: no "may be replaced" warning
+    assert "replace_routes" not in codes(
+        validate(can_board, route("CAN_L", preserve_existing_routes=False))
+    )
+    r = validate(
+        can_board,
+        {
+            "operation": "route_group",
+            "targets": [{"type": "net_group", "names": ["CAN_H", "CAN_L"]}],
+            "constraints": {"preserve_existing_routes": False, "allow_ripup": True},
+        },
+    )
     assert "replace_routes" in codes(r)
 
 
@@ -229,7 +267,8 @@ def test_anonymised_identifiers_map_back_exactly(can_board: Board) -> None:
             }
         )
     )
-    assert r.is_valid
+    # keep_near is unsupported by the router (rejected), but names still resolve
+    assert {i.code for i in r.errors} == {"unsupported_constraint"}
     assert r.resolved is not None and _first_name(r) == "CAN_H"
     kn = r.resolved.effective_constraints.keep_near or []
     assert kn[0].name == "U2"

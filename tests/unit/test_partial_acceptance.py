@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -64,7 +65,7 @@ class Session:
             NetStatus.FULLY_CONNECTED
         )
 
-    def route(self, nets: list[str], **kw: object) -> BoardRoutingResult:
+    def route(self, nets: list[str], **kw: Any) -> BoardRoutingResult:
         r = self.bus.dispatch(RouteBoardCommand(settings=BoardRouterSettings(**kw), nets=nets))
         assert r.success, r.message
         return r.data  # type: ignore[no-any-return]

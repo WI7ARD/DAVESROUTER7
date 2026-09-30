@@ -587,11 +587,24 @@ class RoutingController(QObject):
         working = self.project.working
         if not ids or session is None or working is None or self.route_jobs.busy:
             return False
+        from pcbrouter.routing.parallel import auto_workers
+
+        mode = self.route_mode().value
+        workers = (
+            auto_workers(self.w.settings.routing.parallel_workers) if (self._mode() == "cpu") else 0
+        )
         try:
             if len(ids) == 1:
-                plan = approved_plan(self.w.bus.context, ids[0])
+                plan = approved_plan(
+                    self.w.bus.context, ids[0], mode=mode, parallel_workers=workers
+                )
             else:
-                plan = plan_from_commands([session.proposals[i].current for i in ids])
+                plan = plan_from_commands(
+                    [session.proposals[i].current for i in ids],
+                    mode=mode,
+                    priorities=session.ai_priorities(),
+                    parallel_workers=workers,
+                )
         except (BridgeError, KeyError, ValueError) as exc:
             self.panel.set_result(None)
             self.panel.status.setText(f"Not run: {exc}")
@@ -599,8 +612,8 @@ class RoutingController(QObject):
             return False
         snapshot = WorkingSnapshot.from_working(working)
         job = AIPlanJob(snapshot, plan, mode=self._mode())
-        if plan.kind == "route_board":
-            job.timeout_s = BoardRouterSettings().budget_s + BOARD_TIMEOUT_GRACE_S
+        if plan.kind == "route_board" and plan.policy is not None:
+            job.timeout_s = plan.policy.settings().budget_s + BOARD_TIMEOUT_GRACE_S
 
         def done(d: JobDone) -> None:
             if d.value is None:
@@ -610,7 +623,10 @@ class RoutingController(QObject):
 
         if not self._submit(job, done):
             return False
-        self.panel.set_running("Running the approved AI command with the deterministic router…")
+        self.panel.set_running(
+            "Running the approved AI command with the deterministic router:\n"
+            + "\n".join(plan.describe())
+        )
         self.w.engine_ui.lbl_routing.setText("Routing: AI command running…")
         return True
 
