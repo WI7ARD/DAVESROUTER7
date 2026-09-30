@@ -23,9 +23,10 @@
   - nets that were never tried say so.
 
 **Product**
-- **Headless routing:** `pcbrouter board.kicad_pcb --route [--mode speed|accuracy] [--workers N] [--budget S] [--output F] [--report JSON] [--kicad-drc]`.
-  - Exit codes: 0 fully routed, 2 partial, 1 error.
-  - The source board is never modified.
+- **Headless routing:** `pcbrouter board.kicad_pcb --route [--mode speed|accuracy] [--workers N] [--timeout S] [--backend cpu|auto|gpu] [--layers F.Cu,B.Cu] [--grid MM] [--output F] [--report JSON] [--kicad-drc] [--overwrite]`.
+  - Exit codes: 0 fully routed, 3 partial (file written), 1 error, 2 usage.
+  - The source board is never modified unless `--overwrite` is given; then a timestamped backup is written first.
+  - Explicit `--backend gpu` fails clearly when no GPU is usable.
 - **First-run welcome page** (Help ▸ Welcome) and **Settings ▸ Restore Defaults**.
 - **New docs:** quick start, user guide and troubleshooting (installed with the app), plus known limitations and benchmark results.
 - **Benchmark suite** (`tests/fixtures/benchmark_suite.py`, `tools/run_benchmarks.py`): tiny, small/medium/dense 2-layer, small/medium 4-layer, and an impossible board.

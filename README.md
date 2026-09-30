@@ -105,7 +105,8 @@ pcbrouter --gpu-check                  # GPU library/devices report
 # route without the window (same pipeline, source never modified):
 pcbrouter board.kicad_pcb --route --mode speed --workers -1 --budget 600 \
     --output routed.kicad_pcb --report result.json [--kicad-drc]
-# exit code 0 = fully routed, 2 = partially routed (file written), 1 = error
+# options: --backend cpu|auto|gpu  --layers F.Cu,B.Cu  --grid MM  --overwrite (backs up first)
+# exit code 0 = fully routed, 3 = partially routed (file written), 1 = error, 2 = usage
 ```
 
 Try the bundled fixtures, e.g. `pcbrouter tests/fixtures/boards/can_node.kicad_pcb`.

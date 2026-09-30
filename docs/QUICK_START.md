@@ -24,4 +24,6 @@
    manufacturing.
 
 Command line (no window): `pcbrouter.exe board.kicad_pcb --route --mode speed
---output routed.kicad_pcb --report result.json`.
+--output routed.kicad_pcb --report result.json`. Exit code 0 means fully routed,
+3 partially routed (file written), 1 an error (nothing written). `pcbrouter.exe --help`
+lists every option.

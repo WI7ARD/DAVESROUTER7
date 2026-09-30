@@ -130,14 +130,21 @@ if ($SuiteDir) {
     Check ($r.exit -eq 0 -and $r.metrics.nets_completed -eq $r.metrics.nets_attempted) "tiny 2-layer, single worker: $($r.summary) ($($r.wall_s) s)"
     Check-Output $r 'tiny'
 
-    $r = Route-Board 'medium_2layer' 'speed' -1 300
-    Check ($r.workers -ge 1) "parallel helpers used on the medium 2-layer board ($($r.workers))"
-    Check ($r.exit -eq 0 -and $r.metrics.nets_completed -eq $r.metrics.nets_attempted) "medium 2-layer, parallel: $($r.summary) ($($r.wall_s) s)"
+    $r = Route-Board 'medium_2layer' 'speed' 0 300
+    Check ($r.exit -eq 0 -and $r.metrics.nets_completed -eq $r.metrics.nets_attempted) "medium 2-layer, single worker: $($r.summary) ($($r.wall_s) s)"
     Check-Output $r 'medium 2-layer'
 
-    $r = Route-Board 'medium_4layer' 'speed' -1 300
+    # Parallel routing must really run (helpers started, results committed through
+    # the validator) on a board whose nets are spread out: four circuit blocks.
+    $r = Route-Board 'modular_4layer' 'accuracy' -1 300
     Check ($r.layers.Count -eq 4) '4-layer board read with 4 copper layers'
-    Check ($r.exit -in 0, 2 -and $r.metrics.nets_completed -ge [math]::Floor(0.85 * $r.metrics.nets_attempted)) "medium 4-layer, parallel: $($r.summary) ($($r.wall_s) s)"
+    Check ($r.metrics.parallel_batches -gt 0) "parallel helpers routed nets ($($r.metrics.parallel_batches) results, $($r.metrics.parallel_conflicts) conflicts; $($r.log -join '; '))"
+    Check ($r.exit -eq 0 -and $r.metrics.nets_completed -eq $r.metrics.nets_attempted) "modular 4-layer, parallel: $($r.summary) ($($r.wall_s) s)"
+    Check-Output $r 'modular 4-layer'
+
+    $r = Route-Board 'medium_4layer' 'speed' 0 300
+    Check ($r.layers.Count -eq 4) '4-layer board read with 4 copper layers'
+    Check ($r.exit -in 0, 3 -and $r.metrics.nets_completed -ge [math]::Floor(0.85 * $r.metrics.nets_attempted)) "medium 4-layer (0.5 mm QFP), Speed: $($r.summary) ($($r.wall_s) s)"
     Check-Output $r 'medium 4-layer'
 
     $r = Route-Board 'impossible' 'accuracy' 0 60
@@ -196,3 +203,6 @@ Check (-not (Test-Path $startMenuLink)) 'Start menu shortcut removed'
 Check (-not (Test-Path $dataDir)) 'logs and workspaces removed on request'
 
 Write-Host 'Smoke test passed.'
+# Checks above failed by throwing; a native command's exit code (e.g. the malformed
+# board correctly exiting 1) must not become this script's result.
+exit 0

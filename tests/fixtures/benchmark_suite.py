@@ -4,8 +4,11 @@
     small_2layer      router_dense fixture (11 nets, 2 layers)
     medium_2layer     headers + DIPs, ~40 crossing nets, 100 x 70 mm, 2 layers
     dense_2layer      same parts squeezed into 70 x 50 mm, ~60 nets, 2 layers
+    modular_2layer    four independent circuit blocks, 160 x 110 mm, 2 layers
+                      (nets stay inside their block: parallel routing can engage)
     small_4layer      router_4layer fixture (4 layers)
     medium_4layer     QFP-64 (0.5 mm pitch) + headers + DIP, ~60 nets, 4 layers
+    modular_4layer    the four blocks on 4 layers with a QFP-44 in each block
     impossible        one net whose pad is walled in by keepouts on every layer
 
 ``write_suite(folder)`` writes each generated board with its ``.kicad_pro``.
@@ -248,6 +251,34 @@ def medium_4layer() -> tuple[str, str]:
             _project(0.15, 0.15, 0.5, 0.25))  # fmt: skip
 
 
+def _modular(title: str, layers: list[str], with_qfp: bool) -> str:
+    parts: list[_Part] = []
+    nets: list[str] = []
+    for k, (ox, oy) in enumerate(((0, 0), (80, 0), (0, 55), (80, 55))):
+        block = [header(f"J{k}1", ox + 6, oy + 8, 2, 6), dip(f"U{k}1", ox + 24, oy + 8, 16),
+                 dip(f"U{k}2", ox + 48, oy + 8, 14)]  # fmt: skip
+        if with_qfp:
+            block.append(qfp(f"U{k}3", ox + 40, oy + 38, 11, pitch=0.8))
+        for name in _assign_nets(block, 14, seed=100 + k, power=1):
+            for part in block:
+                for pad in part.pads:
+                    if pad.net == name:
+                        pad.net = f"B{k}_{name}"
+            nets.append(f"B{k}_{name}")
+        parts += block
+    return _board_text(title, layers, 160, 110, parts, nets)
+
+
+def modular_2layer() -> tuple[str, str]:
+    return (_modular("Bench modular 2-layer", ["F.Cu", "B.Cu"], False),
+            _project(0.25, 0.2, 0.6, 0.3))  # fmt: skip
+
+
+def modular_4layer() -> tuple[str, str]:
+    return (_modular("Bench modular 4-layer", ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"], True),
+            _project(0.2, 0.15, 0.5, 0.25))  # fmt: skip
+
+
 def impossible() -> tuple[str, str]:
     a, b = header("J1", 10, 10, 1, 1), header("J2", 40, 10, 1, 1)
     a.pads[0].net = b.pads[0].net = "TRAPPED"
@@ -257,22 +288,37 @@ def impossible() -> tuple[str, str]:
             _project(0.25, 0.2, 0.6, 0.3))  # fmt: skip
 
 
+def partial() -> tuple[str, str]:
+    """One routable net and one walled-in net: a fast PARTIALLY_ROUTED case."""
+    a, b = header("J1", 10, 10, 1, 1), header("J2", 40, 10, 1, 1)
+    c, d = header("J3", 10, 30, 1, 1), header("J4", 40, 30, 1, 1)
+    a.pads[0].net = b.pads[0].net = "TRAPPED"
+    c.pads[0].net = d.pads[0].net = "FREE"
+    walls = [(7, 7, 13, 8), (7, 12, 13, 13), (7, 7, 8, 13), (12, 7, 13, 13)]
+    return (_board_text("Bench partial", ["F.Cu", "B.Cu"], 50, 40, [a, b, c, d],
+                        ["TRAPPED", "FREE"], walls),
+            _project(0.25, 0.2, 0.6, 0.3))  # fmt: skip
+
+
 GENERATED = {
     "medium_2layer": medium_2layer,
     "dense_2layer": dense_2layer,
     "medium_4layer": medium_4layer,
+    "modular_2layer": modular_2layer,
+    "modular_4layer": modular_4layer,
     "impossible": impossible,
+    "partial": partial,
 }
 FIXTURE_BOARDS = {"tiny": "router_basic", "small_2layer": "router_dense",
                   "small_4layer": "router_4layer"}  # fmt: skip
-ORDER = ["tiny", "small_2layer", "medium_2layer", "dense_2layer", "small_4layer",
-         "medium_4layer", "impossible"]  # fmt: skip
+ORDER = ["tiny", "small_2layer", "medium_2layer", "dense_2layer", "modular_2layer",
+         "small_4layer", "medium_4layer", "modular_4layer", "impossible"]  # fmt: skip
 
 
-def write_suite(folder: Path) -> dict[str, Path]:
+def write_suite(folder: Path, names: list[str] | None = None) -> dict[str, Path]:
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
-    for name in ORDER:
+    for name in names or ORDER:
         target = folder / f"{name}.kicad_pcb"
         if name in FIXTURE_BOARDS:
             src = FIXTURES / FIXTURE_BOARDS[name]

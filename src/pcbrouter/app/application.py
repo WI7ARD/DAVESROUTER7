@@ -85,6 +85,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         description=f"{APP_NAME} {__version__} — KiCad board inspector with an "
         "AI planning assistant and deterministic CPU/GPU autorouting "
         "(exports a new file; the source board is never modified).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n"
+        "  pcbrouter board.kicad_pcb                     open the board in the app\n"
+        "  pcbrouter board.kicad_pcb --route             route, write board_routed.kicad_pcb\n"
+        "  pcbrouter board.kicad_pcb --route --mode speed --workers -1 --timeout 300 \\\n"
+        "            --output out.kicad_pcb --report result.json\n"
+        "  pcbrouter --gpu-check                         staged GPU diagnostic (JSON)\n"
+        "\n--route exit codes: 0 fully routed · 3 partially routed (file written) ·\n"
+        "1 error (nothing written) · 2 command-line usage error.",
     )
     parser.add_argument("board", nargs="?", type=Path, help="optional .kicad_pcb to open")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
@@ -152,8 +161,21 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=-1, metavar="N",
                         help="parallel helper processes for --route: -1 auto (default), "
                         "0/1 single worker")  # fmt: skip
-    parser.add_argument("--budget", type=float, default=600.0, metavar="S",
-                        help="routing time budget in seconds for --route")  # fmt: skip
+    parser.add_argument("--budget", "--timeout", dest="budget", type=float, default=600.0,
+                        metavar="S", help="routing time budget in seconds for --route "
+                        "(default 600); routed nets are kept when it runs out")  # fmt: skip
+    parser.add_argument("--backend", choices=["cpu", "auto", "gpu"], default="cpu",
+                        help="search backend for --route (default cpu; gpu/auto need a "
+                        "working GPU, see --gpu-check; GPU runs on one worker)")  # fmt: skip
+    parser.add_argument("--layers", metavar="L1,L2",
+                        help="route only on these copper layers, e.g. F.Cu,B.Cu "
+                        "(--route)")  # fmt: skip
+    parser.add_argument("--grid", type=float, metavar="MM",
+                        help="routing grid in mm, 0.025-1.0 (--route; default: the "
+                        "mode's)")  # fmt: skip
+    parser.add_argument("--overwrite", action="store_true",
+                        help="allow --output to be the source board itself; a timestamped "
+                        "backup is written to pcbrouter-backups/ first (--route)")  # fmt: skip
     parser.add_argument("--report", type=Path, metavar="JSON",
                         help="write a JSON result report (--route)")  # fmt: skip
     parser.add_argument("--kicad-drc", action="store_true",
@@ -307,7 +329,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         setup_logging(None, logging.WARNING, console=sys.stderr is not None)
         return route_cli(args.board, args.output, args.mode, args.workers, args.budget,
-                         args.report, args.kicad_drc)  # fmt: skip
+                         args.report, args.kicad_drc, backend=args.backend,
+                         layers=args.layers, grid_mm=args.grid,
+                         overwrite=args.overwrite)  # fmt: skip
     if args.setup_freerouting or args.freeroute:
         from pcbrouter.app.freeroute_cli import freeroute_cli, setup_freerouting_cli
 
