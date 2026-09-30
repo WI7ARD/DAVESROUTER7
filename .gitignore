@@ -33,3 +33,4 @@ Thumbs.db
 ~*.lck
 fp-info-cache
 gpu_selftest_result.json
+benchmarks/real100/work/

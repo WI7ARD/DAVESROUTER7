@@ -1,0 +1,1534 @@
+{
+  "schema": "davesrouter-real100/1",
+  "suite_name": "DAVESROUTER Benchmark Suite \u2014 100 Real KiCad Boards",
+  "suite_version": "1.0.0",
+  "source_repository": "https://github.com/KiCad/kicad-source-mirror",
+  "source_ref": "fec63a6f5197a584e27b1bc3e7b8431be9c05a78",
+  "source_ref_date": "2026-09-30T08:23:01Z",
+  "board_count": 100,
+  "notes": [
+    "80 PCBNew QA/regression boards + 20 official KiCad demo designs.",
+    "Board bytes are fetched on demand and are not vendored in DAVESROUTER.",
+    "Generated unrouted copies are local benchmark derivatives only."
+  ],
+  "boards": [
+    {
+      "id": "K001",
+      "name": "api_kitchen_sink.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/api_kitchen_sink.kicad_pcb",
+      "source_size_bytes": 478930,
+      "git_blob_sha1": "008142c6570435b4686fad4665326df959259744",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K002",
+      "name": "bad_triangulation_case.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/bad_triangulation_case.kicad_pcb",
+      "source_size_bytes": 302968,
+      "git_blob_sha1": "22695c06f86f5255fc4ea6b070ee998727638712",
+      "difficulty": "normal",
+      "tags": [
+        "geometry_edge",
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K003",
+      "name": "complex_hierarchy.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/complex_hierarchy.kicad_pcb",
+      "source_size_bytes": 698023,
+      "git_blob_sha1": "a3588bae9ecc1b8aa3a510d32072047abc479366",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K004",
+      "name": "component_classes_drc.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/component_classes_drc.kicad_pcb",
+      "source_size_bytes": 23253,
+      "git_blob_sha1": "f2939d0eccc706ba3f38fe6f8b8a904d967b24c7",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "rules_constraints",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K005",
+      "name": "component_classes.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/component_classes.kicad_pcb",
+      "source_size_bytes": 75963,
+      "git_blob_sha1": "79e7a80c199b18910f358f2bd9e399ce526b4e43",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture",
+        "rules_constraints"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K006",
+      "name": "connection_width_rules.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/connection_width_rules.kicad_pcb",
+      "source_size_bytes": 5761,
+      "git_blob_sha1": "e1ee433e30325a77971cab3863e6f0d7f614f912",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "rules_constraints",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K007",
+      "name": "custom_fields.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/custom_fields.kicad_pcb",
+      "source_size_bytes": 11476,
+      "git_blob_sha1": "cf0fc0b0d4f2e65e33e278555f9c0ea55a7dce6f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K008",
+      "name": "custom_pads.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/custom_pads.kicad_pcb",
+      "source_size_bytes": 3988,
+      "git_blob_sha1": "77cae8b27b0686ac19c3942d72aa84959134a01d",
+      "difficulty": "small",
+      "tags": [
+        "geometry_edge",
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K009",
+      "name": "diff_pair_uncoupled_tuning_drc.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/diff_pair_uncoupled_tuning_drc.kicad_pcb",
+      "source_size_bytes": 21639,
+      "git_blob_sha1": "a3e83379bca4a8d05cba303eaf07006910e39d35",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "rules_constraints",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K010",
+      "name": "drc_missing_tuning_profile.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/drc_missing_tuning_profile.kicad_pcb",
+      "source_size_bytes": 2759,
+      "git_blob_sha1": "8f8df059111189471def56ac95468ff6fa0b0812",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "rules_constraints",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K011",
+      "name": "embedded_table_rotated_legacy_v10.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/embedded_table_rotated_legacy_v10.kicad_pcb",
+      "source_size_bytes": 58324,
+      "git_blob_sha1": "ca5cbdfd5047af12622db790b92bf82e3ce83569",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K012",
+      "name": "fill_bad.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/fill_bad.kicad_pcb",
+      "source_size_bytes": 10516,
+      "git_blob_sha1": "69ed798312566f73d1c7099035f1f44984840652",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small",
+        "zones"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K013",
+      "name": "footprints_load_save.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/footprints_load_save.kicad_pcb",
+      "source_size_bytes": 18057,
+      "git_blob_sha1": "ed09d092a270238d254c89c69883a2a744aeed70",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K014",
+      "name": "graphics_load_save_v20240108.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/graphics_load_save_v20240108.kicad_pcb",
+      "source_size_bytes": 3124,
+      "git_blob_sha1": "832c18aad5aa6e26d49fcc0bc95ed115af48452b",
+      "difficulty": "small",
+      "tags": [
+        "geometry_edge",
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K015",
+      "name": "groups_load_save_v20231212.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/groups_load_save_v20231212.kicad_pcb",
+      "source_size_bytes": 2776,
+      "git_blob_sha1": "8f31d6a7fcd4fdd1c65c006bf34b5867b46f1953",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K016",
+      "name": "groups_load_save.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/groups_load_save.kicad_pcb",
+      "source_size_bytes": 2778,
+      "git_blob_sha1": "0cd397cb86bf933efaf5bd0d66b4ef57305dff34",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K017",
+      "name": "incorrect_text_mirroring_drc.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/incorrect_text_mirroring_drc.kicad_pcb",
+      "source_size_bytes": 7620,
+      "git_blob_sha1": "2a75bb9034f20ff2d2305f44b78fab0017dbdde4",
+      "difficulty": "small",
+      "tags": [
+        "geometry_edge",
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K018",
+      "name": "intersectingzones.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/intersectingzones.kicad_pcb",
+      "source_size_bytes": 19388,
+      "git_blob_sha1": "20d663fd283037a272526a4ab6de1621c18da7bd",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small",
+        "zones"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K019",
+      "name": "issue10697.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue10697.kicad_pcb",
+      "source_size_bytes": 8556,
+      "git_blob_sha1": "1c1bd5fba69729d8472c286ce4b813bab364f2a6",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K020",
+      "name": "issue10906.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue10906.kicad_pcb",
+      "source_size_bytes": 3164,
+      "git_blob_sha1": "a339ae697647366ffdc4781fb18bee8c935e9299",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K021",
+      "name": "issue10916.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue10916.kicad_pcb",
+      "source_size_bytes": 8564,
+      "git_blob_sha1": "f6b916201e33811ca35420fc0d862edc0c5794fc",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K022",
+      "name": "issue11814.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue11814.kicad_pcb",
+      "source_size_bytes": 2055251,
+      "git_blob_sha1": "1538afc2b713361da9da70bc4dcebc3f6bd953bb",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K023",
+      "name": "issue12109.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue12109.kicad_pcb",
+      "source_size_bytes": 12669,
+      "git_blob_sha1": "ad8e6c58703f1e2c5c4095cb6f02eccaf375c64f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K024",
+      "name": "issue12609.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue12609.kicad_pcb",
+      "source_size_bytes": 327569,
+      "git_blob_sha1": "362eb4f54994bc3757c654df7f2fc3ebcfcabf5a",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K025",
+      "name": "issue12831.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue12831.kicad_pcb",
+      "source_size_bytes": 45083,
+      "git_blob_sha1": "72f14011f4944e85417078f397c59f1c92492d92",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K026",
+      "name": "issue1358.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue1358.kicad_pcb",
+      "source_size_bytes": 61063,
+      "git_blob_sha1": "d1c1804e6a3b91c9a56b9577d718e5dd729be475",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K027",
+      "name": "issue14008.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14008.kicad_pcb",
+      "source_size_bytes": 25879,
+      "git_blob_sha1": "06f3fab501827f6b33feba85e637e9644f92e305",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K028",
+      "name": "issue14130.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14130.kicad_pcb",
+      "source_size_bytes": 133935,
+      "git_blob_sha1": "fc617ba1abf83913d00c417536b4409e1dfaf53f",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K029",
+      "name": "issue14294.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14294.kicad_pcb",
+      "source_size_bytes": 47739,
+      "git_blob_sha1": "49d6a6ca44f1f6d9d23d5a1750288ae98c10d27b",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K030",
+      "name": "issue14334.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14334.kicad_pcb",
+      "source_size_bytes": 12733,
+      "git_blob_sha1": "4cde73f101f8f2d96f9e4e1301acce33af580b25",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K031",
+      "name": "issue14412.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14412.kicad_pcb",
+      "source_size_bytes": 4222,
+      "git_blob_sha1": "0bcf7b8d570f37fe10cfae0f88b17ab67483bb70",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K032",
+      "name": "issue14449.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14449.kicad_pcb",
+      "source_size_bytes": 21333,
+      "git_blob_sha1": "fe1de80bb083c37539349a646549c09f016b9999",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K033",
+      "name": "issue14549_2.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14549_2.kicad_pcb",
+      "source_size_bytes": 255479,
+      "git_blob_sha1": "3c4f97eab11007f3b0087c7151838f7cf0c0f2fb",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K034",
+      "name": "issue14549.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14549.kicad_pcb",
+      "source_size_bytes": 921789,
+      "git_blob_sha1": "689d8d1bc8dbc6d2fbc59f811fc90ff0f29407ea",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K035",
+      "name": "issue14559.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue14559.kicad_pcb",
+      "source_size_bytes": 2788566,
+      "git_blob_sha1": "63b66e415a344f9bdbe587f84e34d97d92ab35b4",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K036",
+      "name": "issue15280.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue15280.kicad_pcb",
+      "source_size_bytes": 51927,
+      "git_blob_sha1": "374ca1d5f808327fe8403b370a5a289ca048b4ee",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K037",
+      "name": "issue16182.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue16182.kicad_pcb",
+      "source_size_bytes": 175689,
+      "git_blob_sha1": "80345526f2f1ee221b2881e23eb3d88c84e91a77",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K038",
+      "name": "issue16566.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue16566.kicad_pcb",
+      "source_size_bytes": 6686,
+      "git_blob_sha1": "e6461f1ea34b4b8e677700b13f3ac86ce925fc5f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K039",
+      "name": "issue17429.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue17429.kicad_pcb",
+      "source_size_bytes": 452237,
+      "git_blob_sha1": "cd275ff336f1652aa8d7a2834be0e03cb96ad0d0",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K040",
+      "name": "issue17559.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue17559.kicad_pcb",
+      "source_size_bytes": 19330,
+      "git_blob_sha1": "d81f0590ff0ee9fb6f7cda40f9b53f0a73141ef2",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K041",
+      "name": "issue18.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue18.kicad_pcb",
+      "source_size_bytes": 19292,
+      "git_blob_sha1": "6448659b427db920feaf3dbe21ee71353448fefa",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K042",
+      "name": "issue18142.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue18142.kicad_pcb",
+      "source_size_bytes": 10329,
+      "git_blob_sha1": "f40b50dcd22907e4c448c9b8801065e8aefb497f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K043",
+      "name": "issue18203.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue18203.kicad_pcb",
+      "source_size_bytes": 5065,
+      "git_blob_sha1": "b85d31ebb4a5dbbfd4b07ad804443b66d9763734",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K044",
+      "name": "issue18839.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue18839.kicad_pcb",
+      "source_size_bytes": 850,
+      "git_blob_sha1": "85c548776c090022a2138de02b0cfe4ec24d7943",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K045",
+      "name": "issue18878.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue18878.kicad_pcb",
+      "source_size_bytes": 90960,
+      "git_blob_sha1": "7db82876c6c2cee0a5aa437f15cc7f30325ae912",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K046",
+      "name": "issue19405_roundrect_teardrop.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue19405_roundrect_teardrop.kicad_pcb",
+      "source_size_bytes": 3067,
+      "git_blob_sha1": "d981b6cc365a982f048f342a0ec3317075994003",
+      "difficulty": "small",
+      "tags": [
+        "geometry_edge",
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K047",
+      "name": "issue19574.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue19574.kicad_pcb",
+      "source_size_bytes": 3230,
+      "git_blob_sha1": "941f7dae2459e350d05ee7507c05f05eb43375c1",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K048",
+      "name": "issue22102.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue22102.kicad_pcb",
+      "source_size_bytes": 10615,
+      "git_blob_sha1": "26082b99ea5a715452f686de7c15a949ed36b226",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K049",
+      "name": "issue22267.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue22267.kicad_pcb",
+      "source_size_bytes": 231023,
+      "git_blob_sha1": "a1311909fe3b3975579824b5b92e8094eceaa377",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K050",
+      "name": "issue22536.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue22536.kicad_pcb",
+      "source_size_bytes": 131120,
+      "git_blob_sha1": "1f74409279c238ba7576c495cee31c41fc811cd8",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K051",
+      "name": "issue22794.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue22794.kicad_pcb",
+      "source_size_bytes": 2708,
+      "git_blob_sha1": "d68d8d9f1934e6518c0d4ab8e42b292400bf0c5f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K052",
+      "name": "issue22798.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue22798.kicad_pcb",
+      "source_size_bytes": 4669,
+      "git_blob_sha1": "cf10f1a4cef38f693a4d7d5dc1005eddd51f14d2",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K053",
+      "name": "issue23123_minimal.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue23123_minimal.kicad_pcb",
+      "source_size_bytes": 2363,
+      "git_blob_sha1": "c17adabf484b08f2909b0bca04afff12291dd3dc",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K054",
+      "name": "issue23339_zone_layer_rules.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue23339_zone_layer_rules.kicad_pcb",
+      "source_size_bytes": 3209,
+      "git_blob_sha1": "7938a442ca6203956745d553a7a53c779ab478ac",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small",
+        "zones"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K055",
+      "name": "issue23690_via_in_pad.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue23690_via_in_pad.kicad_pcb",
+      "source_size_bytes": 17537,
+      "git_blob_sha1": "2307870a035feda313336e6e5f9703baebbb986e",
+      "difficulty": "small",
+      "tags": [
+        "geometry_edge",
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K056",
+      "name": "issue24442.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue24442.kicad_pcb",
+      "source_size_bytes": 3506,
+      "git_blob_sha1": "73457dc400c01b1c88c4e9dbbaaa3e6bffaa0981",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K057",
+      "name": "issue24649.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue24649.kicad_pcb",
+      "source_size_bytes": 2706,
+      "git_blob_sha1": "cbc0a7eba97301f731c28ff687bef458d24fd61f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K058",
+      "name": "issue24974.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue24974.kicad_pcb",
+      "source_size_bytes": 6529,
+      "git_blob_sha1": "b1cd93b86801a1e3220d5f5aa7ba80991fe096b8",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K059",
+      "name": "issue25101.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue25101.kicad_pcb",
+      "source_size_bytes": 1143063,
+      "git_blob_sha1": "bb3052b34223413b59858a1a48ce5a99bf8201cc",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K060",
+      "name": "issue2512.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue2512.kicad_pcb",
+      "source_size_bytes": 14684,
+      "git_blob_sha1": "046bdcab030bc4958567d3159d9baa3a84882e0d",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K061",
+      "name": "issue25265.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue25265.kicad_pcb",
+      "source_size_bytes": 34745,
+      "git_blob_sha1": "37c2411e96c0ccb5663821f956e92c95edfd3b26",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K062",
+      "name": "issue2528.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue2528.kicad_pcb",
+      "source_size_bytes": 39577,
+      "git_blob_sha1": "081d84e00f5f0945ace79193dfb860c1293a1ba2",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K063",
+      "name": "issue25303.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue25303.kicad_pcb",
+      "source_size_bytes": 31502,
+      "git_blob_sha1": "65f4dfc35e54ef9fbc952eaa8b0757f5d1c30bad",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K064",
+      "name": "issue25521_zone_names.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue25521_zone_names.kicad_pcb",
+      "source_size_bytes": 16780,
+      "git_blob_sha1": "834cdb3366167f69cc8c6b576adb107216c17e57",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small",
+        "zones"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K065",
+      "name": "issue2568.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue2568.kicad_pcb",
+      "source_size_bytes": 689482,
+      "git_blob_sha1": "e2d7b5a61acb4a51953f8548524741242df66c55",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K066",
+      "name": "issue2904.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue2904.kicad_pcb",
+      "source_size_bytes": 551842,
+      "git_blob_sha1": "2ca1ef46d01b63e8f7a5aa68363d72cf9096659c",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K067",
+      "name": "issue3812.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue3812.kicad_pcb",
+      "source_size_bytes": 3944420,
+      "git_blob_sha1": "26f93733162fbe942581ce13d821fcb1c11e0fd2",
+      "difficulty": "dense",
+      "tags": [
+        "dense",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K068",
+      "name": "issue4139.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue4139.kicad_pcb",
+      "source_size_bytes": 12256,
+      "git_blob_sha1": "10a655a938b223f6f8e500aef414a56a6594317c",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K069",
+      "name": "issue4257.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue4257.kicad_pcb",
+      "source_size_bytes": 12012,
+      "git_blob_sha1": "919fb2a0e29839b45cf8536125a4dc0ec79e7f5f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K070",
+      "name": "issue4774.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue4774.kicad_pcb",
+      "source_size_bytes": 875754,
+      "git_blob_sha1": "02a023e32c4263b8b2c4f8605e7897e05340f35c",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K071",
+      "name": "issue5093.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5093.kicad_pcb",
+      "source_size_bytes": 2992684,
+      "git_blob_sha1": "0a82e178ca236d5e3c439e9334517ef46693d8c1",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K072",
+      "name": "issue5102.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5102.kicad_pcb",
+      "source_size_bytes": 1762951,
+      "git_blob_sha1": "7c85536a66b1f78f1b78d110d73f7e37e65f2016",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K073",
+      "name": "issue5313.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5313.kicad_pcb",
+      "source_size_bytes": 25756,
+      "git_blob_sha1": "5d69c15d097cddebeb9bc90c44605b033ff66f95",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K074",
+      "name": "issue5320.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5320.kicad_pcb",
+      "source_size_bytes": 231266,
+      "git_blob_sha1": "cf14e1115b3ae92a5cddcd1a09173edbd224805c",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K075",
+      "name": "issue5567.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5567.kicad_pcb",
+      "source_size_bytes": 31212,
+      "git_blob_sha1": "367294226a3afad067de355bb7045e3c632d0c1f",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K076",
+      "name": "issue5750.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5750.kicad_pcb",
+      "source_size_bytes": 23311,
+      "git_blob_sha1": "3d3d552476cc2845ee7547208a7c0edefa79e00a",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K077",
+      "name": "issue5830.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5830.kicad_pcb",
+      "source_size_bytes": 349172,
+      "git_blob_sha1": "6b0db68815fde95ec51fadaa4e1a86129e4ea257",
+      "difficulty": "normal",
+      "tags": [
+        "normal",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K078",
+      "name": "issue5854.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5854.kicad_pcb",
+      "source_size_bytes": 7765,
+      "git_blob_sha1": "33ff3dd3fccb9eb4336486f266d80c58270cb7ab",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K079",
+      "name": "issue5978.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5978.kicad_pcb",
+      "source_size_bytes": 9775,
+      "git_blob_sha1": "dffcee078c239d68b135643d82d91476debc20b3",
+      "difficulty": "small",
+      "tags": [
+        "qa",
+        "regression_fixture",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K080",
+      "name": "issue5990.kicad_pcb",
+      "family": "qa",
+      "source_path": "qa/data/pcbnew/issue5990.kicad_pcb",
+      "source_size_bytes": 600539,
+      "git_blob_sha1": "cb2a42b1699e459bfac5a96316194bb63cb6a562",
+      "difficulty": "large",
+      "tags": [
+        "large",
+        "qa",
+        "regression_fixture"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K081",
+      "name": "CM5_MINIMA_3.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/cm5_minima/CM5_MINIMA_3.kicad_pcb",
+      "source_size_bytes": 3382011,
+      "git_blob_sha1": "9fd87f0c83559df127877617699efcb1449265ee",
+      "difficulty": "dense",
+      "tags": [
+        "demo",
+        "dense",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K082",
+      "name": "complex_hierarchy.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/complex_hierarchy/complex_hierarchy.kicad_pcb",
+      "source_size_bytes": 883812,
+      "git_blob_sha1": "3d37a6c827fd04462f73c929cc1520b4cee37cad",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K083",
+      "name": "constraints.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/constraints/constraints.kicad_pcb",
+      "source_size_bytes": 37478,
+      "git_blob_sha1": "63136619399b398308065dabd56efeb1d024adb9",
+      "difficulty": "small",
+      "tags": [
+        "demo",
+        "real_design",
+        "rules_constraints",
+        "small"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K084",
+      "name": "ecc83-pp.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/ecc83/ecc83-pp.kicad_pcb",
+      "source_size_bytes": 158878,
+      "git_blob_sha1": "52879bcad3a717c98a9caa09263eb6d78ba24788",
+      "difficulty": "normal",
+      "tags": [
+        "demo",
+        "normal",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K085",
+      "name": "ecc83-pp_v2.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/ecc83/ecc83-pp_v2.kicad_pcb",
+      "source_size_bytes": 173660,
+      "git_blob_sha1": "7224c7e7a6c1c2559e5618ef2290324bed87cb97",
+      "difficulty": "normal",
+      "tags": [
+        "demo",
+        "normal",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K086",
+      "name": "interf_u.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/interf_u/interf_u.kicad_pcb",
+      "source_size_bytes": 622284,
+      "git_blob_sha1": "863e2ded270d3ad98ae617351ae6bc558614fdb8",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K087",
+      "name": "jetson-agx-thor-baseboard.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/jetson-agx-thor-baseboard/jetson-agx-thor-baseboard.kicad_pcb",
+      "source_size_bytes": 84806775,
+      "git_blob_sha1": "2884cd5276b0676d4e5d8d919f202d85e8432987",
+      "difficulty": "torture",
+      "tags": [
+        "demo",
+        "huge",
+        "real_design",
+        "torture"
+      ],
+      "route_policy": "stress"
+    },
+    {
+      "id": "K088",
+      "name": "kit-dev-coldfire-xilinx_5213.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/kit-dev-coldfire-xilinx_5213/kit-dev-coldfire-xilinx_5213.kicad_pcb",
+      "source_size_bytes": 2770404,
+      "git_blob_sha1": "a4ed1e0328db8992d9acbcf34963b9c7e14ca87c",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K089",
+      "name": "microwave.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/microwave/microwave.kicad_pcb",
+      "source_size_bytes": 85718,
+      "git_blob_sha1": "7763a306cc5a503b04285e61fc2d081a6ed7fde0",
+      "difficulty": "normal",
+      "tags": [
+        "demo",
+        "normal",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K090",
+      "name": "multichannel_mixer-unrouted.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/multichannel/multichannel_mixer-unrouted.kicad_pcb",
+      "source_size_bytes": 1942567,
+      "git_blob_sha1": "b0840a2a3b27c2566a6d94c6826324fa7c67266a",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K091",
+      "name": "multichannel_mixer.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/multichannel/multichannel_mixer.kicad_pcb",
+      "source_size_bytes": 2000139,
+      "git_blob_sha1": "9b83639887d4f0ab7bf867ff83da6327c1fd93dc",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K092",
+      "name": "One-Air-Max.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/openair-max/One-Air-Max.kicad_pcb",
+      "source_size_bytes": 2433726,
+      "git_blob_sha1": "f035dc2e63f156000babf3031684795599e5826a",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K093",
+      "name": "pic_programmer.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/pic_programmer/pic_programmer.kicad_pcb",
+      "source_size_bytes": 643403,
+      "git_blob_sha1": "b4d4adb82a1345cf5a6e97f78162e723292186e5",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K094",
+      "name": "RoyalBlue54L-Feather.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/royalblue54L_feather/RoyalBlue54L-Feather.kicad_pcb",
+      "source_size_bytes": 3549654,
+      "git_blob_sha1": "5d47510c87e3d4c09bfd18d91dec003a718a6ca6",
+      "difficulty": "dense",
+      "tags": [
+        "demo",
+        "dense",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K095",
+      "name": "RoyalBlue54L-NFC-Antenna.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/royalblue54L_feather/nfc_antenna/RoyalBlue54L-NFC-Antenna/RoyalBlue54L-NFC-Antenna.kicad_pcb",
+      "source_size_bytes": 147777,
+      "git_blob_sha1": "7566281130e6f992af9e698e8c077001c25060a4",
+      "difficulty": "normal",
+      "tags": [
+        "demo",
+        "normal",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K096",
+      "name": "sonde xilinx.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/sonde xilinx/sonde xilinx.kicad_pcb",
+      "source_size_bytes": 336473,
+      "git_blob_sha1": "26781327d86bc390ce22dbad8f1861f6faae2d4c",
+      "difficulty": "normal",
+      "tags": [
+        "demo",
+        "normal",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K097",
+      "name": "StickHub.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/stickhub/StickHub.kicad_pcb",
+      "source_size_bytes": 1063630,
+      "git_blob_sha1": "34fb7f3c6a1e4d0bcb44785462cc1b729590ad4c",
+      "difficulty": "large",
+      "tags": [
+        "demo",
+        "large",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K098",
+      "name": "tinytapeout-demo.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/tiny_tapeout/tinytapeout-demo.kicad_pcb",
+      "source_size_bytes": 4541774,
+      "git_blob_sha1": "a8465878d46656c36617870f511e62c979298854",
+      "difficulty": "dense",
+      "tags": [
+        "demo",
+        "dense",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K099",
+      "name": "video.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/video/video.kicad_pcb",
+      "source_size_bytes": 5787523,
+      "git_blob_sha1": "e9adf841c19fcb881549b0c63b6fe5834a000328",
+      "difficulty": "dense",
+      "tags": [
+        "demo",
+        "dense",
+        "real_design"
+      ],
+      "route_policy": "route"
+    },
+    {
+      "id": "K100",
+      "name": "vme-wren.kicad_pcb",
+      "family": "demo",
+      "source_path": "demos/vme-wren/vme-wren.kicad_pcb",
+      "source_size_bytes": 69638531,
+      "git_blob_sha1": "78f1a4800b3586f10d2349818b6462a59c327959",
+      "difficulty": "torture",
+      "tags": [
+        "demo",
+        "huge",
+        "real_design",
+        "torture"
+      ],
+      "route_policy": "stress"
+    }
+  ]
+}

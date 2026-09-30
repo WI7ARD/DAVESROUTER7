@@ -104,6 +104,8 @@ allowed-confusables = ["×", "–", "‹", "ℹ"]
 "src/pcbrouter/app/application.py" = ["T20"]
 "src/pcbrouter/app/route_cli.py" = ["T20"]
 "src/pcbrouter/app/maintenance.py" = ["T20"]
+"src/pcbrouter/benchmark/real100.py" = ["T20"]  # benchmark CLI output
+"tools/benchmark_real100.py" = ["E402"]  # sys.path set up before the import
 "packaging/**" = ["T20"]
 # Qt signals follow Qt's camelCase naming (e.g. objectSelected), matching the Qt API.
 "src/pcbrouter/ui/**" = ["N815"]

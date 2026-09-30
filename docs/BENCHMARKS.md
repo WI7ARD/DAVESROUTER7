@@ -7,6 +7,20 @@ commit, export, and a reload of the written file.
 Reproduce: `python tools/run_benchmarks.py --out bench_out` (boards come from
 `tests/fixtures/benchmark_suite.py`; `--boards esc_4layer` adds Davi's ESC).
 
+## Real100: 100 real KiCad boards
+
+`benchmarks/real100/` pins 100 boards from the KiCad source mirror: 80 PCBNew QA
+boards and 20 official demos. The board files are fetched on demand and verified
+against their Git blob SHA-1; they are not vendored. Each board/mode routes in a
+fresh subprocess with a hard timeout. See `benchmarks/real100/README.md`.
+
+```
+python tools/benchmark_real100.py all --profile smoke       # 12 boards, Speed, 45 s each
+python tools/benchmark_real100.py all --profile standard    # 98 boards, both modes, 180 s
+```
+
+No Real100 results are recorded yet.
+
 ## Procedure (how to get comparable numbers)
 
 1. Use a quiet machine: nothing else CPU-heavy, on AC power, the same power plan.
