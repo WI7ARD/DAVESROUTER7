@@ -85,6 +85,49 @@ are timing noise at the 160 s budget, not regressions. The guard boards
 Tuning against this corpus continues. The workflow is in
 `.claude/skills/real100-tune/SKILL.md`.
 
+### Learned search policy v3 (paired A/B, commit de74b6f)
+
+Same machine (4 logical CPUs), Real100 standard profile, both modes. Baseline and
+candidate ran side by side (same load), repeated. Tool:
+`tools/real100_compare.py --baseline fixed --candidate P --repeat N`.
+
+**Training boards** (31, in-sample; the learned policy **without** the selector,
+2 repeats) — the board-level evidence the selector uses:
+
+| Board / mode | Fixed | Learned | Mean Δ |
+|---|---|---|---|
+| K098 Accuracy | 27, 27 | 48, 49 | +21.5 |
+| K086 Speed | 82, 82 | 92, 92 | +10.0 |
+| K099 Accuracy | 37, 40 | 44, 44 | +5.5 |
+| K035 Accuracy | 62, 62 | 64, 64 | +2.0 |
+| K022 Accuracy | 62, 62 | 63, 63 | +1.0 |
+| K092 Accuracy | 56, 56 | 34, 33 | **−22.5** |
+| K094 Accuracy | 34, 34 | 32, 32 | −2.0 |
+| K097 Accuracy | 41, 41 | 40, 40 | −1.0 |
+
+Total 1,493.5 → 1,506.5 nets; 53 of 62 board/mode pairs unchanged; 0 new-copper
+DRC errors either way. The same choice (a greedier search for 3–4-pad nets on
+dense boards) gains 21.5 nets on K098 and loses 22.5 on K092: without the
+selector this policy is **REJECTED** by the gate.
+
+**Held-out boards** (10, never trained on; near-duplicates grouped) **and the
+guard boards**, the selective policy, 3 repeats:
+
+- the selector chose `FALLBACK_FIXED` on all 60 held-out runs and on every guard
+  board: 5 boards out of distribution (K025, K036, K050, medium_4layer by
+  distance; medium_4layer most unlike on long-net share 0.91), K067/K088
+  Accuracy because a similar training board (K092) lost nets, the rest because
+  similar boards showed no gain;
+- held-out nets 441.0 → 443.7 (timing noise between two identical strategies),
+  0 regressed boards; guard boards 176 → 176 (medium_4layer 40/44 Speed,
+  44/44 Accuracy, as the fixed router);
+- **identical-strategy noise** on the budget-limited boards: K067 Accuracy
+  81 / 89 / 93 nets across three runs of the same fixed router.
+
+Gate: **EXPERIMENTAL** — no harm (no regression, validity and failures
+unchanged, reproducible), no measured benefit on held-out boards. The fixed
+router stays the default; the policy ships only as an opt-in.
+
 ## Procedure (how to get comparable numbers)
 
 1. Use a quiet machine: nothing else CPU-heavy, on AC power, the same power plan.

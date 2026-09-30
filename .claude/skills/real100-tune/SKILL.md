@@ -200,3 +200,8 @@ accept one, name it in the commit message.
   It runs both side by side `N` times, gives each board a verdict and applies
   the ACCEPTED / EXPERIMENTAL / REJECTED gate (`pcbrouter.benchmark.ab`,
   `docs/LEARNING.md`).
+- **Learned policy v3 (de74b6f): EXPERIMENTAL.** On the training boards the same
+  choice gained 21.5 nets on K098 and lost 22.5 on K092; on held-out and guard
+  boards the selector fell back to the fixed router every time. Identical
+  strategies still differ by up to ±6 nets on K067 Accuracy between runs, so a
+  single-board change of that size is noise. Measure policies at board level.

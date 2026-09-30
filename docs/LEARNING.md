@@ -284,11 +284,28 @@ unreadable file means the fixed router, never a failed job.
 
 ### Status and results
 
-> **Pending.** The v3 evaluation (training on the current app version, then
-> the paired A/B of step 5 on held-out and guard boards) has not been run yet.
-> Its gate status (ACCEPTED / EXPERIMENTAL / REJECTED), totals per mode, the
-> guard-board results and the decision about shipping the bundled policy will
-> be recorded here.
+**v3: EXPERIMENTAL** (commit `de74b6f`; details in `docs/BENCHMARKS.md`).
+
+- Exploration: 3,908 net records (random arms, schema 2, app 1.1.1). With the
+  Wilson rule and the finer contexts, each mode's policy changes **one**
+  context, both on the "much cheaper at no loss" rule:
+  - Speed: `finer_grid` for 2-pad signals with escape room on dense boards;
+  - Accuracy: `greedier` for 3–4-pad boxed-in signals on dense boards.
+- Evidence on the training boards (policy without the selector, 2 repeats):
+  +13 nets in total, but K098 +21.5 and K092 −22.5 from the same choice. As a
+  global policy it would be rejected.
+- Acceptance on the held-out and guard boards (selective policy, 3 repeats):
+  the selector fell back to the fixed router on every board, for recorded
+  reasons (out of distribution, a similar board lost nets, or no gain nearby).
+  No regression; `medium_4layer` is out of distribution and routes as the
+  fixed router. No measured benefit either.
+- Shipped as the opt-in bundled policy (`learning/data/policy_real100.json`,
+  status embedded). The fixed router stays the default.
+
+What this says: board-level effects dominate per-net ones, and 31 training boards
+cover the space of real boards too thinly for the selector to vouch for most new
+boards. More varied boards (and board-level outcomes in the log) are the next
+step, not a bigger model.
 
 ## Level 3 — learned difficulty and ordering (later)
 

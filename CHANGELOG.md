@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Learned search policy v3 evaluated: EXPERIMENTAL** — on held-out and guard
+boards the selector fell back to the fixed router every time (no regression, no
+measured gain; `medium_4layer` is out of distribution). Bundled as the opt-in
+policy; the fixed router stays the default. See `docs/BENCHMARKS.md`.
+
 **Learning, level 1: routing experience log** (`docs/LEARNING.md`)
 - After each board-routing job (app, CLI, Real100) one record per net is added
   to a local log: board/net features, search settings, outcome and effort.

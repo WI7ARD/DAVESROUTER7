@@ -227,3 +227,17 @@ def test_route_board_job_with_an_unusable_policy_routes_with_the_fixed_router(
         assert res.policy_decision is None
         assert all(not o.arms for o in res.outcomes.values())
         assert _outcomes(res) == _outcomes(fixed)
+
+
+def test_bundled_policy_loads_matches_this_router_and_says_its_status() -> None:
+    # retrain (and re-evaluate) the bundled policy whenever the router signature
+    # changes: until then the app falls back to the fixed router on every board
+    from pcbrouter.learning.policy import builtin_policy_path, policy_from_spec
+
+    path = builtin_policy_path()
+    assert path is not None
+    pset = policy_from_spec(str(path))
+    assert isinstance(pset, PolicySet) and pset.status in ("ACCEPTED", "EXPERIMENTAL")
+    for mode in ("speed", "accuracy"):
+        pol = pset.for_mode(mode)
+        assert isinstance(pol, SelectivePolicy) and pol.compatibility() is None

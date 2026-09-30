@@ -123,13 +123,24 @@ def policy_identity(spec: str) -> dict[str, Any]:
     path = Path(spec)
     pol = policy_from_spec(spec)
     pid = getattr(pol, "policy_id", None)
-    trained = json.loads(path.read_text(encoding="utf-8")).get("trained") or {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    # a policy set holds one policy per mode: report each one's identity
+    parts = data.get("modes") or {"": data}
+    per_mode = {
+        m: {
+            "policy_id": (d.get("trained") or {}).get("policy_id"),
+            "dataset_id": (d.get("trained") or {}).get("dataset_id"),
+            "router": (d.get("trained") or {}).get("router"),
+            "selective": bool(d.get("support")),
+        }
+        for m, d in parts.items()
+    }
     return {
         "spec": str(path),
         "policy_id": pid() if callable(pid) else None,
-        "dataset_id": trained.get("dataset_id"),
+        "status": data.get("status"),
         "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "selective": hasattr(pol, "select"),
+        "modes": per_mode,
     }
 
 
