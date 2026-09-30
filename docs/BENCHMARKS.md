@@ -19,7 +19,41 @@ python tools/benchmark_real100.py all --profile smoke       # 12 boards, Speed, 
 python tools/benchmark_real100.py all --profile standard    # 98 boards, both modes, 180 s
 ```
 
-No Real100 results are recorded yet.
+### First baseline (standard profile, 180 s hard timeout per board/mode)
+
+Measured 2026-09-30 in the development container (4-core Xeon, no GPU).
+Router at `9d846e5` (no router changes up to `a30da80`), harness 1.0. Speed and
+Accuracy ran as two processes in parallel, one core each.
+
+| | Speed | Accuracy |
+|---|---|---|
+| Boards run | 98 | 98 |
+| Nothing to route (QA parser fixtures without multi-pad nets) | 47 | 47 |
+| Fully routed | 25 | 26 |
+| Partially routed | 8 | 9 |
+| Failed: no project file (RULE_UNKNOWN, correct in conservative mode) | 9 | 9 |
+| Failed within seconds with a project file (K055, K091, K092, K095; per-net reasons recorded from harness 1.1 on) | 4 | 4 |
+| Failed after searching (K059) | 1 | 1 |
+| Hard timeout | 4 | 2 |
+
+Across both modes, 1,390 nets were routed; every committed route passed the
+exact validator.
+
+What the failures are:
+- **K059:** the project states no copper-to-edge clearance. Conservative
+  validation then refuses every track, but the router only found that out
+  after 176 s of searching (fix pending: refuse up front).
+- **K037:** unsupported custom DRU rules (`insideCourtyard()`) attach a
+  stricter possible clearance that the validator enforces but the search grid
+  ignored, so 2 nets failed VALIDATION (fix pending).
+- **Hard timeouts:** harness 1.0 gave the router 175 s regardless of load
+  time, and the largest boards load for about 20 s. Harness 1.1 subtracts load
+  time from the route budget.
+- **The large demos (K067, K088, K098, K081):** 20–60 % of nets in 180 s.
+  Budget-limited, like the other dense 4+ layer boards.
+
+Tuning against this corpus continues. The workflow is in
+`.claude/skills/real100-tune/SKILL.md`.
 
 ## Procedure (how to get comparable numbers)
 

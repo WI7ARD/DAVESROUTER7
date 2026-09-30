@@ -12,6 +12,11 @@
 - **AI board routing ignored the approved policy.** It ran with default settings (rip-up on) while the approval said "no rip-up". See *AI constraint handling*.
 - **`max_ripups_per_net` was per pass.** It now counts the whole job.
 - **Speed's fine-grid retry cost completion on congested boards.** It now follows only small failures (boxed-in fine-pitch pads).
+- **Intel GPU: the GPU check crashed with `SyclProgramCompilationError`** (reported on an Iris Xe). The GPU is selected through Level Zero, but dpctl builds OpenCL C only for OpenCL queues. Now:
+  - the routing kernel is built and run on the same GPU's OpenCL device;
+  - if no backend can build it, the GPU check reports why instead of crashing;
+  - routing stays on the CPU and does not retry the build for every search.
+- **A development-stage banner ("Stage 10 · …") was shown in the toolbar.** It is removed, and the About dialog uses the release wording.
 - **Version drift.** The router recorded `1.0.0` in route metadata; it now records the release version, and a test ties the package, `pyproject.toml`, changelog, README and installer together.
 
 **Safety / correctness**
@@ -90,6 +95,13 @@
   - `test_ai_policy.py`: approval text == executed settings for every rip-up/preserve/mode combination, preserve-existing enforced end to end, and every constraint field classified and carried or rejected;
   - `test_accept_provenance.py`;
   - `test_version_consistency.py`.
+- **Real100** (`benchmarks/real100/`, `tools/benchmark_real100.py`):
+  - 100 real KiCad boards (80 QA + 20 demos), pinned to a kicad-source-mirror commit and verified by Git blob hash;
+  - an unrouted derivative of each is built locally; the stripping is verified idempotent, with per-board `SOURCE.json`;
+  - every board/mode is routed in an isolated process with a hard timeout;
+  - `tools/real100_compare.py` reports regressions between runs;
+  - the `real100-tune` skill documents the benchmark-and-tune workflow;
+  - first baseline in docs/BENCHMARKS.md.
 - CI (`ci.yml`):
   - lint and types;
   - tests on Linux and Windows with Python 3.12 and 3.13;
