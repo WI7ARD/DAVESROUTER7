@@ -52,6 +52,36 @@ What the failures are:
 - **The large demos (K067, K088, K098, K081):** 20–60 % of nets in 180 s.
   Budget-limited, like the other dense 4+ layer boards.
 
+### Tuning round 1 (harness 1.1, the 41 boards that route, both modes)
+
+Baseline-B is `0d12c26` (v1.1.1); the candidate is `928cc79`. Same machine, and
+Speed and Accuracy ran in parallel for both.
+
+| | v1.1.1 | + round 1 |
+|---|---|---|
+| Nets routed | 1,539 | **1,755 (+216, +14 %)** |
+| VALIDATION failures | 138 | 5 |
+| INVALID_REQUEST | 234 | 0 |
+| K022 (Speed / Accuracy) | 13 / 12 of 64 | **60 / 62 of 64** |
+| K092 | 0 / 0 of 117 | **55 / 56 of 117** |
+| K037 Accuracy | 11/14 | 13/14 |
+
+What changed:
+1. The search grid now demands the clearance the validator enforces, including
+   the "possibly stricter" bound of unsupported custom rules.
+2. An unknown copper-to-edge clearance fails up front with RULE_UNKNOWN.
+3. A net-class via below the board's minimum means routing without vias,
+   instead of refusing the net.
+4. Unsupported DRU conditions are evaluated three-valued, so a rule that cannot
+   apply to a pair (e.g. `A.NetClass == 'HV' && A.insideArea(...)` for a non-HV
+   net) no longer constrains it.
+
+Three budget-limited Accuracy boards showed −1 to −2 nets. Re-running the old and
+new router on them under identical conditions gave 125 vs 127 nets, and the old
+router alone varies by up to 8 nets on K088 between runs. So these differences
+are timing noise at the 160 s budget, not regressions. The guard boards
+(small_2layer, medium_4layer, dense_2layer) are unchanged in nets and vias.
+
 Tuning against this corpus continues. The workflow is in
 `.claude/skills/real100-tune/SKILL.md`.
 

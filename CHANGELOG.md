@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**Routing (Real100 tuning round 1: 1,539 → 1,755 nets on the 41 routable boards)**
+- The search grid demands exactly the clearance the validator enforces. This
+  includes the "possibly stricter" bound of unsupported custom rules, whose
+  absence caused repeated VALIDATION failures.
+- A board without a copper-to-edge clearance is refused up front (RULE_UNKNOWN)
+  instead of after minutes of futile search.
+- A net-class via below the board's minimum hole size means routing without
+  vias, instead of refusing every net. An explicitly requested undersized via
+  is still refused.
+- Unsupported DRU conditions (`insideArea`, `insideCourtyard`, `A.Name`, …) are
+  evaluated three-valued. A rule that cannot apply to a pair no longer
+  constrains it; unknown parts are never assumed false.
+
 ## v1.1.1 — 4-layer routing, parallel routing, installable release
 
 **Fixed**
