@@ -918,6 +918,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--max-boards", type=int, default=None)
     r.add_argument("--conservative", choices=("yes", "no"), default="yes")
     r.add_argument(
+        "--policy",
+        default=None,
+        help="search-variant policy: fixed (default), random:SEED or a policy.json",
+    )
+    r.add_argument(
         "--no-experience",
         action="store_true",
         help="do not write routing experience records (work/experience/)",
@@ -932,6 +937,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--force", action="store_true")
     a.add_argument("--conservative", choices=("yes", "no"), default="yes")
     a.add_argument("--no-experience", action="store_true")
+    a.add_argument("--policy", default=None)
 
     w = sub.add_parser("worker", help=argparse.SUPPRESS)
     w.add_argument("--board", type=Path, required=True)
@@ -996,7 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
             experience_dir=None if args.no_experience else workdir / "experience",
-            policy=getattr(args, "policy", None),
+            policy=args.policy,
         )
         print(result)
         return 0
@@ -1023,7 +1029,7 @@ def main(argv: list[str] | None = None) -> int:
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
             experience_dir=None if args.no_experience else workdir / "experience",
-            policy=getattr(args, "policy", None),
+            policy=args.policy,
         )
         csv_path, md_path = generate_report(result)
         print(result)

@@ -115,3 +115,14 @@ def test_report_generation(tmp_path: Path) -> None:
     report = md_path.read_text(encoding="utf-8")
     assert "Nets completed: **2/2**" in report
     assert "K001" in report
+
+
+def test_run_accepts_a_policy_and_passes_it_to_workers(tmp_path: Path) -> None:
+    from pcbrouter.benchmark.real100 import _worker_command, build_parser
+    from pcbrouter.routing.presets import RouteMode
+
+    args = build_parser().parse_args(["run", "--policy", "random:1"])
+    assert args.policy == "random:1"
+    assert build_parser().parse_args(["run"]).policy is None
+    cmd = _worker_command(tmp_path / "b.kicad_pcb", RouteMode.SPEED, 10.0, True, None, "random:1")
+    assert cmd[-2:] == ["--policy", "random:1"]
