@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import pcbrouter
 from pcbrouter.learning.experience import ExperienceLog
 from pcbrouter.learning.policy import (
     PRESET,
@@ -36,8 +37,9 @@ from pcbrouter.learning.trainer import (
     train,
 )
 
-#: the context every synthetic net below lands in (2-pad signal, 2 routable layers)
-CTX = attempt_context(bucket("signal", 2, 8, 2), 0)
+#: the context every synthetic net below lands in (2-pad signal, 2 routable layers,
+#: middle demand band: every synthetic profile's demand is in (0.03, 0.13])
+CTX = attempt_context(bucket("signal", 2, 8, 2, 0.05), 0)
 
 
 def _profile(b: int, twin_of: int | None = None) -> dict[str, float]:
@@ -53,7 +55,7 @@ def _profile(b: int, twin_of: int | None = None) -> dict[str, float]:
         "pitch_p10_mm": 0.5 + 0.1 * (k % 3),
         "airwire_mean_mm": 10.0 + k,
         "long_net_frac": (k % 10) / 10,
-        "demand": 0.05 + 0.01 * k,
+        "demand": 0.05 + 0.002 * k,  # distinct, but always demand band 1
         "low_escape_frac": (k % 4) / 4,
         "congestion_mean": 0.6,
         "multi_pad_frac": 0.1,
@@ -69,8 +71,10 @@ def _rec(
     mode: str = "speed",
     kind: str = "signal",
     profile: dict[str, float] | None = None,
+    app: str = pcbrouter.__version__,
 ) -> dict:
     return {
+        "app": app,
         "board": board,
         "board_p": profile if profile is not None else _profile(int(board.lstrip("B") or 0)),
         "net_f": {"kind": kind, "pads": 2, "escape_options": 8},
@@ -80,7 +84,8 @@ def _rec(
             "arms": arms,
             "policy": policy,
             "status": "SUCCESS" if ok else "NO_ROUTE",
-            "route_s": 0.5 if arms == ["finer_grid"] else 0.1,
+            # finer_grid costs 1.5x the preset: worth it for routing twice as often
+            "route_s": 0.15 if arms == ["finer_grid"] else 0.1,
             "expanded_nodes": 100,
         },
     }
@@ -138,12 +143,15 @@ def test_contexts_use_routable_layers_not_copper_layers() -> None:
     free = _rec("B2", ["greedier"], True, profile={**_profile(2), "signal_layers": 4.0})
     free["board_f"] = {"copper_layers": 4}
     stats = learn([planes, free]).stats
-    assert set(stats) == {CTX, attempt_context(bucket("signal", 2, 8, 4), 0)}
+    demand = _profile(2)["demand"]
+    assert set(stats) == {CTX, attempt_context(bucket("signal", 2, 8, 4, demand), 0)}
 
 
 def test_replay_scores_only_attempts_the_policy_would_have_made() -> None:
     recs = _world(4)
-    fine = ThompsonPolicy({CTX: {"finer_grid": ArmStats(1, 1)}}, min_trials=0, margin=0)
+    # a lead that survives the Wilson rule (10/10 vs 0/10)
+    stats = {CTX: {"finer_grid": ArmStats(10, 10), PRESET: ArmStats(0, 10)}}
+    fine = ThompsonPolicy(stats, min_trials=0, margin=0)
     est = replay(fine, recs)
     assert (est.n, est.rate) == (40, 1.0)
     base = replay(FixedPolicy(), recs)
@@ -166,7 +174,7 @@ def test_train_learns_the_better_arm_and_it_wins_on_held_out_boards() -> None:
     h = res.report["held_out"]
     assert h["policy"]["rate"] == 1.0 and h["preset"]["rate"] == 0.5
     assert h["policy_minus_preset"]["verdict"] == "better"
-    assert res.report["arm_costs"]["finer_grid"]["median_s"] == 0.5
+    assert res.report["arm_costs"]["finer_grid"]["median_s"] == 0.15
     # the trainer's counts agree with policy.learn on the same training data
     train_recs, _ = split_by_board(_world(30), 0.3, 2)
     assert res.policy.to_json()["stats"] == learn(train_recs).to_json()["stats"]
