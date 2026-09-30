@@ -56,6 +56,10 @@ CONGESTION_TILE_CELLS = 10  # congestion field resolution for feedback (cells pe
 FINE_GRID_FLOOR_NM = 25_000
 
 
+#: Speed's fine-grid retry only follows a failure this small (see route_net_refined)
+REFINE_MAX_NODES = 20_000
+
+
 def route_net_refined(
     router: Any, req: RouteRequest, cancel: Any = None, penalties: Any = None
 ) -> RouteResult:
@@ -63,12 +67,19 @@ def route_net_refined(
     on a grid coarser than the default 0.1 mm — Speed's 0.2 mm grid — try once more
     on the default grid. Fine-pitch pads (e.g. 0.5 mm QFP rows) often have no free
     cell on a 0.2 mm grid even on an empty board, while the default grid escapes
-    them. One step only; Accuracy (default grid) is unaffected."""
+    them. One step only; Accuracy (default grid) is unaffected.
+
+    Only a *small* failure is retried (at most REFINE_MAX_NODES expanded): that is
+    the boxed-in pad the retry exists for. A NO_PATH proven after a large search is
+    congestion, which a finer grid does not fix but pays for (measured on
+    kit-dev-coldfire Speed, 1 worker, 600 s: 121/209 with an unconditional retry,
+    134/209 without)."""
     res: RouteResult = router.route_net(req, cancel=cancel, penalties=penalties)
     if (
         res.status is RouteStatus.SUCCESS
         or res.reason not in (FailureReason.NO_PATH, FailureReason.NO_ESCAPE)
         or req.grid_resolution <= DEFAULT_GRID_NM
+        or res.metrics.expanded_nodes > REFINE_MAX_NODES
         or (cancel is not None and cancel.is_set())
     ):
         return res
@@ -1080,9 +1091,11 @@ class BoardRouter:
 
     # ------------------------------------------------------------ rip-up
     def _rippable(self, fork: WorkingBoard) -> list[str]:
-        ok = {Provenance.ROUTER_GENERATED, Provenance.OPTIMIZER}
+        # copper the user accepted (or applied from an optimisation) is
+        # user-approved: only ripped with the explicit setting
+        ok = {Provenance.ROUTER_GENERATED}
         if self.settings.ripup_user_accepted:
-            ok.add(Provenance.USER_ACCEPTED)
+            ok |= {Provenance.USER_ACCEPTED, Provenance.OPTIMIZER}
         idx = fork.board.index
         keep = self._base_ids if self.settings.preserve_existing else set()
         out = []

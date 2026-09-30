@@ -241,7 +241,9 @@ class AcceptBoardRoutingCommand(BaseCommand):
                 vias,
                 removed,
                 f"Board routing accepted ({which})",
-                Provenance.ROUTER_GENERATED,
+                # accepted copper is user-approved: later jobs only rip it up
+                # with ripup_user_accepted
+                Provenance.USER_ACCEPTED,
                 metadata={"metrics": self.result.metrics.to_dict()},
             )
         except CommitError as exc:

@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from pcbrouter.routing.board_router import route_net_refined
+from pcbrouter.routing.board_router import REFINE_MAX_NODES, route_net_refined
 from pcbrouter.routing.request import DEFAULT_GRID_NM, RouteRequest
 from pcbrouter.routing.result import FailureReason, RouteMetrics, RouteResult, RouteStatus
 
@@ -17,6 +17,7 @@ class FakeRouter:
     fail_above: int
     reason: FailureReason = FailureReason.NO_PATH
     calls: list[int] = field(default_factory=list)
+    nodes: int = 100
 
     def route_net(self, req: RouteRequest, **_kw: Any) -> RouteResult:
         self.calls.append(req.grid_resolution)
@@ -25,7 +26,7 @@ class FakeRouter:
             req.request_id, req.net,
             RouteStatus.SUCCESS if ok else RouteStatus.NO_ROUTE,
             reason=None if ok else self.reason,
-            metrics=RouteMetrics(expanded_nodes=100, grid_s=1.0),
+            metrics=RouteMetrics(expanded_nodes=self.nodes, grid_s=1.0),
         )  # fmt: skip
 
 
@@ -47,3 +48,15 @@ def test_default_grid_and_other_failures_are_not_retried() -> None:
     still = FakeRouter(fail_above=0)
     res = route_net_refined(still, RouteRequest("N", grid_resolution=200_000))
     assert still.calls == [200_000, DEFAULT_GRID_NM] and res.status is RouteStatus.NO_ROUTE
+
+
+def test_a_large_proven_failure_is_congestion_and_not_retried() -> None:
+    """A NO_PATH after a big search is congestion: the finer grid only costs time
+    (coldfire Speed lost 13 nets to it)."""
+    big = FakeRouter(fail_above=DEFAULT_GRID_NM, nodes=REFINE_MAX_NODES + 1)
+    res = route_net_refined(big, RouteRequest("N", grid_resolution=200_000))
+    assert big.calls == [200_000] and res.status is RouteStatus.NO_ROUTE
+    small = FakeRouter(fail_above=DEFAULT_GRID_NM, nodes=REFINE_MAX_NODES)
+    assert route_net_refined(small, RouteRequest("N", grid_resolution=200_000)).status is (
+        RouteStatus.SUCCESS
+    )
