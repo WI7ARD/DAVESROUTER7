@@ -152,3 +152,17 @@ def test_settings_from_versions_with_freerouting_still_load(tmp_path: Path) -> N
     assert store.last_load_problem is None
     assert settings.routing.parallel_workers == 2
     assert not hasattr(settings.routing, "freerouting_path")
+
+
+def test_learned_policy_opt_in_is_off_by_default_and_round_trips(tmp_path: Path) -> None:
+    assert AppSettings().routing.use_learned_policy is False  # the fixed router by default
+    store = SettingsStore(tmp_path / "settings.json")
+    s = AppSettings()
+    s.routing.use_learned_policy = True
+    store.save(s)
+    assert SettingsStore(store.path).load().routing.use_learned_policy is True
+    # settings files written before the option existed load with it off
+    data = json.loads(store.path.read_text(encoding="utf-8"))
+    del data["routing"]["use_learned_policy"]
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+    assert SettingsStore(store.path).load().routing.use_learned_policy is False

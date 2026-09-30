@@ -239,3 +239,31 @@ def test_cli_refuses_without_exploration_data(tmp_path: Path) -> None:
     assert main(["--log", str(tmp_path / "exp"), "--out", str(tmp_path / "p.json")]) == 2
     assert not (tmp_path / "p.json").exists()
     assert main(["--log", str(tmp_path / "exp"), "--holdout", "1.5"]) == 2
+
+
+def test_records_of_other_app_versions_are_ignored_unless_asked_for() -> None:
+    old = [{**r, "app": "0.9.0"} for r in _world(30)]
+    assert select(old, TrainConfig()) == []  # default: this app version only
+    assert len(select(old, TrainConfig(apps=None))) == len(old)
+    assert len(select(old, TrainConfig(apps=("0.9.0",)))) == len(old)
+    mixed = old + _world(5)
+    res = train(mixed, TrainConfig(holdout=0.0))
+    assert res.report["records"]["usable"] == 5 * 30
+    assert res.report["app_versions"] == {
+        "read": {"0.9.0": len(old), pcbrouter.__version__: 150},
+        "used": {pcbrouter.__version__: 150},
+    }
+    res = train(mixed, TrainConfig(holdout=0.0, apps=None))
+    assert res.report["records"]["usable"] == len(mixed)
+    assert res.report["app_versions"]["used"] == {"0.9.0": len(old), pcbrouter.__version__: 150}
+    assert res.report["router"] == res.policy.router and res.policy.compatibility() is None
+
+
+def test_report_says_why_a_context_changed_and_cli_app_filter(tmp_path: Path) -> None:
+    res = train(_world(30), TrainConfig(holdout=0.0))
+    assert res.report["changed_because"] == {CTX: "routes significantly more"}
+    ExperienceLog(tmp_path / "exp").append([{**r, "app": "0.9.0"} for r in _world(30)])
+    args = ["--log", str(tmp_path / "exp"), "--out", str(tmp_path / "p.json")]
+    assert main(args) == 2  # nothing from this app version
+    assert main([*args, "--app", "any"]) == 0
+    assert main([*args, "--app", "0.8.0,0.9.0"]) == 0

@@ -108,3 +108,46 @@ def test_schema_2_records_carry_profile_attempt_trace_and_job(routed: tuple) -> 
     assert ok and all(len(x["outcome"]["trace"]) == x["outcome"]["attempts"] for x in ok)
     t = ok[0]["outcome"]["trace"][0]
     assert {"pass", "grid_mm", "heuristic_weight", "coarse_factor", "status", "route_s"} <= set(t)
+
+
+def _net(i: int, bucket: str, mode: str = "speed") -> dict:
+    return {"i": i, "settings": {"mode": mode}, "net_f": {"bucket": bucket}, "pad": "x" * 40}
+
+
+def test_rotation_keeps_rare_strata_and_the_keep_file_stays_bounded(tmp_path: Path) -> None:
+    common, rare = "signal|p0|e2|l0|d1", "diff_pair|p0|e2|l0|d1"
+    log = ExperienceLog(tmp_path, max_bytes=3000)
+    assert ExperienceLog.stratum(_net(0, rare)) == f"speed|{rare}"
+    assert ExperienceLog.stratum({"net_f": {"kind": "power"}}) == "?|power"  # schema-1
+    log.append([_net(0, rare), _net(1, rare), _net(2, rare, mode="accuracy")])
+    i = 3
+    for _ in range(12):  # several rotations of nothing but the common stratum
+        log.append([_net(i + k, common) for k in range(5)])
+        i += 5
+    assert log.keep_path.exists() and log.path.with_suffix(".jsonl.1").exists()
+    got = list(log.read())
+    ids = [r["i"] for r in got]
+    assert {0, 1, 2} <= set(ids)  # plain FIFO would have dropped them long ago
+    assert ids == sorted(ids) and ids[-1] == i - 1
+    assert len(ids) < i  # old common records were dropped
+    assert log.keep_path.stat().st_size <= log.max_bytes // 2  # N halved until it fits
+    kept = [json.loads(x) for x in log.keep_path.read_text().splitlines()]
+    per = {s: sum(1 for r in kept if ExperienceLog.stratum(r) == s) for s in
+           {ExperienceLog.stratum(r) for r in kept}}  # fmt: skip
+    assert per[f"speed|{common}"] < 100 and per[f"speed|{rare}"] == 2
+    # read order: keep file, then the rotated file, then the current one
+    rotated = [json.loads(x)["i"] for x in log.path.with_suffix(".jsonl.1").read_text().split()]
+    current = [json.loads(x)["i"] for x in log.path.read_text().split()]
+    assert ids == [r["i"] for r in kept] + rotated + current
+
+
+def test_keep_per_stratum_caps_each_stratum(tmp_path: Path) -> None:
+    log = ExperienceLog(tmp_path, max_bytes=3000, keep_per_stratum=3)
+    for n in range(30):
+        log.append([_net(n, "signal|p0|e2|l0|d1"), _net(1000 + n, "power|p0|e1|l0|d2")])
+    kept = [json.loads(x) for x in log.keep_path.read_text().splitlines()]
+    assert len(kept) == 6  # the newest 3 of each stratum
+    sig = [r["i"] for r in kept if r["i"] < 1000]
+    rotated = [json.loads(x)["i"] for x in log.path.with_suffix(".jsonl.1").read_text().split()]
+    # the newest of the dropped file: they end right where the rotated file begins
+    assert sig == list(range(min(rotated) - 3, min(rotated)))

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -13,11 +14,13 @@ from pcbrouter.kicad.loader import load_board
 from pcbrouter.kicad.rule_adapter import load_project_rules
 from pcbrouter.learning.features import DISTANCE_FEATURES, board_profile, transform
 from pcbrouter.learning.policy import (
+    PRESET,
     ArmStats,
     PolicySet,
     ThompsonPolicy,
     attempt_context,
-    bucket,
+    router_signature,
+    task_bucket,
 )
 from pcbrouter.learning.selector import FALLBACK, LEARNED, SelectivePolicy, Support, fit_support
 from pcbrouter.routing.board_router import BoardRouter, BoardRouterSettings, make_plan
@@ -125,13 +128,26 @@ def test_fallback_routes_exactly_like_the_fixed_router() -> None:
     assert fixed.policy_decision is None
 
 
+def _first_contexts(name: str) -> set[str]:
+    """The first-attempt contexts the router will ask about on board *name*."""
+    wb = _wb(name)
+    plan = make_plan(wb, BoardRouterSettings(base_request=RouteRequest("")))
+    prof = board_profile(wb.board, plan.tasks)
+    layers, demand = int(prof["signal_layers"]), prof["demand"]
+    return {attempt_context(task_bucket(t, layers, demand), 0) for t in plan.tasks}
+
+
 def test_policy_set_picks_the_policy_for_the_job_mode_and_every_route_stays_legal() -> None:
-    ctx = attempt_context(bucket("signal", 2, 8, 2), 0)
-    greedy = ThompsonPolicy({ctx: {"greedier": ArmStats(9, 10)}}, min_trials=0, margin=0)
-    pset = PolicySet({"speed": greedy})
+    strong = {"no_coarse": ArmStats(40, 50), PRESET: ArmStats(10, 50)}  # a Wilson-clear lead
+    ctxs = _first_contexts("router_dense.kicad_pcb")
+    learned = ThompsonPolicy({c: dict(strong) for c in ctxs})
+    pset = PolicySet({"speed": learned})
     wb = _wb("router_dense.kicad_pcb")
     res = _route(wb, pset, RouteMode.SPEED)
     assert res.policy_decision is not None and res.policy_decision["decision"] == "POLICY"
+    # the router's contexts (with the board's demand band) match the learned ones
+    assert all(o.arms[0] == "no_coarse" for o in res.outcomes.values() if o.arms)
+    assert any(o.arms for o in res.outcomes.values())
     tracks, vias, removed = res.objects_for(None)
     wb.commit_objects(tracks, vias, removed, "policy", Provenance.ROUTER_GENERATED)
     assert not wb.engine.run_drc().errors
@@ -146,3 +162,68 @@ def test_every_attempt_is_traced_with_the_settings_it_used() -> None:
         for t in o.trace:
             assert {"pass", "grid_mm", "heuristic_weight", "coarse_factor", "status"} <= set(t)
             assert t["arm"] is None  # the fixed router uses no arms
+
+
+def _outcomes(res: Any) -> dict[str, tuple[Any, float, int]]:
+    return {n: (o.status, o.length_nm, o.vias) for n, o in res.outcomes.items()}
+
+
+def test_policy_from_another_router_falls_back_to_the_fixed_router() -> None:
+    strong = {"no_coarse": ArmStats(40, 50), PRESET: ArmStats(10, 50)}
+    stats = {c: dict(strong) for c in _first_contexts("router_basic.kicad_pcb")}
+    other = {**router_signature(), "app": "0.0.0"}
+    stale = ThompsonPolicy(stats, router=other)
+    assert stale.compatibility() is not None and "0.0.0" in str(stale.compatibility())
+    assert ThompsonPolicy(stats, router=router_signature()).compatibility() is None
+    assert ThompsonPolicy(stats).compatibility() is None  # unknown router: old files
+    fixed = _route(_wb("router_basic.kicad_pcb"), None)
+    for pol in (stale, PolicySet({"speed": stale})):
+        fell = _route(_wb("router_basic.kicad_pcb"), pol)
+        dec = fell.policy_decision
+        assert dec is not None and dec["decision"] == FALLBACK and "retrain" in dec["reason"]
+        assert all(not o.arms for o in fell.outcomes.values())
+        assert _outcomes(fell) == _outcomes(fixed)
+
+
+# ------------------------------------------------------------------ app opt-in
+def _board_job(policy_path: str | None) -> Any:
+    from pcbrouter.jobs.execute import JobContext, run_job
+    from pcbrouter.jobs.protocol import RouteBoardJob, WorkingSnapshot
+
+    base = RouteRequest("", candidates=1)
+    st = adjust_board_settings(
+        BoardRouterSettings(base_request=base, budget_s=60), base, RouteMode.SPEED
+    )
+    snap = WorkingSnapshot.from_working(_wb("router_basic.kicad_pcb"))
+    job = RouteBoardJob(snap, st, policy_path=policy_path)
+    return run_job(job, JobContext(1, lambda _msg: None))
+
+
+def test_route_board_job_uses_the_policy_file_it_is_given(tmp_path: Path) -> None:
+    import json
+
+    from pcbrouter.learning.policy import SET_SCHEMA
+
+    strong = {"no_coarse": ArmStats(40, 50), PRESET: ArmStats(10, 50)}
+    stats = {c: dict(strong) for c in _first_contexts("router_basic.kicad_pcb")}
+    pol = ThompsonPolicy(stats, router=router_signature()).to_json()
+    path = tmp_path / "policy_set.json"
+    path.write_text(json.dumps({"schema": SET_SCHEMA, "modes": {"speed": pol}}))
+    res = _board_job(str(path))
+    assert res.policy_decision is not None
+    assert res.policy_decision["decision"] == "POLICY"
+    assert any(o.arms for o in res.outcomes.values())
+
+
+def test_route_board_job_with_an_unusable_policy_routes_with_the_fixed_router(
+    tmp_path: Path,
+) -> None:
+    fixed = _board_job(None)
+    assert fixed.policy_decision is None
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json")
+    for path in (tmp_path / "missing.json", broken):
+        res = _board_job(str(path))  # never raises
+        assert res.policy_decision is None
+        assert all(not o.arms for o in res.outcomes.values())
+        assert _outcomes(res) == _outcomes(fixed)
