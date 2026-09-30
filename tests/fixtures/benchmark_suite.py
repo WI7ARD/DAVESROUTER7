@@ -1,4 +1,4 @@
-"""Deterministic benchmark boards (MIT, generated — no third-party designs).
+"""Deterministic benchmark boards (generated for this project — no third-party designs).
 
     tiny              router_basic fixture (5 nets, 2 layers)
     small_2layer      router_dense fixture (11 nets, 2 layers)
@@ -142,7 +142,7 @@ def _board_text(
         '\t(generator "pcbnew")',
         '\t(generator_version "8.0")',
         "\t(general (thickness 1.6))",
-        f'\t(title_block (title "{title}") (company "AI PCB Router benchmark suite (MIT)"))',
+        f'\t(title_block (title "{title}") (company "AI PCB Router benchmark suite"))',
         "\t(layers",
     ]
     out += [f'\t\t({layer_ids[layer]} "{layer}" signal)' for layer in layers]

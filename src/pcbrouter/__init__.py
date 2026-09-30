@@ -10,7 +10,7 @@ from __future__ import annotations
 __all__ = ["APP_NAME", "APP_SLUG", "STAGE", "__version__"]
 
 #: Human-facing application version (plain PEP 440 since 1.0.0).
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 APP_NAME = "AI PCB Router"
 #: Filesystem-safe identifier used for config/log directory names.

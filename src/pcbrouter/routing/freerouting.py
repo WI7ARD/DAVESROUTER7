@@ -1,7 +1,7 @@
 """Freerouting as an external routing engine (run as a separate program).
 
 Freerouting (https://github.com/freerouting/freerouting) is a mature open-source
-autorouter under GPL-3.0. It is *run*, never copied into this MIT-licensed app,
+autorouter under GPL-3.0. It is *run* as a separate program, never copied into this application,
 and it is not bundled: the user installs it (Windows installer with its own
 Java, or a ``.jar`` plus Java 21+). The flow, all inside the routing worker:
 

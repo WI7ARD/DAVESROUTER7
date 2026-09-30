@@ -38,7 +38,7 @@ from pcbrouter.domain.track import Track
 from pcbrouter.domain.via import Via
 from pcbrouter.routing.connectivity import NetStatus, net_connectivity
 from pcbrouter.routing.occupancy import GridSpec
-from pcbrouter.routing.request import RouteRequest, with_user_constraints
+from pcbrouter.routing.request import DEFAULT_GRID_NM, RouteRequest, with_user_constraints
 from pcbrouter.routing.result import FailureReason, RouteResult, RouteStatus
 from pcbrouter.routing.router import Router
 from pcbrouter.routing.working_board import CommitError, Provenance, WorkingBoard
@@ -53,6 +53,38 @@ CONGESTION_TILE_CELLS = 10  # congestion field resolution for feedback (cells pe
 #: finest grid a silent NO_PATH retry may drop to (nm); deeper refinement is an
 #: explicit user choice (Speed/Accuracy presets, workbench constraints)
 FINE_GRID_FLOOR_NM = 25_000
+
+
+def route_net_refined(
+    router: Any, req: RouteRequest, cancel: Any = None, penalties: Any = None
+) -> RouteResult:
+    """``router.route_net``; if the search proves there is no path (or no escape)
+    on a grid coarser than the default 0.1 mm — Speed's 0.2 mm grid — try once more
+    on the default grid. Fine-pitch pads (e.g. 0.5 mm QFP rows) often have no free
+    cell on a 0.2 mm grid even on an empty board, while the default grid escapes
+    them. One step only; Accuracy (default grid) is unaffected."""
+    res: RouteResult = router.route_net(req, cancel=cancel, penalties=penalties)
+    if (
+        res.status is RouteStatus.SUCCESS
+        or res.reason not in (FailureReason.NO_PATH, FailureReason.NO_ESCAPE)
+        or req.grid_resolution <= DEFAULT_GRID_NM
+        or (cancel is not None and cancel.is_set())
+    ):
+        return res
+    finer = replace(
+        req,
+        grid_resolution=max(DEFAULT_GRID_NM, req.grid_resolution // 2),
+        request_id=f"{req.request_id}-fine",
+    )
+    first = res.metrics
+    res = router.route_net(finer, cancel=cancel, penalties=penalties)
+    m = res.metrics
+    for name in ("expanded_nodes", "searches", "repairs", "elapsed_s", "grid_s", "search_s",
+                 "geometry_s", "validate_s"):  # fmt: skip
+        setattr(m, name, getattr(m, name) + getattr(first, name))
+    return res
+
+
 #: pass 1 tries EVERY net first within a fair share of the budget: at most this
 #: many nodes per search and PASS1_SLICE x (budget / nets) seconds per net
 #: (>= PASS1_MIN_SLICE_S). Unfinished nets continue in pass 2. Measured on a
@@ -211,8 +243,8 @@ class BoardMetrics:
     passes: int = 0
     #: completed nets routed with zero exact-validation repairs (first-try clean)
     clean_nets: int = 0
-    #: parallel routing: batches run, and results rerouted because an earlier
-    #: commit of the same batch made them illegal
+    #: parallel routing: nets routed by helpers, and helper results that were no
+    #: longer legal when they arrived (re-queued / rerouted)
     parallel_batches: int = 0
     parallel_conflicts: int = 0
     #: summed RouteMetrics phase seconds (see RouteMetrics for the split)
@@ -745,7 +777,7 @@ class BoardRouter:
         router = self.router_factory(fork.engine)
         penalties = _congestion_provider(fork) if pass_no >= 2 else None
         req = self._task_request(fork, task, pass_no)
-        res = router.route_net(req, cancel=control.cancel_event, penalties=penalties)
+        res = route_net_refined(router, req, control.cancel_event, penalties)
         applied = self._apply_result(fork, task, pass_no, res, outcomes, metrics, job_log)
         if applied is None:  # should not happen: the fork is the router's own state
             o = outcomes[task.net]
@@ -805,18 +837,16 @@ class BoardRouter:
     def _start_parallel(
         self, fork: WorkingBoard, plan: BoardRoutingPlan, job_log: list[str]
     ) -> Any:
-        from pcbrouter.routing.parallel import PARALLEL_MIN_TASKS, ParallelRouter
+        from pcbrouter.routing.parallel import (
+            PARALLEL_MIN_SPEEDUP,
+            PARALLEL_MIN_TASKS,
+            ParallelRouter,
+            estimate_speedup,
+        )
 
         workers = self.settings.parallel_workers
         if workers <= 1 or len(plan.tasks) < PARALLEL_MIN_TASKS:
             return None
-        try:
-            par = ParallelRouter(fork, workers)
-        except Exception as exc:  # routing continues sequentially, and says so
-            log.warning("parallel.unavailable %s", exc)
-            job_log.append(f"parallel routing unavailable ({exc}); routing sequentially")
-            return None
-        job_log.append(f"parallel routing: {par.workers} helper processes")
         geo = fork.engine.geometry
         self._regions: dict[str, Any] = {}
         for t in plan.tasks:
@@ -826,6 +856,20 @@ class BoardRouter:
             for b in boxes[1:]:
                 box = box.union(b) if box is not None else b
             self._regions[t.net] = box
+        gain = estimate_speedup(plan.tasks, self._regions, workers)
+        if gain < PARALLEL_MIN_SPEEDUP:
+            job_log.append(
+                f"parallel routing skipped: the nets overlap too much to route side by side "
+                f"(estimated {gain:.1f}x with {workers} helpers); routing on one worker"
+            )
+            return None
+        try:
+            par = ParallelRouter(fork, workers)
+        except Exception as exc:  # routing continues sequentially, and says so
+            log.warning("parallel.unavailable %s", exc)
+            job_log.append(f"parallel routing unavailable ({exc}); routing sequentially")
+            return None
+        job_log.append(f"parallel routing: {par.workers} helper processes (estimated {gain:.1f}x)")
         return par
 
     def _parallel_pass(
@@ -843,50 +887,94 @@ class BoardRouter:
         emit_partial: Callable[..., None],
         total_nets: int,
     ) -> str:
-        """One pass in spatially independent batches (routing/parallel.py). Every
-        result is committed in plan order through the validator; conflicts are
-        rerouted sequentially. Returns "", "cancelled" or "out_of_time"."""
-        from pcbrouter.routing.parallel import pick_batch
+        """One pass as a work queue over the helper processes (routing/parallel.py):
+        a free helper gets the next net whose region does not overlap a net in
+        flight; results are committed through the validator as they arrive, a
+        conflict is re-queued once and then routed here. Returns "", "cancelled"
+        or "out_of_time"."""
+        from pcbrouter.domain.geometry import BoundingBox
+        from pcbrouter.routing.parallel import LOOKAHEAD, REGION_MARGIN_NM
 
         deadline = self._deadline or math.inf
-        queue_ = list(failed)
+        pending = list(failed)
+        retried: set[str] = set()
+        inflight: dict[int, tuple[RouteTask, BoundingBox | None]] = {}
         done = 0
-        while queue_:
-            if not control.checkpoint(deadline) or time.perf_counter() > deadline:
-                still.extend(queue_)
-                return "cancelled" if control.cancel_event.is_set() else "out_of_time"
-            batch = pick_batch(queue_, self._regions, par.workers)
-            for t in batch:
-                queue_.remove(t)
-            emit(
-                net=", ".join(t.net for t in batch), index=done + 1, total=len(failed),
-                pass_no=pass_no, state="routing", phase="ROUTING", total_nets=total_nets,
-                message=f"parallel batch of {len(batch)} on {par.workers} helpers",
-                completed_nets=sum(1 for o in outcomes.values() if o.status is RouteStatus.SUCCESS),
-            )  # fmt: skip
-            requests = [self._task_request(fork, t, pass_no) for t in batch]
-            results = par.route(requests, pass_no >= 2, lambda: control.cancel_event.is_set())
-            for task, (kind, payload) in zip(batch, results, strict=True):
-                ok: bool | None = None
-                if kind == "result":
-                    ok = self._apply_result(
-                        fork, task, pass_no, payload, outcomes, metrics, job_log
-                    )
-                    if ok is None:
-                        metrics.parallel_conflicts += 1
-                else:
-                    log.warning("parallel.helper_error net=%s %s", task.net, payload)
-                if ok is None:  # conflict with an earlier batch commit / helper error
-                    if control.cancel_event.is_set():
-                        still.append(task)
+        stop = ""
+
+        def region(task: RouteTask) -> BoundingBox | None:
+            box = self._regions.get(task.net)
+            return None if box is None else box.expanded(REGION_MARGIN_NM)
+
+        def dispatchable() -> RouteTask | None:
+            busy = [b for _t, b in inflight.values()]
+            for task in pending[: max(1, par.workers * LOOKAHEAD)]:
+                box = region(task)
+                if box is None:
+                    if not inflight:
+                        return task
+                    continue
+                if not any(b is None or b.intersects(box) for b in busy):
+                    return task
+            return None
+
+        while pending or inflight:
+            if not stop and (not control.checkpoint(deadline) or time.perf_counter() > deadline):
+                stop = "cancelled" if control.cancel_event.is_set() else "out_of_time"
+                par.cancel.set()  # in-flight searches stop at their next check
+            if not stop:
+                for h in range(par.workers):
+                    if h in inflight or not pending:
                         continue
-                    ok = self._route_task(fork, task, pass_no, outcomes, metrics, control, job_log)
-                if not ok:
-                    still.append(task)
-                done += 1
+                    task = dispatchable()
+                    if task is None:
+                        break
+                    pending.remove(task)
+                    par.dispatch(h, self._task_request(fork, task, pass_no), pass_no >= 2)
+                    inflight[h] = (task, region(task))
+                    emit(
+                        net=task.net, index=done + len(inflight), total=len(failed),
+                        pass_no=pass_no, state="routing", phase="ROUTING",
+                        total_nets=total_nets,
+                        message=f"{len(inflight)} of {par.workers} parallel helpers busy",
+                        completed_nets=sum(
+                            1 for o in outcomes.values() if o.status is RouteStatus.SUCCESS
+                        ),
+                    )  # fmt: skip
+            elif not inflight:
+                break
+            got = par.poll(set(inflight))
+            if got is None:
+                continue
+            h, kind, payload = got
+            if h not in inflight:
+                continue
+            task, _box = inflight.pop(h)
+            if stop:
+                still.append(task)  # discard: the job is stopping
+                continue
+            ok: bool | None = None
+            if kind == "result":
+                ok = self._apply_result(fork, task, pass_no, payload, outcomes, metrics, job_log)
+            else:
+                log.warning("parallel.helper_error net=%s %s", task.net, payload)
+                job_log.append(f"parallel helper error on {task.net}; routed sequentially")
+            if ok is None:
+                metrics.parallel_conflicts += 1
+                if kind == "result" and task.net not in retried:
+                    retried.add(task.net)
+                    pending.insert(0, task)  # copper committed meanwhile: try again
+                    continue
+                ok = self._route_task(fork, task, pass_no, outcomes, metrics, control, job_log)
+            if not ok:
+                still.append(task)
+            done += 1
             metrics.parallel_batches += 1
             emit_partial()
-        return ""
+        if stop:
+            still.extend(pending)
+            par.cancel.clear()
+        return stop
 
     # ------------------------------------------------------------ rip-up
     def _rippable(self, fork: WorkingBoard) -> list[str]:
@@ -957,8 +1045,8 @@ class BoardRouter:
             fork.commit_objects((), (), rippable, f"rip-up for {task.net}", validate=False)
         except CommitError:
             return False
-        res = self.router_factory(fork.engine).route_net(
-            self._request(task, 3), cancel=control.cancel_event
+        res = route_net_refined(
+            self.router_factory(fork.engine), self._request(task, 3), control.cancel_event
         )
         metrics.absorb(res.metrics)
         if res.best is None or res.status is not RouteStatus.SUCCESS:
@@ -984,8 +1072,8 @@ class BoardRouter:
                 pass
             metrics.reroutes += 1
             other = next((t for t in self._all_tasks if t.net == net), RouteTask(str(net)))
-            sub = self.router_factory(fork.engine).route_net(
-                self._request(other, 3), cancel=control.cancel_event
+            sub = route_net_refined(
+                self.router_factory(fork.engine), self._request(other, 3), control.cancel_event
             )
             metrics.absorb(sub.metrics)
             if sub.best is not None:

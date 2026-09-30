@@ -12,10 +12,56 @@ Exit codes: 0 fully routed and exported, 2 partially routed (exported), 1 error.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+
+def _resource_usage() -> dict[str, float | None]:
+    """CPU seconds and peak memory of this process plus finished helper processes
+    (Unix: getrusage; Windows: this process only, via GetProcessMemoryInfo)."""
+    try:
+        import resource
+
+        me, kids = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(
+            resource.RUSAGE_CHILDREN
+        )
+        cpu = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
+        unit = 1.0 if sys.platform == "darwin" else 1024.0  # bytes on macOS, KiB on Linux
+        return {"cpu_s": round(cpu, 1), "peak_rss_mb": round(me.ru_maxrss * unit / 2**20, 1),
+                "helper_peak_rss_mb": round(kids.ru_maxrss * unit / 2**20, 1) or None}  # fmt: skip
+    except ImportError:
+        pass
+    try:  # Windows
+        import ctypes
+        from ctypes import wintypes
+
+        class _Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                (n, ctypes.c_size_t)
+                for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                          "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                          "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")
+            ]  # fmt: skip
+
+        c = _Counters()
+        c.cb = ctypes.sizeof(c)
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        proc = k32.GetCurrentProcess()
+        ctypes.windll.psapi.GetProcessMemoryInfo(proc, ctypes.byref(c), c.cb)  # type: ignore[attr-defined]
+        times = [wintypes.FILETIME() for _ in range(4)]
+        k32.GetProcessTimes(proc, *[ctypes.byref(t) for t in times])
+
+        def secs(ft: Any) -> float:
+            return float((ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 1e7
+
+        cpu_s = round(secs(times[2]) + secs(times[3]), 1)
+        peak = round(c.PeakWorkingSetSize / 2**20, 1)
+        return {"cpu_s": cpu_s, "peak_rss_mb": peak, "helper_peak_rss_mb": None}
+    except Exception:
+        return {"cpu_s": None, "peak_rss_mb": None, "helper_peak_rss_mb": None}
 
 
 def route_cli(
@@ -94,6 +140,7 @@ def route_cli(
     t0 = time.monotonic()
     result = BoardRouter(wb, settings).run(progress=progress)
     report["route_s"] = round(time.monotonic() - t0, 1)
+    report.update(_resource_usage())
     report["summary"] = result.summary()
     report["metrics"] = result.metrics.to_dict()
     print(result.summary())

@@ -76,6 +76,7 @@ class ManualDrawController(QObject):
         self._run_layers: list[str] = []
         self._vias: list[tuple[Point, str, str, ManualViaSizes]] = []
         self._cursor: Point | None = None
+        self._signals_connected = False
         window.canvas.aboutToClear.connect(self._on_board_cleared)
 
     def install(self, edit_menu: QMenu, toolbar: QToolBar) -> None:
@@ -129,6 +130,7 @@ class ManualDrawController(QObject):
         canvas.drawFinished.connect(self.finish)
         canvas.drawViaRequested.connect(self.place_via)
         canvas.drawCancelled.connect(self.cancel)
+        self._signals_connected = True
         canvas.set_draw_mode(True)
         self.act_draw.setChecked(True)
         self.act_finish.setEnabled(True)
@@ -150,15 +152,19 @@ class ManualDrawController(QObject):
 
     def _reset(self) -> None:
         canvas = self.w.canvas
-        for signal, slot in (
-            (canvas.drawClicked, self._on_click),
-            (canvas.drawMoved, self._on_move),
-            (canvas.drawFinished, self.finish),
-            (canvas.drawViaRequested, self.place_via),
-            (canvas.drawCancelled, self.cancel),
-        ):
-            with contextlib.suppress(RuntimeError):
-                signal.disconnect(slot)
+        # Disconnect only what start() connected: PySide warns (RuntimeWarning) on
+        # disconnecting a slot that is not connected.
+        if self._signals_connected:
+            for signal, slot in (
+                (canvas.drawClicked, self._on_click),
+                (canvas.drawMoved, self._on_move),
+                (canvas.drawFinished, self.finish),
+                (canvas.drawViaRequested, self.place_via),
+                (canvas.drawCancelled, self.cancel),
+            ):
+                with contextlib.suppress(RuntimeError):
+                    signal.disconnect(slot)
+            self._signals_connected = False
         canvas.set_draw_mode(False)
         self.w.engine_ui.overlays.clear(GROUP)
         self._net = None

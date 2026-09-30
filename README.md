@@ -4,7 +4,7 @@ A desktop PCB engineering application for **KiCad** boards: inspect, autoroute
 (CPU/GPU), and get AI planning help — deterministically, with every piece of
 copper validated and approved by you before it lands on the board.
 
-**Current version: `1.1.0`.**
+**Current version: `1.1.1`.**
 
 > **The AI model is a planner, not the router.** It analyses the board and
 > proposes structured commands. Every proposal is validated locally and needs
@@ -26,6 +26,11 @@ and Project panels. Unknown values show as *unknown*, never invented.
   AUTO selection, CPU fallback; weighted search with a proven cost bound.
 - **Accuracy / Speed toggle** in the Route panel: full-resolution optimal
   routing, or coarse-grid weighted routing (~17× faster, ≤1.5× optimal cost).
+- 2- and 4-layer boards (x, y, layer search with legal through vias); preferred
+  layer directions; coarse-to-fine search inside a corridor.
+- **Parallel routing** (Settings ▸ Routing: Auto / Single worker / 2–4): helper
+  processes route non-overlapping nets at once, the main process validates and
+  commits every result.
 - Ordered passes, congestion-aware scheduling, rip-up/reroute, optimisation,
   pause/resume/cancel; **live trace preview** while routing, and cancelling
   keeps already-routed nets for review instead of discarding them.
@@ -47,6 +52,10 @@ list (size/context/thinking badges), versioned planner strategies with a
 benchmark. `Ctrl+I`, four modes (Analyze/Plan/Command/Explain), previewable
 bounded context, cancel, proposal approve/reject/edit, history with ratings.
 
+**Using it:** [Quick start](docs/QUICK_START.md) · [User guide](docs/USER_GUIDE.md) ·
+[Troubleshooting](docs/TROUBLESHOOTING.md) · [Known limitations](KNOWN_LIMITATIONS.md) ·
+[Benchmarks](docs/BENCHMARKS.md) · [Release notes](CHANGELOG.md).
+
 Details: [docs/architecture.md](docs/architecture.md) ·
 [docs/ai_architecture.md](docs/ai_architecture.md) ·
 [docs/security.md](docs/security.md).
@@ -56,8 +65,8 @@ Details: [docs/architecture.md](docs/architecture.md) ·
 Download `AI-PCB-Router-<version>-Setup-x64.exe` from
 [GitHub Releases](https://github.com/WI7ARD/DAVESROUTER7/releases) and run the
 wizard (per-user install, no admin rights). Verify the SHA-256 against the
-`.sha256` asset. The installer is not code-signed yet, so SmartScreen/Chrome
-may flag it: a false positive on unsigned open-source installers — in Chrome
+`.sha256` asset (or `SHA256SUMS.txt`). The installer is not code-signed yet, so
+SmartScreen/Chrome may flag it as an uncommon download — in Chrome
 use Downloads (`Ctrl+J`) → ⋮ → *Keep dangerous file*; in Edge *Keep anyway*.
 Build-it-yourself alternative below; details and silent install:
 [docs/windows_installer.md](docs/windows_installer.md).
@@ -92,6 +101,11 @@ pcbrouter board.kicad_pcb --inspect    # headless JSON summary (no GUI)
 pcbrouter --version
 pcbrouter --diagnostics                # JSON: versions, paths, Qt, AI SDKs, key storage
 pcbrouter --gpu-check                  # GPU library/devices report
+
+# route without the window (same pipeline, source never modified):
+pcbrouter board.kicad_pcb --route --mode speed --workers -1 --budget 600 \
+    --output routed.kicad_pcb --report result.json [--kicad-drc]
+# exit code 0 = fully routed, 2 = partially routed (file written), 1 = error
 ```
 
 Try the bundled fixtures, e.g. `pcbrouter tests/fixtures/boards/can_node.kicad_pcb`.

@@ -7,13 +7,17 @@ The board router stays the single owner of the routing fork. Helpers only
    a :class:`~pcbrouter.jobs.protocol.WorkingSnapshot` once.
 2. Before every batch the master sends each replica the copper committed since
    its last sync (applied without re-validation: the master validated it).
-3. A batch is a set of nets whose pad regions (expanded by a margin) do not
-   overlap, taken in plan order. Each helper routes one net against the same
-   board state and returns its :class:`RouteResult`.
-4. The master commits the results **in plan order** through the exact validator
-   (``WorkingBoard.commit_proposals``). A result that conflicts with an earlier
-   commit of the same batch is rerouted sequentially on the master. Illegal copper
-   is never accepted, whatever the helpers return.
+3. Work queue: whenever a helper is free it gets the next net (plan order, a
+   bounded look-ahead) whose pad region, grown by a margin, does not overlap a
+   net still in flight; it is synced to the master first. Long nets therefore
+   never hold the other helpers back.
+4. Results are committed as they arrive through the exact validator
+   (``WorkingBoard.commit_proposals``). A result that is no longer legal (copper
+   committed meanwhile) is re-queued once, then routed on the master. Illegal
+   copper is never accepted, whatever the helpers return.
+
+Commit order follows completion, so parallel runs are not bit-for-bit repeatable
+(every result is still validated); "Single worker" is fully deterministic.
 
 GPU mode is not parallelised (no device contexts in helpers). If helpers cannot
 start, routing continues sequentially and says so.
@@ -44,6 +48,9 @@ REGION_MARGIN_NM = 2_000_000
 LOOKAHEAD = 4
 MAX_WORKERS = 4
 START_TIMEOUT_S = 120.0
+#: Auto/N workers start helpers only if the plan packs into batches this wide
+#: on average (see estimate_speedup)
+PARALLEL_MIN_SPEEDUP = 1.5
 
 
 def auto_workers(requested: int) -> int:
@@ -56,7 +63,7 @@ def auto_workers(requested: int) -> int:
 
 def _helper_main(snapshot: Any, inbox: Any, outbox: Any, cancel: Any) -> None:
     """Helper process: replica of the fork; routes one request at a time."""
-    from pcbrouter.routing.board_router import _congestion_provider
+    from pcbrouter.routing.board_router import _congestion_provider, route_net_refined
     from pcbrouter.routing.router import Router
 
     try:
@@ -84,7 +91,7 @@ def _helper_main(snapshot: Any, inbox: Any, outbox: Any, cancel: Any) -> None:
                 if len(cache) > 4:
                     cache.pop(next(iter(cache)))
                 penalties = _congestion_provider(wb) if congestion else None
-                res = router.route_net(request, cancel=cancel, penalties=penalties)
+                res = route_net_refined(router, request, cancel, penalties)
                 outbox.put(("result", idx, res))
         except Exception:
             outbox.put(("error", msg[1] if kind == "route" else -1, traceback.format_exc()))
@@ -148,44 +155,59 @@ class ParallelRouter:
 
     def sync(self) -> None:
         """Bring every replica to the master fork's current copper."""
+        for i in range(len(self.helpers)):
+            self.sync_helper(i)
+
+    def sync_helper(self, index: int) -> None:
+        """Send helper ``index`` the copper committed since its last sync."""
         board = self.fork.board
         current = self._ids()
-        for h in self.helpers:
-            added_t = [t for t in board.tracks if t.id not in h.synced]
-            added_v = [v for v in board.vias if v.id not in h.synced]
-            removed = sorted(h.synced - current)
-            h.inbox.put(("sync", (added_t, added_v, removed)))
-            h.synced = set(current)
+        h = self.helpers[index]
+        added_t = [t for t in board.tracks if t.id not in h.synced]
+        added_v = [v for v in board.vias if v.id not in h.synced]
+        removed = sorted(h.synced - current)
+        h.inbox.put(("sync", (added_t, added_v, removed)))
+        h.synced = current
+
+    def dispatch(self, index: int, request: RouteRequest, congestion: bool) -> None:
+        """Sync helper ``index`` to the master fork, then give it one net."""
+        self.sync_helper(index)
+        self.helpers[index].inbox.put(("route", index, request, congestion))
+
+    def poll(self, busy: set[int], timeout: float = 0.2) -> tuple[int, str, Any] | None:
+        """Next finished request: (helper index, "result" | "error", payload), or None
+        after ``timeout``. A helper that died while busy is reported as an error."""
+        try:
+            kind, idx, payload = self.outbox.get(timeout=timeout)
+        except queue.Empty:
+            for i in sorted(busy):
+                if self.helpers[i].process.exitcode is not None:
+                    return i, "error", "the route helper process stopped unexpectedly"
+            return None
+        return int(idx), str(kind), payload
 
     def route(
         self, requests: list[RouteRequest], congestion: bool, stop: Any
     ) -> list[tuple[str, Any]]:
-        """Route ``requests`` (at most ``workers``) concurrently on the synced
-        replicas. Returns one ("result", RouteResult) or ("error", text) per request,
-        in request order. ``stop()`` is polled; True cancels the helpers' searches."""
-        self.sync()
+        """Route up to ``workers`` requests concurrently (one per helper) and return
+        one ("result", RouteResult) or ("error", text) per request, in order."""
+        busy = set()
         for i, req in enumerate(requests):
-            self.helpers[i].inbox.put(("route", i, req, congestion))
-        out: list[tuple[str, Any] | None] = [None] * len(requests)
-        waiting = len(requests)
-        while waiting:
+            self.dispatch(i, req, congestion)
+            busy.add(i)
+        out: dict[int, tuple[str, Any]] = {}
+        while busy:
             if stop():
                 self.cancel.set()
-            try:
-                kind, idx, payload = self.outbox.get(timeout=0.2)
-            except queue.Empty:
-                dead = [h for h in self.helpers[: len(requests)] if h.process.exitcode is not None]
-                if dead:
-                    for i in range(len(requests)):
-                        if out[i] is None:
-                            out[i] = ("error", "a route helper process died")
-                    break
+            got = self.poll(busy)
+            if got is None:
                 continue
-            if 0 <= idx < len(requests) and out[idx] is None:
-                out[idx] = (kind, payload)
-                waiting -= 1
+            i, kind, payload = got
+            if i in busy:
+                busy.discard(i)
+                out[i] = (kind, payload)
         self.cancel.clear()
-        return [o if o is not None else ("error", "no result") for o in out]
+        return [out[i] for i in range(len(requests))]
 
     def close(self) -> None:
         for h in self.helpers:
@@ -221,3 +243,18 @@ def pick_batch(queue_: list[Any], regions: dict[str, BoundingBox | None], size: 
         if len(batch) >= size:
             break
     return batch or queue_[:1]
+
+
+def estimate_speedup(tasks: list[Any], regions: dict[str, BoundingBox | None], size: int) -> float:
+    """How many nets could run at once on average: tasks / rounds when the plan is
+    packed greedily into non-overlapping batches (equal net times assumed). Near
+    1.0 means the nets crowd one area (e.g. all fan out of one QFP) and helpers
+    would mostly wait — measured slower, and a different commit order, there."""
+    queue_ = list(tasks)
+    rounds = 0
+    while queue_:
+        batch = pick_batch(queue_, regions, size)
+        ids = {id(t) for t in batch}
+        queue_ = [t for t in queue_ if id(t) not in ids]
+        rounds += 1
+    return len(tasks) / rounds if rounds else 0.0

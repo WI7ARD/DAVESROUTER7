@@ -68,8 +68,11 @@ def run_one(exe: list[str], board: Path, mode: str, workers: int, budget: float,
     return {
         "board": board.stem, "mode": mode, "workers_requested": workers,
         "workers": data.get("workers"), "exit_code": code, "wall_s": round(wall, 1),
-        "route_s": data.get("route_s"), "cpu_s": round(cpu1 - cpu0, 1) or None,
-        "peak_rss_mb": round(rss) or None,
+        "route_s": data.get("route_s"),
+        "cpu_s": data.get("cpu_s") or (round(cpu1 - cpu0, 1) or None),
+        # the routing process itself (+ its helpers, largest one, on Unix)
+        "peak_rss_mb": data.get("peak_rss_mb") or (round(rss) or None),
+        "helper_peak_rss_mb": data.get("helper_peak_rss_mb"),
         "nets": f"{m.get('nets_completed', '?')}/{m.get('nets_attempted', '?')}",
         "vias": m.get("new_vias"), "length_mm": m.get("total_routed_length_mm"),
         "parallel_batches": m.get("parallel_batches"),
@@ -108,13 +111,14 @@ def main(argv: list[str] | None = None) -> int:
                       flush=True)  # fmt: skip
     (args.out / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     lines = ["| Board | Mode | Workers | Nets routed | Vias | Length (mm) | Route s | Wall s | "
-             "CPU s | Peak MB | Exit | Export verified |",
+             "CPU s | Peak MB (main / helper) | Exit | Export verified |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for r in rows:
         lines.append(
             f"| {r['board']} | {r['mode']} | {r['workers']} | {r['nets']} | {r['vias']} | "
             f"{r['length_mm']} | {r['route_s']} | {r['wall_s']} | {r['cpu_s']} | "
-            f"{r['peak_rss_mb']} | {r['exit_code']} | {r['verified']} |"
+            f"{r['peak_rss_mb']} / {r['helper_peak_rss_mb'] or '-'} | {r['exit_code']} | "
+            f"{r['verified']} |"
         )
     (args.out / "results.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))

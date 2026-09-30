@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,7 +17,10 @@ from pcbrouter.settings import AppSettings, ComputeBackendChoice
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip().endswith(__version__)
-    assert __version__ == "1.1.0"
+    # The package version must match pyproject.toml (the installer and release read it).
+    pyproject = Path(__file__).parents[2] / "pyproject.toml"
+    declared = re.search(r'^version = "([^"]+)"', pyproject.read_text(encoding="utf-8"), re.M)
+    assert declared and __version__ == declared.group(1)
 
 
 def test_inspect_outputs_json(

@@ -73,12 +73,59 @@ jobs:
           }
       - name: Build installer
         run: .buildenv\Scripts\python packaging/windows/build_installer.py
-      - name: Smoke test (install, run, uninstall)
-        run: ./packaging/windows/smoke_test.ps1
+      - name: Generate benchmark boards for the product test
+        run: .buildenv\Scripts\python -c "from pathlib import Path; from tests.fixtures.benchmark_suite import write_suite; write_suite(Path('dist/suite'))"
+      - name: Smoke test (install, route real boards with the installed app, uninstall)
+        run: ./packaging/windows/smoke_test.ps1 -SuiteDir dist/suite
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: AI-PCB-Router-Setup-x64
-          path: dist/installer/*.exe
+          path: |
+            dist/installer/*.exe
+            dist/installer/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    # Tagged builds (v*) become a GitHub Release: the installer as a direct .exe
+    # download plus SHA256SUMS.txt. The installer is not code-signed, so browsers
+    # and SmartScreen may still warn; the checksum lets users verify the file.
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tests, installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: AI-PCB-Router-Setup-x64
+          path: release
+      - name: Checksums and release notes
+        run: |
+          cd release
+          sha256sum *.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          python3 - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          ver = "${{ github.ref_name }}".lstrip("v")
+          m = re.search(r"^## v?" + re.escape(ver) + r"\b.*?(?=^## |\Z)", text, re.S | re.M)
+          notes = m.group(0) if m else f"AI PCB Router {ver}"
+          notes += ("\n\n**Download:** the Setup .exe below. It is not code-signed, so Chrome or "
+                    "Windows SmartScreen may warn about an uncommon download; verify it with "
+                    "SHA256SUMS.txt (`Get-FileHash <file> -Algorithm SHA256` in PowerShell).\n")
+          pathlib.Path("release/NOTES.md").write_text(notes, encoding="utf-8")
+          PY
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.sha256
+            release/SHA256SUMS.txt
+          body_path: release/NOTES.md
+          fail_on_unmatched_files: true
+

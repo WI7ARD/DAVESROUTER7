@@ -29,6 +29,7 @@ def working(name: str = "router_dense.kicad_pcb") -> WorkingBoard:
 @pytest.fixture
 def small_minimum(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(parallel, "PARALLEL_MIN_TASKS", 2)
+    monkeypatch.setattr(parallel, "PARALLEL_MIN_SPEEDUP", 0.0)
 
 
 def test_parallel_matches_sequential_and_is_drc_clean(small_minimum: None) -> None:
@@ -44,9 +45,22 @@ def test_parallel_matches_sequential_and_is_drc_clean(small_minimum: None) -> No
     assert not wb.engine.run_drc().errors
 
 
-def test_parallel_is_deterministic(small_minimum: None) -> None:
+def test_repeated_parallel_runs_are_complete_and_valid(small_minimum: None) -> None:
+    """Commit order follows helper completion, so geometry may differ run to run
+    (Single worker is the deterministic mode) — but every run must be complete and
+    pass the internal geometry check."""
+    for _ in range(2):
+        wb = working()
+        res = BoardRouter(wb, BoardRouterSettings(parallel_workers=2)).run()
+        assert res.status is BoardStatus.FULLY_ROUTED
+        tracks, vias, removed = res.objects_for(None)
+        wb.commit_objects(tracks, vias, removed, "parallel", Provenance.ROUTER_GENERATED)
+        assert not wb.engine.run_drc().errors
+
+
+def test_single_worker_is_deterministic() -> None:
     def signature() -> object:
-        res = BoardRouter(working(), BoardRouterSettings(parallel_workers=2)).run()
+        res = BoardRouter(working(), BoardRouterSettings(parallel_workers=0)).run()
         return sorted((t.layer, t.start, t.end) for t in res.added_tracks)
 
     assert signature() == signature()
@@ -87,3 +101,29 @@ def test_batches_never_mix_overlapping_regions() -> None:
     batch = parallel.pick_batch(tasks, regions, 3)
     assert [t.net for t in batch] == ["A", "C"]
     assert parallel.auto_workers(-1) <= parallel.MAX_WORKERS
+
+
+def test_crowded_board_routes_on_one_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nets that all overlap cannot run side by side: no helpers are started."""
+    monkeypatch.setattr(parallel, "PARALLEL_MIN_TASKS", 2)
+    monkeypatch.setattr(parallel, "PARALLEL_MIN_SPEEDUP", 99.0)
+
+    def must_not_start(*_a: object, **_k: object) -> object:
+        raise AssertionError("helpers started on a crowded board")
+
+    monkeypatch.setattr(parallel, "ParallelRouter", must_not_start)
+    res = BoardRouter(working(), BoardRouterSettings(parallel_workers=2)).run()
+    assert res.status is BoardStatus.FULLY_ROUTED
+    assert any("parallel routing skipped" in line for line in res.log)
+
+
+def test_estimate_speedup_packs_independent_nets() -> None:
+    from pcbrouter.domain.geometry import BoundingBox
+    from pcbrouter.routing.board_router import RouteTask
+
+    mm = 1_000_000
+    spread = {f"N{i}": BoundingBox(i * 20 * mm, 0, i * 20 * mm + mm, mm) for i in range(8)}
+    crowded = {f"N{i}": BoundingBox(0, 0, 10 * mm, 10 * mm) for i in range(8)}
+    tasks = [RouteTask(f"N{i}") for i in range(8)]
+    assert parallel.estimate_speedup(tasks, spread, 4) == 4.0
+    assert parallel.estimate_speedup(tasks, crowded, 4) == 1.0

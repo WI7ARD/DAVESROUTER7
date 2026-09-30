@@ -39,6 +39,12 @@ datas = [
     # scan like everything else, so uninstall removes them too)
     (str(ROOT / "THIRD-PARTY-NOTICES.md"), "."),
     (str(ROOT / "LICENSE"), "."),
+    # user documentation, readable without the source tree
+    (str(ROOT / "docs" / "QUICK_START.md"), "docs"),
+    (str(ROOT / "docs" / "USER_GUIDE.md"), "docs"),
+    (str(ROOT / "docs" / "TROUBLESHOOTING.md"), "docs"),
+    (str(ROOT / "KNOWN_LIMITATIONS.md"), "docs"),
+    (str(ROOT / "CHANGELOG.md"), "docs"),
 ]
 for name in OPTIONAL:
     if importlib.util.find_spec(name) is None:
