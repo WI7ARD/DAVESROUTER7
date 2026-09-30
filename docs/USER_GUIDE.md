@@ -37,8 +37,8 @@ Both modes: layers get a preferred direction (first layer horizontal, next verti
 of the time budget, pass 2 finishes the rest.
 
 ## Parallel routing
-Settings ▸ Routing ▸ **Parallel routing**: *Auto* (recommended: CPU cores − 1, at most
-4, on boards with 12+ nets), *Single worker*, or 2–4 workers. Helper processes route
+Settings ▸ Routing ▸ **Parallel routing**: *Auto* (recommended: one helper per CPU core, at
+most 4, on boards with 12+ nets whose nets are spread out enough to route side by side), *Single worker*, or 2–4 workers. Helper processes route
 nets that do not overlap at the same time; the main process validates and commits each
 result, and re-routes anything that became illegal. Parallel routing is used with the
 CPU backend only. *Single worker* gives identical results run after run; parallel runs

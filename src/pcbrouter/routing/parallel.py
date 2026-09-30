@@ -54,10 +54,14 @@ PARALLEL_MIN_SPEEDUP = 1.5
 
 
 def auto_workers(requested: int) -> int:
-    """``requested`` < 0 → automatic: CPU cores - 1, at most MAX_WORKERS."""
+    """``requested`` < 0 → automatic: one helper per CPU core, at most MAX_WORKERS.
+
+    Measured on 4 cores (modular boards, docs/BENCHMARKS.md): 4 helpers beat 3 in
+    every run (e.g. 17.0 s vs 22.4 s) — the main process mostly waits for results
+    while the helpers search, so it does not need a core of its own."""
     cores = os.cpu_count() or 1
     if requested < 0:
-        return max(0, min(MAX_WORKERS, cores - 1))
+        return max(0, min(MAX_WORKERS, cores)) if cores > 1 else 0
     return min(requested, max(1, cores))
 
 

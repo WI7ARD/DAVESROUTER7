@@ -229,7 +229,8 @@ class SettingsDialog(QDialog):
         self.route_workers.setToolTip(
             "Parallel board routing on the CPU: helper processes route nets that do not "
             "overlap at the same time; every result is still checked before it is kept. "
-            "Auto uses CPU cores - 1 (at most 4) on boards with 12+ nets. Ignored in GPU mode."
+            "Auto uses one helper per CPU core (at most 4) on boards with 12+ spread-out "
+            "nets. Ignored in GPU mode."
         )
         form.addRow("Parallel routing:", self.route_workers)
         form.addRow(self.route_ripup)
