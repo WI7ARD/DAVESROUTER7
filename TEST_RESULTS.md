@@ -2,9 +2,26 @@
 
 Only results that were actually run are listed.
 
-## v1.1.1 (executed 2026-09-30; container: 4 CPU cores, no GPU, Xvfb)
+## v1.1.1 release candidate (executed 2026-09-30; container: 4 CPU cores, no GPU, offscreen Qt)
 
-**Linux, full suite** (`pytest -q`): 736 passed, 2 skipped at the Freerouting removal (3a555f4), plus the tests added since. The skips are the Wine installer build and a real-GPU route. The final count for the tagged commit is in the release report.
+**Linux, full suite with coverage** at 82f4fde (`pytest -q -rs --cov=pcbrouter tests`, Python 3.12):
+**863 passed, 9 skipped, 0 failed in 27 min 54 s; line+branch coverage 83 %.**
+
+| Category | Result |
+|---|---|
+| Unit + integration (routing, rules, geometry, AI pipeline, commands, jobs, export, settings, CLI) | ran, passed |
+| GUI tests (PySide6, `QT_QPA_PLATFORM=offscreen`) | ran, passed |
+| New 1.1.1 regression tests (`test_partial_acceptance`, `test_ai_policy`, `test_accept_provenance`, `test_version_consistency`, `test_speed_refine`) | ran, passed (107 tests) |
+| Security (AI output never becomes geometry, no shell/file access, free text cannot change the policy, unknown keys rejected) | ran, passed |
+| SYCL kernel tests (`test_sycl_relax.py`, 7) | **skipped here**: dpctl is not installed in the main venv. They ran and passed earlier in a separate SYCL venv (below) |
+| Real-GPU route (`test_gpu_gate.py`, 1) | **skipped**: no GPU device |
+| Wine/NSIS installer build (`test_windows_installer.py`, 1) | **skipped**: needs makensis + Wine. Covered by Windows CI instead |
+| Benchmarks (`tools/run_benchmarks.py`) | ran separately; see docs/BENCHMARKS.md |
+| Timeout bound | `--budget 5` / `--budget 20` on medium_4layer stopped at 5.2 s / 20.2 s of routing |
+
+`ruff check src tests tools`, `black --check src tests tools` and `mypy src` were clean.
+CI (`ci.yml`) runs the suite on Linux and Windows with Python 3.12 and 3.13. The coverage
+floor is 81 %.
 
 **Real SYCL runtime** (dpctl 0.22 / dpnp 0.20 with Intel's OpenCL CPU runtime; a separate venv): the GPU tests run instead of skipping. They check that:
 - the fused kernel is bit-identical to NumPy (1, 2 and 4 layers, random and real router grids);

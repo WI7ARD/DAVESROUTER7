@@ -19,7 +19,7 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     try:  # use a real tokenizer if the user happens to have one installed
-        import tiktoken  # type: ignore[import-not-found]
+        import tiktoken  # type: ignore[import-not-found,unused-ignore]
 
         return len(tiktoken.get_encoding("o200k_base").encode(text))
     except Exception:
