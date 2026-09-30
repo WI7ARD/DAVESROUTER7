@@ -230,3 +230,30 @@ def test_diagnostic_stages_on_a_sycl_device() -> None:
                          "allocation", "operation", "verified", "fused_kernel"]  # fmt: skip
     assert all(s["ok"] for s in diag["stages"]), diag
     assert diag["compute_verified"]
+
+
+def _device_gpu(q: Any) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        available=True, sycl_device=q.sycl_device, xp=None,
+        detection=SimpleNamespace(array_module="dpnp"), fits=lambda _c, _l: (True, "ok"),
+    )  # fmt: skip
+
+
+def test_router_in_gpu_mode_runs_the_fused_kernel_and_validates() -> None:
+    from pcbrouter.routing.backend import HybridSearch, SearchMode
+    from pcbrouter.routing.board_router import BoardRouter, BoardRouterSettings, BoardStatus
+    from pcbrouter.routing.working_board import Provenance
+
+    q = _sycl_queue()
+    wb = working("router_dense.kicad_pcb")
+    hybrid = HybridSearch(SearchMode.GPU, _device_gpu(q))
+    res = BoardRouter(
+        wb, BoardRouterSettings(), router_factory=lambda e: Router(e, search_fn=hybrid)
+    ).run()
+    assert res.status is BoardStatus.FULLY_ROUTED, res.summary()
+    assert hybrid.used["gpu"] > 0 and hybrid.used["fallback"] == 0, hybrid.fallback_reasons
+    tracks, vias, removed = res.objects_for(None)
+    wb.commit_objects(tracks, vias, removed, "gpu", Provenance.ROUTER_GENERATED)
+    assert not wb.engine.run_drc().errors

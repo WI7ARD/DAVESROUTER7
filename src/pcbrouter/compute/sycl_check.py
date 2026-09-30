@@ -228,6 +228,22 @@ def _benchmark(dpnp: Any, q: Any) -> dict[str, Any]:
     return {"detail": res["summary"], "value": res}
 
 
+def device_backend(target: str = "gpu") -> Any:
+    """A minimal GPU-backend object for ``HybridSearch`` / ``device_search`` bound to
+    an explicitly selected SYCL device (benchmarks, tests), or None."""
+    from types import SimpleNamespace
+
+    import dpctl
+
+    dev, _how = select_device(dpctl, target)
+    if dev is None:
+        return None
+    return SimpleNamespace(
+        available=True, sycl_device=dev, xp=None, name=describe_device(dev)["name"],
+        detection=SimpleNamespace(array_module="dpnp"), fits=lambda _c, _l: (True, "ok"),
+    )  # fmt: skip
+
+
 # ------------------------------------------------------------------ child process
 def child_main(target: str = "gpu") -> int:
     """Entry for ``--gpu-probe-child``: print the diagnostic as one JSON line."""

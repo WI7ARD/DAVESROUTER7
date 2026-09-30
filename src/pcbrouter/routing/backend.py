@@ -26,6 +26,7 @@ from pcbrouter.board_engine import BoardEngine
 from pcbrouter.compute.probe import SKIPPED, gpu_gate
 from pcbrouter.routing.router import Router
 from pcbrouter.routing.search.astar import SearchOutcome, SearchProblem, search
+from pcbrouter.routing.search.relax import relax_search
 from pcbrouter.routing.search.wavefront import wavefront_search
 
 if TYPE_CHECKING:
@@ -54,6 +55,30 @@ def auto_min_cells(gpu: Any) -> int:
     return AUTO_MIN_CELLS_CUDA
 
 
+def device_search(gpu: Any) -> Callable[..., SearchOutcome]:
+    """The search function that runs on ``gpu``: the fused integer relaxation
+    kernel on an explicitly selected SYCL device (Intel), otherwise the array
+    wavefront on the backend's array module (CuPy)."""
+    device = getattr(gpu, "sycl_device", None)
+    if device is not None:
+        from pcbrouter.compute.sycl_relax import SyclRelax
+
+        engine = SyclRelax(device)
+
+        def run(problem: SearchProblem, **kw: Any) -> SearchOutcome:
+            kw.pop("record_explored", None)
+            kw.pop("heuristic_weight", None)
+            return relax_search(problem, solver=engine.solve, **kw)
+
+        return run
+
+    def run_xp(problem: SearchProblem, **kw: Any) -> SearchOutcome:
+        kw.pop("record_explored", None)
+        return wavefront_search(problem, xp=gpu.xp, **kw)
+
+    return run_xp
+
+
 class SearchMode(Enum):
     CPU = "cpu"
     GPU = "gpu"
@@ -74,6 +99,7 @@ class HybridSearch:
         #: UI can say "AUTO → CPU: problem too small"); never once per search
         self.on_select: Callable[[str, str], None] | None = None
         self.last_selection: tuple[str, str] | None = None
+        self._device_fn: Callable[..., SearchOutcome] | None = None
 
     def _selected(self, backend: str, reason: str) -> None:
         sel = (backend, reason)
@@ -116,12 +142,10 @@ class HybridSearch:
         if reason is None and self.gpu is not None:
             self._selected("gpu", f"{self.mode.value.upper()} mode, grid fits on the device")
             try:
-                out = wavefront_search(
-                    problem,
-                    node_limit=node_limit,
-                    time_limit_s=time_limit_s,
-                    cancel=cancel,
-                    xp=self.gpu.xp,
+                if self._device_fn is None:
+                    self._device_fn = device_search(self.gpu)
+                out = self._device_fn(
+                    problem, node_limit=node_limit, time_limit_s=time_limit_s, cancel=cancel
                 )
                 with self._lock:
                     self.used["gpu"] += 1

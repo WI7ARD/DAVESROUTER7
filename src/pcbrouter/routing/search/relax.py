@@ -258,8 +258,12 @@ def relax_search(
     heuristic_weight: float = 1.0,
     xp: Any = np,
     to_host: Any = np.asarray,
+    solver: Any = None,
 ) -> SearchOutcome:
-    """SearchFn-compatible relaxation search (same contract as ``astar.search``)."""
+    """SearchFn-compatible relaxation search (same contract as ``astar.search``).
+
+    ``solver(g, dist0, targets, deadline=, cancel=)`` replaces the array solve,
+    e.g. ``SyclRelax.solve`` (fused GPU kernel); the result must be identical."""
     t0 = time.perf_counter()
     if problem.max_vias is not None and problem.vias_enabled:
         raise ValueError("relaxation search does not support via limits (use the CPU A*)")
@@ -269,8 +273,12 @@ def relax_search(
     dist0 = seed(g, problem.sources)
     if not targets.any() or not (dist0 == 0).any():
         return SearchOutcome(SearchStatus.NO_PATH, elapsed_s=time.perf_counter() - t0)
-    status, dist, sweeps = solve(xp, g, dist0, targets, deadline=t0 + time_limit_s,
-                                 cancel=cancel, to_host=to_host)  # fmt: skip
+    if solver is not None:
+        status, dist, sweeps = solver(g, dist0, targets, deadline=t0 + time_limit_s,
+                                      cancel=cancel)  # fmt: skip
+    else:
+        status, dist, sweeps = solve(xp, g, dist0, targets, deadline=t0 + time_limit_s,
+                                     cancel=cancel, to_host=to_host)  # fmt: skip
     cells = int(np.prod(g.shape))
     out = SearchOutcome(status, expanded=sweeps * cells, elapsed_s=time.perf_counter() - t0)
     if status is not SearchStatus.FOUND:

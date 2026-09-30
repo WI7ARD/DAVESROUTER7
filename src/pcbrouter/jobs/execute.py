@@ -175,7 +175,7 @@ class JobContext:
         contexts are initialised here, never in the GUI process) and report the
         actual choice; returns engine → Router."""
         from pcbrouter.compute.probe import gpu_gate
-        from pcbrouter.routing.backend import HybridSearch, SearchMode
+        from pcbrouter.routing.backend import HybridSearch, SearchMode, auto_min_cells
         from pcbrouter.routing.router import Router
 
         requested = mode.upper()
@@ -199,7 +199,11 @@ class JobContext:
                 self.backend = BackendInfo(
                     requested,
                     label if mode == "gpu" else "AUTO (decided per search)",
-                    "" if mode == "gpu" else "GPU for grids ≥ 2M cells, CPU below",
+                    (
+                        ""
+                        if mode == "gpu"
+                        else f"GPU for grids ≥ {auto_min_cells(gpu):,} cells, CPU below"
+                    ),
                 )
                 hybrid = HybridSearch(SearchMode(mode), gpu)
                 info = self.backend

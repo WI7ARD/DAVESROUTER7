@@ -16,7 +16,6 @@ from pcbrouter.compute.probe import SKIPPED, gpu_gate
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.result import RouteStatus
 from pcbrouter.routing.router import Router
-from pcbrouter.routing.search.wavefront import wavefront_search
 
 if TYPE_CHECKING:
     from pcbrouter.board_engine import BoardEngine
@@ -89,6 +88,9 @@ def run_gpu_check(
     except Exception:
         device = ", ".join(gate.devices) or "GPU"
     result = GpuCheckResult("RAN", device=device)
+    from pcbrouter.routing.backend import device_search
+
+    run_on_device = device_search(gpu)
 
     def gpu_fn(problem: Any, **kw: Any) -> Any:
         kw.pop("record_explored", None)
@@ -98,7 +100,7 @@ def run_gpu_check(
             fits_ok, fits_why = False, "could not estimate GPU memory"
         if not fits_ok:
             raise MemoryError(f"GPU skipped, would not fit on device: {fits_why}")
-        return wavefront_search(problem, xp=gpu.xp, **kw)
+        return run_on_device(problem, **kw)
 
     for net in nets[:MAX_NETS]:
         for name, fn in (("cpu", None), ("gpu", gpu_fn)):
