@@ -192,6 +192,9 @@ class BoardRouterSettings:
     #: learning level 2: picks a per-net search variant ("arm"); None = the
     #: preset for every net (see pcbrouter.learning.policy)
     policy: Any = None
+    #: the routing mode these settings were built for ("speed"/"accuracy"; set by
+    #: presets.adjust_board_settings) - picks the right policy from a policy set
+    mode: str | None = None
     #: explicit differential pairs (positive, negative) in addition to the ones
     #: detected by name; a pair is routed consecutively with a soft corridor
     pairs: tuple[tuple[str, str], ...] = ()
@@ -261,6 +264,9 @@ class NetOutcome:
     route_s: float = 0.0
     #: the search variant used by each attempt (learning policy), in order
     arms: list[str] = field(default_factory=list)
+    #: one entry per attempt: the search settings actually used and what came of
+    #: them (experience log / diagnostics; see ``BoardRouter._trace_request``)
+    trace: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -346,6 +352,9 @@ class BoardRoutingResult:
     #: net -> nets whose removed copper its new copper needs gone (see
     #: :func:`copper_dependencies`); accepting a net accepts its closure
     dependencies: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: learning: which policy routed this job and why (see learning.selector);
+    #: None when no policy was configured (the fixed router)
+    policy_decision: dict[str, Any] | None = None
 
     def summary(self) -> str:
         m = self.metrics
@@ -619,6 +628,10 @@ class BoardRouter:
         self._ripup_tries: dict[str, int] = {}
         self._outcomes: dict[str, NetOutcome] = {}
         self._deadline: float | None = None
+        #: the policy in force for this job (settings.policy after selection)
+        self._policy: Any = None
+        #: routable (non-plane) layers, the policy's layer context
+        self._routable_layers: int | None = None
         self._emit: Callable[..., None] = lambda **_kw: None
 
     def run(
@@ -640,12 +653,15 @@ class BoardRouter:
         self._ripup_tries = {}
         plan = plan or make_plan(fork, s)
         self._all_tasks = list(plan.tasks)
+        self._policy, decision = self._select_policy(fork, plan)
         metrics = BoardMetrics(nets_attempted=len(plan.tasks))
         outcomes: dict[str, NetOutcome] = {
             t.net: NetOutcome(t.net, RouteStatus.NO_ROUTE) for t in plan.tasks
         }
         self._outcomes = outcomes
         job_log: list[str] = []
+        if decision is not None:
+            job_log.append(f"policy: {decision.get('text', decision.get('decision'))}")
         deadline = t0 + s.budget_s
         self._deadline = deadline
         cancelled = False
@@ -835,6 +851,7 @@ class BoardRouter:
             job_log,
             removed_nets,
             copper_dependencies(base_board, added_tracks, added_vias, removed_nets),
+            decision,
         )
         log.info("board_router.done %s metrics=%s", result.summary(), metrics.to_dict())
         emit(state="done")
@@ -909,15 +926,52 @@ class BoardRouter:
             return False
         return applied
 
+    def _select_policy(
+        self, fork: WorkingBoard, plan: BoardRoutingPlan
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """The policy for this job. A selective policy (learning.selector) looks at
+        the board first and may fall back to the fixed router; it only ever picks
+        search settings, the validator still decides every route."""
+        policy = self.settings.policy
+        self._routable_layers = None
+        for_mode = getattr(policy, "for_mode", None)
+        if for_mode is not None:  # a policy set: one policy per mode
+            policy = for_mode(self.settings.mode)
+            if policy is None:
+                return None, {
+                    "decision": "FALLBACK_FIXED",
+                    "reason": f"the policy set has no policy for {self.settings.mode} mode",
+                }
+        if policy is None:
+            return None, None
+        try:
+            from pcbrouter.learning.features import board_profile
+
+            profile = board_profile(fork.board, plan.tasks)
+            self._routable_layers = int(profile["signal_layers"])
+            select = getattr(policy, "select", None)
+            if select is None:
+                pid = getattr(policy, "policy_id", None)
+                return policy, {
+                    "decision": "POLICY",
+                    "policy": getattr(policy, "name", "?"),
+                    "policy_id": pid() if callable(pid) else None,
+                }
+            chosen, decision = select(profile)
+        except Exception as exc:  # a broken policy must never break routing
+            log.warning("policy selection failed; fixed router used", exc_info=True)
+            return None, {"decision": "FALLBACK_FIXED", "reason": f"selection error: {exc}"}
+        return chosen, decision
+
     def _task_request(self, fork: WorkingBoard, task: RouteTask, pass_no: int) -> RouteRequest:
         req = self._request(task, pass_no)
-        policy = self.settings.policy
+        policy = self._policy
         if policy is not None:
             from pcbrouter.learning.policy import attempt_context, task_bucket
 
             o = self._outcomes.get(task.net)
             attempt = len(o.arms) if o is not None else 0
-            layers = len(fork.engine.geometry.copper_layers)
+            layers = self._routable_layers or len(fork.engine.geometry.copper_layers)
             ctx = attempt_context(task_bucket(task, layers), attempt)
             arm = policy.choose(ctx, task.net, attempt)
             req = policy.apply(arm, req)
@@ -927,6 +981,22 @@ class BoardRouter:
             from pcbrouter.routing.diffpair import pair_request
 
             req = pair_request(fork, req, task.group)
+        o = self._outcomes.get(task.net)
+        if o is not None:
+            o.trace.append(
+                {
+                    "pass": pass_no,
+                    "arm": o.arms[-1] if o.arms and len(o.arms) > len(o.trace) else None,
+                    "grid_mm": req.grid_resolution / 1e6,
+                    "heuristic_weight": req.heuristic_weight,
+                    "coarse_factor": req.coarse_factor,
+                    "minimize_vias": req.minimize_vias,
+                    "via_cost_mm": req.cost.via_nm / 1e6,
+                    "wrong_way_factor": req.cost.wrong_way_factor,
+                    "node_limit": req.node_limit,
+                    "slice_s": req.total_time_limit_s,
+                }
+            )
         return req
 
     def _apply_result(
@@ -947,6 +1017,15 @@ class BoardRouter:
         o.attempts += 1
         o.expanded_nodes += int(res.metrics.expanded_nodes)
         o.route_s += float(res.metrics.elapsed_s)
+        for t in reversed(o.trace):
+            if t.get("pass") == pass_no and "status" not in t:
+                t.update(
+                    status=res.status.value,
+                    reason=res.reason.value if res.reason else None,
+                    expanded_nodes=int(res.metrics.expanded_nodes),
+                    route_s=round(float(res.metrics.elapsed_s), 4),
+                )
+                break
         if res.status is RouteStatus.ALREADY_CONNECTED:
             o.status = RouteStatus.SUCCESS
             metrics.clean_nets += 1  # nothing to route: trivially clean

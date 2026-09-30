@@ -67,9 +67,10 @@ def adjust_board_settings(
 ) -> BoardRouterSettings:
     """Apply the mode to BoardRouterSettings under construction."""
     if mode is not RouteMode.SPEED:
-        return replace(settings, base_request=adjust_request(base_request, mode))
+        return replace(settings, base_request=adjust_request(base_request, mode), mode=mode.value)
     return replace(
         settings,
+        mode=mode.value,
         max_passes=2,  # pass 1 gives every net a fair time slice, pass 2 finishes
         allow_ripup=False,
         optimize=False,

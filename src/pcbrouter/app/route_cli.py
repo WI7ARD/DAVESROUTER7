@@ -247,11 +247,13 @@ def route_cli(
             chosen_policy = policy_from_spec(policy)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             return run.finish(EXIT_ERROR, f"Cannot load --policy {policy}: {exc}")
-        trained = getattr(chosen_policy, "trained_modes", None)
+        trained = getattr(getattr(chosen_policy, "inner", chosen_policy), "trained_modes", None)
         if trained and mode not in trained:
             print(f"Warning: this policy was trained for {', '.join(trained)} mode, not {mode}.")
         settings = replace(settings, policy=chosen_policy)
         run.report["policy"] = getattr(chosen_policy, "name", "fixed")
+        pid = getattr(chosen_policy, "policy_id", None)
+        run.report["policy_id"] = pid() if callable(pid) else None
     run.report["workers"] = n_workers
     ctx = JobContext(0, send=lambda _msg: None)
     factory = ctx.router_factory(backend, top_level=False)
@@ -279,6 +281,9 @@ def route_cli(
     except KeyboardInterrupt:
         return run.finish(EXIT_ERROR, "Interrupted; nothing was written.")
     run.report["route_s"] = round(time.monotonic() - t0, 1)
+    if result.policy_decision is not None:
+        run.report["policy_decision"] = result.policy_decision
+        print(f"Policy: {result.policy_decision.get('text') or result.policy_decision}")
     if record_experience:
         from pcbrouter.learning.experience import record_board_job
 

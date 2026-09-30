@@ -108,6 +108,7 @@ allowed-confusables = ["×", "–", "‹", "ℹ"]
 "src/pcbrouter/learning/trainer.py" = ["T20"]  # trainer CLI output
 "tools/benchmark_real100.py" = ["E402"]  # sys.path set up before the import
 "tools/train_policy.py" = ["E402"]  # sys.path set up before the import
+"tools/real100_compare.py" = ["E402"]  # sys.path set up before the import
 "packaging/**" = ["T20"]
 # Qt signals follow Qt's camelCase naming (e.g. objectSelected), matching the Qt API.
 "src/pcbrouter/ui/**" = ["N815"]

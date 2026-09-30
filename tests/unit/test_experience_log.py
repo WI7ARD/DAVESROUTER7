@@ -95,3 +95,16 @@ def test_cli_route_records_experience(tmp_path: Path, monkeypatch: pytest.Monkey
     assert len(
         (tmp_path / "data" / "experience" / "experience.jsonl").read_text().splitlines()
     ) == len(lines)
+
+
+def test_schema_2_records_carry_profile_attempt_trace_and_job(routed: tuple) -> None:
+    result, settings = routed
+    recs = records_from_result(result, settings, salt="s")
+    r = recs[0]
+    assert r["schema"] == "pcbrouter-experience/2"
+    assert r["board_p"]["signal_layers"] >= 1 and r["board_p"]["nets_to_route"] == len(recs)
+    assert r["job"]["attempted"] == len(recs) and r["job"]["policy_decision"] == "NONE"
+    ok = [x for x in recs if x["outcome"]["attempts"]]
+    assert ok and all(len(x["outcome"]["trace"]) == x["outcome"]["attempts"] for x in ok)
+    t = ok[0]["outcome"]["trace"][0]
+    assert {"pass", "grid_mm", "heuristic_weight", "coarse_factor", "status", "route_s"} <= set(t)

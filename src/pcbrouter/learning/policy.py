@@ -62,7 +62,12 @@ def _band(x: float, edges: tuple[float, ...]) -> int:
 
 def bucket(kind: str, pads: int, escape_options: int, layers: int) -> str:
     """A coarse context: enough to separate e.g. fine-pitch escapes on 4 layers
-    from long 2-pad signals on 2 layers, few enough buckets to learn from little data."""
+    from long 2-pad signals on 2 layers, few enough buckets to learn from little data.
+
+    *layers* is the number of **routable** layers (copper layers minus the ones a
+    zone mostly covers, see ``learning.features``): a 4-layer board with two
+    planes routes like a 2-layer board, and treating the two alike made a policy
+    learned on plane boards misfire on a board with four free signal layers."""
     return (
         f"{kind}|p{_band(pads, (2, 4, 12))}|e{_band(escape_options, (2, 6, 20))}"
         f"|l{_band(layers, (2, 4))}"
@@ -173,6 +178,13 @@ class ThompsonPolicy(Policy):
             trained_modes=tuple(modes) if modes else None,
         )
 
+    def policy_id(self) -> str:
+        """Content hash of what drives decisions (stats + thresholds): two files
+        with the same id choose identically."""
+        body = {k: v for k, v in self.to_json().items() if k != "trained"}
+        blob = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+        return "pol-" + hashlib.sha256(blob).hexdigest()[:12]
+
     def save(self, path: Path) -> None:
         path.write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
 
@@ -187,6 +199,15 @@ def attempt_context(base: str, attempt: int) -> str:
     return f"{base}|{'first' if attempt == 0 else 'retry'}"
 
 
+def record_layers(r: dict[str, Any]) -> int:
+    """Routable layers of a record's board: the profile's signal layers when
+    recorded (schema 2), else the copper layer count (schema 1 records)."""
+    prof = r.get("board_p") or {}
+    if prof.get("signal_layers"):
+        return int(prof["signal_layers"])
+    return int((r.get("board_f") or {}).get("copper_layers", 2))
+
+
 def attempts(records: Iterable[dict[str, Any]]) -> Iterator[tuple[str, str, float]]:
     """``(context, arm, reward)`` for every logged attempt. Reward is 1 only for the
     last attempt of a routed net; earlier attempts of the net failed. Records
@@ -196,11 +217,11 @@ def attempts(records: Iterable[dict[str, Any]]) -> Iterator[tuple[str, str, floa
         arms = out.get("arms") or []
         if not arms:
             continue
-        base = nf.get("bucket") or bucket(
+        base = bucket(
             nf.get("kind", "signal"),
             int(nf.get("pads", 0)),
             int(nf.get("escape_options", 99)),
-            int((r.get("board_f") or {}).get("copper_layers", 2)),
+            record_layers(r),
         )
         routed = out.get("status") == "SUCCESS"
         for i, arm in enumerate(arms):
@@ -218,6 +239,38 @@ def learn(records: Iterable[dict[str, Any]]) -> ThompsonPolicy:
     return ThompsonPolicy(stats)
 
 
+SET_SCHEMA = "pcbrouter-policy-set/1"
+
+
+class PolicySet(Policy):
+    """One policy per routing mode (the same arm means different things on top of
+    the Speed and Accuracy presets). The router asks :meth:`for_mode`."""
+
+    name = "set"
+
+    def __init__(self, policies: dict[str, Policy]) -> None:
+        self.policies = policies
+
+    def for_mode(self, mode: str | None) -> Policy | None:
+        return self.policies.get(mode or "")
+
+    def policy_id(self) -> str:
+        parts = []
+        for mode, pol in sorted(self.policies.items()):
+            pid = getattr(pol, "policy_id", None)
+            parts.append(f"{mode}={pid() if callable(pid) else pol.name}")
+        return "set-" + hashlib.sha256(";".join(parts).encode()).hexdigest()[:12]
+
+
+def _policy_from_json(data: dict[str, Any]) -> Policy:
+    inner = ThompsonPolicy.from_json(data)
+    if data.get("support"):
+        from pcbrouter.learning.selector import SelectivePolicy, Support
+
+        return SelectivePolicy(inner, Support.from_json(data["support"]))
+    return inner
+
+
 def policy_from_spec(spec: str | None) -> Policy | None:
     """``None``/"fixed" -> None (preset), "random:SEED", or a policy JSON path."""
     if not spec or spec == "fixed":
@@ -225,4 +278,7 @@ def policy_from_spec(spec: str | None) -> Policy | None:
     if spec.startswith("random"):
         _, _, seed = spec.partition(":")
         return RandomPolicy(int(seed or 0))
-    return ThompsonPolicy.load(Path(spec))
+    data = json.loads(Path(spec).read_text(encoding="utf-8"))
+    if data.get("schema") == SET_SCHEMA:
+        return PolicySet({m: _policy_from_json(d) for m, d in data["modes"].items()})
+    return _policy_from_json(data)

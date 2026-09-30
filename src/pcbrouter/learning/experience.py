@@ -35,7 +35,9 @@ import pcbrouter
 
 log = logging.getLogger(__name__)
 
-SCHEMA = "pcbrouter-experience/1"
+#: 2 adds the board profile (``board_p``), a per-attempt ``outcome.trace``, the
+#: policy decision and board-level job results; readers accept 1 and 2
+SCHEMA = "pcbrouter-experience/2"
 MAX_BYTES = 50 * 2**20
 _LOCK = threading.Lock()
 
@@ -94,10 +96,27 @@ def settings_features(settings: Any) -> dict[str, Any]:
     }
 
 
-def _bucket(task: Any, bf: dict[str, Any]) -> str:
+def _bucket(task: Any, layers: int) -> str:
     from pcbrouter.learning.policy import task_bucket
 
-    return task_bucket(task, int(bf.get("copper_layers") or 2))
+    return task_bucket(task, layers)
+
+
+def _profile(result: Any) -> dict[str, float]:
+    from pcbrouter.learning.features import board_profile
+
+    try:
+        return {k: _r(v, 4) for k, v in board_profile(result.base_board, result.plan.tasks).items()}
+    except Exception:  # a profile is an extra: never lose the record over it
+        log.debug("board profile unavailable", exc_info=True)
+        return {}
+
+
+def _trace(o: Any) -> list[dict[str, Any]]:
+    out = []
+    for t in getattr(o, "trace", None) or []:
+        out.append({k: (_r(v, 4) if isinstance(v, float) else v) for k, v in t.items()})
+    return out
 
 
 def records_from_result(
@@ -108,8 +127,28 @@ def records_from_result(
     board = result.base_board
     bid = board_id(board.fingerprint, salt)
     bf = board_features(board)
+    bp = _profile(result)
+    layers = int(bp.get("signal_layers") or bf.get("copper_layers") or 2)
     sf = settings_features(settings)
     status = result.status.value
+    decision = getattr(result, "policy_decision", None) or {}
+    active = decision.get("decision") in ("POLICY", "LEARNED")
+    policy_name = (
+        decision.get("policy") or getattr(getattr(settings, "policy", None), "name", "fixed")
+        if active
+        else "fixed"
+    )
+    m = result.metrics
+    job = {
+        "completed": m.nets_completed,
+        "attempted": m.nets_attempted,
+        "ripups": m.ripups,
+        "runtime_s": _r(m.runtime_s, 2),
+        "new_vias": m.new_vias,
+        "policy_decision": decision.get("decision", "NONE"),
+        "policy_reason": decision.get("reason"),
+        "policy_id": decision.get("policy_id"),
+    }
     out: list[dict[str, Any]] = []
     for order, task in enumerate(plan.tasks):
         o = result.outcomes.get(task.net)
@@ -123,6 +162,8 @@ def records_from_result(
                 "board": bid,
                 "board_status": status,
                 "board_f": bf,
+                "board_p": bp,
+                "job": job,
                 "net_f": {
                     "kind": task.kind.value,
                     "pads": task.pads,
@@ -133,7 +174,7 @@ def records_from_result(
                     "order": order,
                     "order_frac": _r(order / max(1, len(plan.tasks) - 1)),
                     "paired": task.group is not None,
-                    "bucket": _bucket(task, bf),
+                    "bucket": _bucket(task, layers),
                 },
                 "settings": sf,
                 "outcome": {
@@ -147,7 +188,8 @@ def records_from_result(
                     "route_s": _r(o.route_s),
                     "ripped": bool(o.removed_ids),
                     "arms": list(getattr(o, "arms", []) or []),
-                    "policy": getattr(getattr(settings, "policy", None), "name", "fixed"),
+                    "policy": policy_name,
+                    "trace": _trace(o),
                 },
             }
         )

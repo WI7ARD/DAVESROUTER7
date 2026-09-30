@@ -126,3 +126,12 @@ def test_run_accepts_a_policy_and_passes_it_to_workers(tmp_path: Path) -> None:
     assert build_parser().parse_args(["run"]).policy is None
     cmd = _worker_command(tmp_path / "b.kicad_pcb", RouteMode.SPEED, 10.0, True, None, "random:1")
     assert cmd[-2:] == ["--policy", "random:1"]
+
+
+def test_worker_can_check_validity_of_new_copper(tmp_path: Path) -> None:
+    from pcbrouter.benchmark.real100 import _worker_command, build_parser
+    from pcbrouter.routing.presets import RouteMode
+
+    assert build_parser().parse_args(["run", "--check-validity"]).check_validity
+    cmd = _worker_command(tmp_path / "b.kicad_pcb", RouteMode.SPEED, 10.0, True, None, None, True)
+    assert cmd[-1] == "--check-validity"

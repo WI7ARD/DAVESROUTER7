@@ -477,6 +477,7 @@ def route_one_board(
     conservative: bool = True,
     experience_dir: Path | None = None,
     policy: str | None = None,
+    check_validity: bool = False,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     loaded = load_board(board_path)
@@ -506,10 +507,29 @@ def route_one_board(
         from pcbrouter.learning.experience import record_board_job
 
         record_board_job(result, settings, folder=experience_dir, source="real100")
-    post = WorkingBoard(
+    post_wb = WorkingBoard(
         result.final_board, rules, config=EngineConfig(conservative=conservative)
-    ).engine.connectivity.metrics()
+    )
+    post = post_wb.engine.connectivity.metrics()
+    validity: dict[str, Any] = {}
+    if check_validity:
+        # belt and braces: every commit was already checked by the exact
+        # validator; this re-checks the finished board's new copper with DRC
+        t_drc = time.perf_counter()
+        added = {f"track:{t.id}" for t in result.added_tracks}
+        added |= {f"via:{v.id}" for v in result.added_vias} | {
+            f"hole:{v.id}" for v in result.added_vias
+        }
+        errors = post_wb.engine.run_drc().errors
+        bad = [v for v in errors if v.object_a in added or v.object_b in added]
+        validity = {
+            "new_copper_drc_errors": len(bad),
+            "new_copper_drc_examples": [v.message[:160] for v in bad[:5]],
+            "drc_s": round(time.perf_counter() - t_drc, 2),
+        }
     return {
+        **validity,
+        "policy_decision": result.policy_decision,
         "status": "ok",
         "route_status": result.status.value,
         "mode": mode.value,
@@ -591,6 +611,7 @@ def _worker_command(
     conservative: bool,
     experience_dir: Path | None = None,
     policy: str | None = None,
+    check_validity: bool = False,
 ) -> list[str]:
     return [
         sys.executable,
@@ -607,6 +628,7 @@ def _worker_command(
         "yes" if conservative else "no",
         *(["--experience", str(experience_dir)] if experience_dir is not None else []),
         *(["--policy", policy] if policy else []),
+        *(["--check-validity"] if check_validity else []),
     ]
 
 
@@ -622,6 +644,7 @@ def run_corpus(
     conservative: bool = True,
     experience_dir: Path | None = None,
     policy: str | None = None,
+    check_validity: bool = False,
 ) -> Path:
     default_modes, default_timeout = profile_defaults(profile)
     modes = modes or default_modes
@@ -678,6 +701,7 @@ def run_corpus(
                         conservative,
                         experience_dir,
                         policy,
+                        check_validity,
                     )
                     t0 = time.perf_counter()
                     try:
@@ -923,6 +947,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="search-variant policy: fixed (default), random:SEED or a policy.json",
     )
     r.add_argument(
+        "--check-validity",
+        action="store_true",
+        help="DRC the finished board and count errors on router-added copper",
+    )
+    r.add_argument(
         "--no-experience",
         action="store_true",
         help="do not write routing experience records (work/experience/)",
@@ -946,6 +975,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--conservative", choices=("yes", "no"), default="yes")
     w.add_argument("--experience", type=Path, default=None)
     w.add_argument("--policy", default=None)
+    w.add_argument("--check-validity", action="store_true")
     return p
 
 
@@ -960,6 +990,7 @@ def main(argv: list[str] | None = None) -> int:
                 conservative=args.conservative == "yes",
                 experience_dir=args.experience,
                 policy=args.policy,
+                check_validity=args.check_validity,
             )
             print(json.dumps(payload, sort_keys=True))
             return 0
@@ -1003,6 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
             conservative=args.conservative == "yes",
             experience_dir=None if args.no_experience else workdir / "experience",
             policy=args.policy,
+            check_validity=args.check_validity,
         )
         print(result)
         return 0
