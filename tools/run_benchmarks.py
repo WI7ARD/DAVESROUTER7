@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--extra", nargs="*", type=Path, default=[], help="more .kicad_pcb files")
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
-    suite = write_suite(args.out / "boards")
+    suite = write_suite(args.out / "boards", args.boards)
     boards = [suite[b] for b in args.boards] + list(args.extra)
     exe = [args.exe] if args.exe else [sys.executable, "-c",
                                        "import sys; from pcbrouter.app.application import main; "

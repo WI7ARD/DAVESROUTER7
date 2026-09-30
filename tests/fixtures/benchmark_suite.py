@@ -10,6 +10,9 @@
     medium_4layer     QFP-64 (0.5 mm pitch) + headers + DIP, ~60 nets, 4 layers
     modular_4layer    the four blocks on 4 layers with a QFP-44 in each block
     impossible        one net whose pad is walled in by keepouts on every layer
+    esc_4layer        Davi's BLDC motor ESC (real KiCad 10 design, 4 layers, 94
+                      routable nets, pours on GND/DC_BUS+), its own .kicad_pro;
+                      not in ORDER (minutes per run): pass --boards esc_4layer
 
 ``write_suite(folder)`` writes each generated board with its ``.kicad_pro``.
 Rules are explicit net classes (nothing is guessed by the router).
@@ -309,6 +312,10 @@ GENERATED = {
     "impossible": impossible,
     "partial": partial,
 }
+#: real user boards kept in the repository as benchmarks (KiCad project files
+#: next to them; the rules are the designer's own)
+REAL_BOARDS = {"esc_4layer": Path(__file__).resolve().parents[2] / "benchmarks" / "boards"
+               / "hhkittesc" / "hhkittesc.kicad_pcb"}  # fmt: skip
 FIXTURE_BOARDS = {"tiny": "router_basic", "small_2layer": "router_dense",
                   "small_4layer": "router_4layer"}  # fmt: skip
 ORDER = ["tiny", "small_2layer", "medium_2layer", "dense_2layer", "modular_2layer",
@@ -320,7 +327,11 @@ def write_suite(folder: Path, names: list[str] | None = None) -> dict[str, Path]
     out: dict[str, Path] = {}
     for name in names or ORDER:
         target = folder / f"{name}.kicad_pcb"
-        if name in FIXTURE_BOARDS:
+        if name in REAL_BOARDS:
+            src = REAL_BOARDS[name]
+            shutil.copyfile(src, target)
+            shutil.copyfile(src.with_suffix(".kicad_pro"), target.with_suffix(".kicad_pro"))
+        elif name in FIXTURE_BOARDS:
             src = FIXTURES / FIXTURE_BOARDS[name]
             shutil.copyfile(src.with_suffix(".kicad_pcb"), target)
             shutil.copyfile(src.with_suffix(".kicad_pro"), target.with_suffix(".kicad_pro"))
