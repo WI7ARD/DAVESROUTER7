@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from pcbrouter import __version__
 from pcbrouter.board_engine import BoardEngine
 from pcbrouter.domain.geometry import BoundingBox, Point
 from pcbrouter.domain.units import Nm, format_mm
@@ -67,7 +68,8 @@ from pcbrouter.routing.search.grid import GridCancelled, SearchGrid, compile_gri
 
 log = logging.getLogger(__name__)
 
-ROUTER_VERSION = "1.0.0"
+#: recorded in every proposal's metadata: the release that produced the route
+ROUTER_VERSION = __version__
 MAX_REPAIRS = 6
 #: one-shot weight when a search hits its time/node limit (R6-power): proven
 #: ≤1.5x optimal bound, still exact-validated downstream.
