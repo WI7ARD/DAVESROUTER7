@@ -983,7 +983,9 @@ class BoardRouter:
             o = self._outcomes.get(task.net)
             attempt = len(o.arms) if o is not None else 0
             layers = self._routable_layers or len(fork.engine.geometry.copper_layers)
-            prev = o.reason.value if o is not None and attempt and o.reason else None
+            # the previous attempt's reason as the trace records it: the learner
+            # reads the same field, so both look up the same retry context
+            prev = o.trace[-1].get("reason") if o is not None and attempt and o.trace else None
             ctx = attempt_context(task_bucket(task, layers, self._demand), attempt, prev)
             arm = policy.choose(ctx, task.net, attempt)
             varied = policy.apply(arm, req)
