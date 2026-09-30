@@ -183,6 +183,10 @@ class BoardPartial:
     added_tracks: list[Any] = field(default_factory=list)
     added_vias: list[Any] = field(default_factory=list)
     removed_ids: list[str] = field(default_factory=list)
+    #: removed id -> owning net, and net -> nets it depends on (dependency-safe
+    #: partial acceptance, see BoardRoutingResult.objects_for)
+    removed_nets: dict[str, str | None] = field(default_factory=dict)
+    dependencies: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass

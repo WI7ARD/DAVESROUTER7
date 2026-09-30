@@ -518,6 +518,8 @@ class RoutingController(QObject):
             tuple(partial.added_vias),
             tuple(partial.removed_ids),
             [status_text],
+            dict(partial.removed_nets),
+            dict(partial.dependencies),
         )
         self.last_board_result = result
         self.board_panel.set_result(result)

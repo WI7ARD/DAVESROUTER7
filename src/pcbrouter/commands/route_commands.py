@@ -213,10 +213,28 @@ class AcceptBoardRoutingCommand(BaseCommand):
             return CommandResult.fail(
                 "The working board changed since this routing job started; route again."
             )
+        from pcbrouter.routing.connectivity import NetStatus, net_connectivity
+
         tracks, vias, removed = self.result.objects_for(self.nets)
         if not tracks and not vias and not removed:
             return CommandResult.fail("Nothing to accept.")
+        extra = set() if self.nets is None else self.result.required_extra_nets(set(self.nets))
         which = "all nets" if self.nets is None else ", ".join(sorted(self.nets))
+        if extra:
+            which += f" + required {', '.join(sorted(extra))}"
+        # every net this commit touches must not go from connected to open; the
+        # removed objects' nets come from the working board itself, not from the
+        # result's bookkeeping (the check must not trust what it verifies)
+        idx = working.board.index
+        touched = {t.net_name for t in tracks} | {v.net_name for v in vias}
+        for i in removed:
+            obj = idx.tracks_by_id.get(i) or idx.vias_by_id.get(i)
+            touched.add(obj.net_name if obj is not None else None)
+        touched.discard(None)
+        geo = working.engine.geometry
+        was_connected = {
+            n for n in touched if net_connectivity(geo, n).status is NetStatus.FULLY_CONNECTED
+        }
         try:
             commit = working.commit_objects(
                 tracks,
@@ -228,8 +246,25 @@ class AcceptBoardRoutingCommand(BaseCommand):
             )
         except CommitError as exc:
             return CommandResult.fail(str(exc))
+        geo = working.engine.geometry
+        opened = sorted(
+            str(n) for n in was_connected
+            if net_connectivity(geo, n).status is not NetStatus.FULLY_CONNECTED
+        )  # fmt: skip
+        if opened:  # atomic: the working board goes back to exactly its prior state
+            working.undo()
+            return CommandResult.fail(
+                "Not accepted: this would disconnect "
+                + ", ".join(opened)
+                + ". Accept the whole batch (or include those nets) instead."
+            )
         ctx.history.push(WorkingUndoAction(working, commit), already_applied=True)
-        return CommandResult.ok(f"{commit.label}: {commit.diff_summary()}", commit)
+        note = (
+            f" (also accepted {', '.join(sorted(extra))}: their routes moved for it)"
+            if extra
+            else ""
+        )
+        return CommandResult.ok(f"{commit.label}: {commit.diff_summary()}{note}", commit)
 
 
 def plan_optimization(

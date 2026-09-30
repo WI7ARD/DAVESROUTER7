@@ -25,7 +25,7 @@ import math
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
@@ -34,6 +34,7 @@ import numpy as np
 import numpy.typing as npt
 
 from pcbrouter.domain.board import Board
+from pcbrouter.domain.geometry import BoundingBox
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.via import Via
 from pcbrouter.routing.connectivity import NetStatus, net_connectivity
@@ -312,6 +313,12 @@ class BoardRoutingResult:
     added_vias: tuple[Via, ...] = ()
     removed_ids: tuple[str, ...] = ()
     log: list[str] = field(default_factory=list)
+    #: removed base object id -> its net: a removal belongs to the change set of
+    #: the net that owned the copper (rerouting X = "remove old X, add new X")
+    removed_nets: dict[str, str | None] = field(default_factory=dict)
+    #: net -> nets whose removed copper its new copper needs gone (see
+    #: :func:`copper_dependencies`); accepting a net accepts its closure
+    dependencies: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def summary(self) -> str:
         m = self.metrics
@@ -321,19 +328,82 @@ class BoardRoutingResult:
             f"{m.total_length_nm / 1e6:.1f} mm, {m.ripups} rip-up(s), {m.runtime_s:.1f} s"
         )
 
+    def dependency_closure(self, nets: set[str]) -> set[str]:
+        """``nets`` plus every net they transitively depend on: accepting only part
+        of a rip-up/reroute would remove a route without its replacement (or add
+        copper where old copper still sits), so dependents are accepted together."""
+        out: set[str] = set()
+        todo = list(nets)
+        while todo:
+            net = todo.pop()
+            if net in out:
+                continue
+            out.add(net)
+            todo.extend(self.dependencies.get(net, ()))
+        return out
+
+    def required_extra_nets(self, nets: set[str]) -> set[str]:
+        """Nets that accepting ``nets`` pulls in (for the approval text)."""
+        return self.dependency_closure(nets) - set(nets)
+
     def objects_for(self, nets: set[str] | None = None) -> tuple[list[Track], list[Via], list[str]]:
-        """Copper to add and generated ids to remove for accepting ``nets`` (all when
-        None). Rip-ups required by an accepted net are always included."""
-        tracks = [t for t in self.added_tracks if nets is None or t.net_name in nets]
-        vias = [v for v in self.added_vias if nets is None or v.net_name in nets]
+        """Copper to add and ids to remove for accepting ``nets`` (all when None).
+
+        Dependency-safe: the selection is widened to its dependency closure, and a
+        removal is applied only together with its own net's replacement copper —
+        never "Y routed, X's route removed, X not re-added"."""
         if nets is None:
-            removed = list(self.removed_ids)
-        else:
-            removed = sorted(
-                {i for n in nets for i in self.outcomes[n].removed_ids} if nets else set()
-            )
-            removed = [i for i in removed if i in set(self.removed_ids)]
+            return list(self.added_tracks), list(self.added_vias), list(self.removed_ids)
+        closure = self.dependency_closure(set(nets))
+        tracks = [t for t in self.added_tracks if t.net_name in closure]
+        vias = [v for v in self.added_vias if v.net_name in closure]
+        removed = [i for i in self.removed_ids if self.removed_nets.get(i) in closure]
         return tracks, vias, removed
+
+
+#: added copper within this distance of removed copper of another net depends
+#: on that removal (generous: larger than any clearance on the tested boards;
+#: a wider net only groups more nets together, never fewer)
+DEPENDENCY_MARGIN_NM = 1_000_000
+
+
+def _removed_nets(base: Board, removed: Iterable[str]) -> dict[str, str | None]:
+    idx = base.index
+    out: dict[str, str | None] = {}
+    for i in removed:
+        obj = idx.tracks_by_id.get(i) or idx.vias_by_id.get(i)
+        out[i] = obj.net_name if obj is not None else None
+    return out
+
+
+def copper_dependencies(
+    base: Board,
+    added_tracks: Iterable[Track],
+    added_vias: Iterable[Via],
+    removed_nets: dict[str, str | None],
+) -> dict[str, tuple[str, ...]]:
+    """net A -> nets B whose removed copper lies within DEPENDENCY_MARGIN_NM of A's
+    added copper: A's route may occupy space B's old route held, so A can only be
+    accepted together with B's change set (B's removal and B's replacement)."""
+    idx = base.index
+    removed_boxes: list[tuple[str, BoundingBox]] = []
+    for i, net in removed_nets.items():
+        obj = idx.tracks_by_id.get(i) or idx.vias_by_id.get(i)
+        if obj is not None and net is not None:
+            removed_boxes.append((net, obj.bounds.expanded(DEPENDENCY_MARGIN_NM)))
+    deps: dict[str, set[str]] = {}
+    if not removed_boxes:
+        return {}
+    added: list[Track | Via] = [*added_tracks, *added_vias]
+    for item in added:
+        net = item.net_name
+        if net is None:
+            continue
+        box = item.bounds
+        for other, rbox in removed_boxes:
+            if other != net and rbox.intersects(box):
+                deps.setdefault(net, set()).add(other)
+    return {k: tuple(sorted(v)) for k, v in sorted(deps.items())}
 
 
 # ---------------------------------------------------------------- planning
@@ -570,6 +640,8 @@ class BoardRouter:
             succeeded = sum(1 for o in outcomes.values() if o.status is RouteStatus.SUCCESS)
             from pcbrouter.jobs.protocol import BoardPartial
 
+            removed_p = sorted(base_ids - final_ids)
+            removed_nets_p = _removed_nets(base_board, removed_p)
             on_partial(
                 BoardPartial(
                     completed_nets=len(done),
@@ -578,7 +650,9 @@ class BoardRouter:
                     outcomes=done,
                     added_tracks=list(added_t),
                     added_vias=list(added_v),
-                    removed_ids=sorted(base_ids - final_ids),
+                    removed_ids=removed_p,
+                    removed_nets=removed_nets_p,
+                    dependencies=copper_dependencies(base_board, added_t, added_v, removed_nets_p),
                 )
             )
 
@@ -709,6 +783,7 @@ class BoardRouter:
             status = BoardStatus.PARTIALLY_ROUTED
         else:
             status = BoardStatus.FAILED
+        removed_nets = _removed_nets(base_board, removed)
         result = BoardRoutingResult(
             status,
             base_board,
@@ -720,6 +795,8 @@ class BoardRouter:
             added_vias,
             removed,
             job_log,
+            removed_nets,
+            copper_dependencies(base_board, added_tracks, added_vias, removed_nets),
         )
         log.info("board_router.done %s metrics=%s", result.summary(), metrics.to_dict())
         emit(state="done")
@@ -901,7 +978,6 @@ class BoardRouter:
         flight; results are committed through the validator as they arrive, a
         conflict is re-queued once and then routed here. Returns "", "cancelled"
         or "out_of_time"."""
-        from pcbrouter.domain.geometry import BoundingBox
         from pcbrouter.routing.parallel import LOOKAHEAD, REGION_MARGIN_NM
 
         deadline = self._deadline or math.inf
@@ -1045,6 +1121,12 @@ class BoardRouter:
             return False
         snapshot_len = len(fork.commits)
         before_done = self._connected_count(fork, outcomes)
+        geo0 = fork.engine.geometry
+        displaced_before = {
+            n: net_connectivity(geo0, n).status is NetStatus.FULLY_CONNECTED
+            for n in {self._net_of(fork, i) for i in rippable}
+            if n is not None
+        }
         # 1) route the failed net on a board without the rippable copper
         idx = fork.board.index
         displaced_nets = sorted(
@@ -1088,6 +1170,19 @@ class BoardRouter:
             if sub.best is not None:
                 fork.commit_proposals([sub.best.proposal], f"reroute {net}")
         after_done = self._connected_count(fork, outcomes)
+        geo1 = fork.engine.geometry
+        broken = sorted(
+            n for n, was in displaced_before.items()
+            if was and net_connectivity(geo1, n).status is not NetStatus.FULLY_CONNECTED
+        )  # fmt: skip
+        if broken:
+            # a rip-up may move another route, never leave it disconnected —
+            # including nets outside this job (routed and accepted earlier)
+            self._rollback(fork, snapshot_len)
+            job_log.append(
+                f"rip-up for {task.net} would disconnect {', '.join(broken)}; rolled back"
+            )
+            return False
         if after_done <= before_done:
             self._rollback(fork, snapshot_len)
             job_log.append(f"rip-up for {task.net} did not improve completion; rolled back")
