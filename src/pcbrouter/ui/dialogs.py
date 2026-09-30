@@ -47,13 +47,15 @@ def show_stage_unavailable(parent: QWidget | None, feature: str, planned_stage: 
 def about_text() -> str:
     return (
         f"<h3>{APP_NAME}</h3>"
-        f"<p>Version <b>{__version__}</b> (Stage {STAGE} of 10)</p>"
-        "<p>Read-only KiCad board inspector with a deterministic geometry and "
-        "design-rule engine — the foundation for AI-assisted PCB autorouting.</p>"
-        "<p><b>The source board file is never modified.</b> Routing changes an in-memory "
-        "working copy; every route is validated by the deterministic geometry engine and "
-        "must be accepted by you. The Internal Geometry Check is the router's own check, "
-        "not KiCad DRC. AI API calls happen only when you send a request.</p>"
+        f"<p>Version <b>{__version__}</b></p>"
+        "<p>KiCad autorouter with a deterministic geometry and design-rule engine and "
+        "optional AI planning.</p>"
+        "<p><b>Normal routing, preview, proposal and export work on working copies and "
+        "do not modify the source board.</b> Only an explicit expert overwrite replaces "
+        "it, after confirmation and a backup. Every route is validated by the "
+        "deterministic geometry engine and must be accepted by you. The Internal Geometry "
+        "Check is the router's own check, not KiCad DRC. AI API calls happen only when "
+        "you send a request.</p>"
         f"<p>Python {platform.python_version()} · Qt {qVersion()} · PySide6 {pyside_version}"
         f"<br>{platform.platform()}</p>"
     )

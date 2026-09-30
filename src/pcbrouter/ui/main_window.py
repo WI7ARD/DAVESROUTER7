@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pcbrouter import APP_NAME, STAGE, __version__
+from pcbrouter import APP_NAME, __version__
 from pcbrouter.ai.service import AIService, runtime_config_from_settings
 from pcbrouter.ai.session import AISession
 from pcbrouter.commands import CloseBoardCommand, CommandBus, OpenBoardCommand
@@ -358,12 +358,6 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_fit)
         tb.addAction(self.act_grid)
         tb.addSeparator()
-        stage = QLabel(
-            f"  Stage {STAGE} · source file read-only · routing on a working copy · "
-            "every route validated and accepted by you  "
-        )
-        stage.setProperty("role", "muted")
-        tb.addWidget(stage)
         self.addToolBar(tb)
         self.toolbar_main = tb
 

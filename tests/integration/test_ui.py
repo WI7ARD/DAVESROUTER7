@@ -517,8 +517,9 @@ def test_settings_dialog(qtbot: QtBot, window: MainWindow) -> None:
 
 def test_about_and_compute_info_text(window: MainWindow) -> None:
     about = dialogs.about_text()
-    assert __version__ in about and "source board file is never modified" in about
-    assert "not KiCad DRC" in about and "working copy" in about
+    assert __version__ in about and "do not modify the source board" in about
+    assert "Stage" not in about  # no development-stage labels in the product
+    assert "not KiCad DRC" in about and "working copies" in about
     info = dialogs.compute_info_text(window.compute)
     assert "Active compute backend: CPU" in info
     assert "Threads:" in info and "GPU candidate" in info and "Array library:" in info
