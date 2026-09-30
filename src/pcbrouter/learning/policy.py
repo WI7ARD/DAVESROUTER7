@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -183,11 +183,10 @@ def attempt_context(base: str, attempt: int) -> str:
     return f"{base}|{'first' if attempt == 0 else 'retry'}"
 
 
-def learn(records: Iterable[dict[str, Any]]) -> ThompsonPolicy:
-    """Per (context, arm) over *attempts*: every attempt is a trial for the arm it
-    used; only the last attempt of a routed net is a win. Records without arms
-    (fixed-policy runs) teach nothing about arms and are skipped."""
-    stats: dict[str, dict[str, ArmStats]] = {}
+def attempts(records: Iterable[dict[str, Any]]) -> Iterator[tuple[str, str, float]]:
+    """``(context, arm, reward)`` for every logged attempt. Reward is 1 only for the
+    last attempt of a routed net; earlier attempts of the net failed. Records
+    without arms (fixed-policy runs) teach nothing about arms and are skipped."""
     for r in records:
         out, nf = r.get("outcome") or {}, r.get("net_f") or {}
         arms = out.get("arms") or []
@@ -201,9 +200,17 @@ def learn(records: Iterable[dict[str, Any]]) -> ThompsonPolicy:
         )
         routed = out.get("status") == "SUCCESS"
         for i, arm in enumerate(arms):
-            st = stats.setdefault(attempt_context(base, i), {}).setdefault(arm, ArmStats())
-            st.trials += 1
-            st.wins += 1.0 if routed and i == len(arms) - 1 else 0.0
+            yield attempt_context(base, i), arm, 1.0 if routed and i == len(arms) - 1 else 0.0
+
+
+def learn(records: Iterable[dict[str, Any]]) -> ThompsonPolicy:
+    """Per (context, arm) over attempts: every attempt is a trial for its arm and
+    a win when it routed the net (see :func:`attempts`)."""
+    stats: dict[str, dict[str, ArmStats]] = {}
+    for ctx, arm, won in attempts(records):
+        st = stats.setdefault(ctx, {}).setdefault(arm, ArmStats())
+        st.trials += 1
+        st.wins += won
     return ThompsonPolicy(stats)
 
 

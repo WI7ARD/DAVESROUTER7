@@ -11,6 +11,17 @@
 - Turn it off in Settings ▸ Routing, or with `--no-experience` for one CLI run.
   It is the data the next level learns search settings from.
 
+**Learning, level 2: search-variant policies and a trainer** (`docs/LEARNING.md`)
+- Per-net search variants ("arms": preset, no coarse-to-fine, finer grid,
+  greedier, fewer vias) chosen by a policy: `fixed` (default), `random:SEED`
+  for exploration, or a trained `policy.json`. The validator still checks
+  every route. The log records which arm each attempt used.
+- `tools/train_policy.py` (`python -m pcbrouter.learning.trainer`) trains a
+  frozen policy from exploration records. It splits by board, reports a
+  replay estimate on held-out boards against the preset with a 95 % interval,
+  and prints the cost per arm.
+- Real100 takes `--policy`. The app does not load learned policies yet.
+
 **Routing (Real100 tuning round 1: 1,539 → 1,755 nets on the 41 routable boards)**
 - The search grid demands exactly the clearance the validator enforces. This
   includes the "possibly stricter" bound of unsupported custom rules, whose

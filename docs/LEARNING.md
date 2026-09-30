@@ -35,27 +35,74 @@ Real100 runs write to `benchmarks/real100/work/experience/` (gitignored)
 unless `--no-experience` is given. This is the offline training and
 evaluation set: about 3,900 nets per standard run.
 
-## Level 2 — contextual bandit over search settings (next)
+## Level 2 — contextual bandit over search settings (implemented; being evaluated)
 
-- **Arms:** a handful of pre-validated per-net search variants. For example:
-  - the current preset;
-  - no coarse-to-fine;
-  - a finer grid for fine-pitch escapes;
-  - a higher via cost;
-  - a heuristic weight of 1.2.
+- **Arms** (`pcbrouter.learning.policy.ARMS`): per-net search variants that only
+  change *how* the router searches, never the rules:
 
-  Each is already safe on its own; the validator gates everything.
-- **Context:** a coarse bucket of net features (kind × pad count × escape options ×
-  layer count).
-- **Reward:** routed within its time slice, minus a small cost for vias and
-  time.
-- **Policy:** Thompson sampling per bucket, trained offline on the Real100
-  log, then updated online from the user's own log.
-- **Guard rails:**
-  - a *frozen* switch for benchmarks and for deterministic, repeatable runs;
-  - the policy only reorders among safe arms;
-  - accepted only if `tools/real100_compare.py` shows no regression against
-    the fixed router (same rules as `.claude/skills/real100-tune`).
+  | Arm | Change |
+  |---|---|
+  | `preset` | the mode's normal settings |
+  | `no_coarse` | no coarse-to-fine pre-search |
+  | `finer_grid` | half the grid pitch (not below 0.05 mm) |
+  | `greedier` | heuristic weight × 1.25 (at least 1.25) |
+  | `fewer_vias` | minimise vias |
+
+  The exact validator still checks every route, so an arm can make routing
+  slower or less complete, never illegal.
+- **Context:** a coarse bucket of kind × pads × escape options × copper layers,
+  plus first attempt vs retry (retries get a bigger time slice, so they are
+  learned separately).
+- **Reward:** 1 when the attempt routed the net, else 0. Arm costs (seconds and
+  expanded nodes) are reported alongside, not yet part of the reward.
+- **Policies:** `fixed` (the preset everywhere, the default), `random:SEED`
+  (exploration: every arm on every kind of net), and a trained `policy.json`
+  (frozen Thompson: picks the arm with the best posterior mean, but only when
+  it has at least 8 trials and beats the preset by at least 0.05).
+
+### Training a policy
+
+1. **Collect exploration data** (random arms, so the data is unbiased):
+
+   ```
+   python tools/benchmark_real100.py run --profile standard --policy random:1
+   ```
+
+2. **Train:**
+
+   ```
+   python tools/train_policy.py --log benchmarks/real100/work/experience \
+       --out policy.json --report policy_report.json
+   ```
+
+   The trainer (`pcbrouter.learning.trainer`):
+   - uses only records logged by the random policy (`--policies` to change);
+   - splits by **board** (`--holdout 0.3`, `--seed`), so no board is in both
+     halves;
+   - learns the frozen policy from the training boards;
+   - scores it on the held-out boards by **replay**: with random logging, the
+     attempts whose logged arm matches the policy's choice are an unbiased
+     sample of what the policy would get. The preset is scored the same way,
+     and the difference comes with a 95 % interval and a plain verdict
+     (better / worse / no clear difference);
+   - prints per-context wins/trials and the median cost per arm.
+
+   The policy file holds counts and the training summary only, no board
+   identities.
+3. **Accept it only on Real100:**
+
+   ```
+   python tools/benchmark_real100.py run --profile standard --ids <held-out> --policy policy.json
+   ```
+
+   Compare against the same boards with `--policy fixed` using
+   `tools/real100_compare.py`. No regressions allowed (same rules as
+   `.claude/skills/real100-tune`). The replay number predicts per-attempt
+   success, not board completion under a time budget, so it is a filter, not
+   the acceptance test.
+
+**Guard rails:** frozen policies are deterministic; `fixed` stays the default
+until a trained policy has passed the A/B; the app does not load a policy yet.
 
 ## Level 3 — learned difficulty and ordering (later)
 
