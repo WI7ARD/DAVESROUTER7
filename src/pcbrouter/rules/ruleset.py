@@ -22,7 +22,7 @@ from pcbrouter.domain.board import Board
 from pcbrouter.domain.layer import BACK_COPPER, FRONT_COPPER
 from pcbrouter.domain.rules import DesignRules
 from pcbrouter.kicad.rule_adapter import CustomRuleSpec, ProjectRuleData
-from pcbrouter.rules.conditions import Condition, ConditionError, parse_condition
+from pcbrouter.rules.conditions import Condition, ConditionError, parse_condition, parse_partial
 from pcbrouter.rules.model import (
     CRITICAL_CONSTRAINTS,
     KNOWN_NONCRITICAL,
@@ -148,11 +148,15 @@ def _compile(
         if c.problems:
             reasons.extend(c.problems)
     condition: Condition | None = None
+    partial: Condition | None = None
     if spec.condition:
         try:
             condition = parse_condition(spec.condition)
         except ConditionError as exc:
             reasons.append(f"condition not supported ({exc})")
+            partial = parse_partial(spec.condition)
+        else:
+            partial = condition
     layers, layer_problem = _layer_selector(spec.layer, copper)
     if layer_problem:
         reasons.append(layer_problem)
@@ -169,6 +173,7 @@ def _compile(
             disallow_items=tuple(
                 i for c in spec.constraints if c.kind == "disallow" for i in c.items
             ),
+            partial_condition=partial,
         )
     constraints = tuple(Constraint(c.kind, c.min, c.opt, c.max, c.items) for c in spec.constraints)
     return CompiledRule(spec.name, constraints, condition, layers, order, location)

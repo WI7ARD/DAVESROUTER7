@@ -59,6 +59,14 @@ python tools/real100_compare.py benchmarks/real100/work/runs/<speed>.jsonl bench
 `smoke` (12 boards, Speed, 45 s) is a quick check after a small change. It is not
 enough for a tuning decision.
 
+For tuning, run only the boards that route: pass `--ids` with the boards whose
+baseline was neither `NOTHING_TO_ROUTE` nor a fast `RULE_UNKNOWN` (41 of 100 at
+the time of writing). The rest cannot change.
+
+To stop a run, use `pkill -f '[b]enchmark_real100'` and then
+`pkill -f '[r]eal100 worker'`. The bracket stops `pkill` from matching, and
+killing, its own shell.
+
 ## 2. Classify every failure
 
 The harness records `failure_reasons` and `failed_examples` per board. Bucket them
@@ -139,6 +147,30 @@ accept one, name it in the commit message.
 
 ## Lessons so far
 
+- **The grid must demand exactly what the validator enforces.** Most
+  `VALIDATION` failures come from the grid and the validator disagreeing.
+  Find the rule value one side uses and the other does not:
+  - `possibly_stricter` bounds from unsupported custom rules
+    (`routing.occupancy.enforced_clearance`): K022, K037.
+  - A missing copper-to-edge clearance, which makes every track RULE_UNKNOWN.
+    `request.normalise` now refuses up front, like an unknown minimum width:
+    K059 took 176 s before.
+- **A rule that cannot apply should not constrain.** Unsupported DRU conditions
+  (`insideArea`, `insideCourtyard`, `A.Name`, …) are parsed partially and
+  evaluated three-valued (`Condition.may_match`). `A.NetClass == 'HV' &&
+  A.insideArea(...)` no longer puts a 0.4 mm clearance on every net of K022.
+  Unknown parts are never assumed false.
+- **Do not refuse a whole net for an optional feature.** K092's net class via
+  (0.4 mm drill) is below its own board minimum (0.508 mm). All 117 nets were
+  `INVALID_REQUEST`; now they route without vias, with a note. A via the caller
+  asks for explicitly is still refused.
+- **Harness fairness matters.** Harness 1.0 gave the router 175 s regardless of
+  load time; boards that load in 20 s hit the hard kill. Harness 1.1 routes in
+  0.9 × (budget − load).
+- **Bucket before tuning.** In baseline-B the biggest bucket was `TIMEOUT`
+  (budget-limited large boards, 1,545 nets). `NO_PATH`, `VALIDATION` and
+  `INVALID_REQUEST` were each 5–10× smaller, but they were bugs, so they were
+  fixed first.
 - **Speed's fine-grid retry pays off only for small failures.** Retrying every proven
   NO_PATH on the 0.1 mm grid cost 13 nets on a 209-net board. `REFINE_MAX_NODES`
   limits it to boxed-in pads.

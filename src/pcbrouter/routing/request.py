@@ -16,6 +16,7 @@ from enum import Enum
 from pcbrouter.board_engine import BoardEngine
 from pcbrouter.domain.geometry import BoundingBox
 from pcbrouter.domain.units import Nm, format_mm
+from pcbrouter.geometry.board import RegionStatus
 from pcbrouter.routing.cost.model import DEFAULT_COST_MODEL, CostModel
 
 DEFAULT_GRID_NM: Nm = 100_000
@@ -219,6 +220,19 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
                 "choice; a Workbench width alone is not verifiable without a minimum)"
             )
         )
+    if engine.config.conservative and geo.region.status is RegionStatus.KNOWN:
+        from pcbrouter.rules.model import ItemType
+
+        if resolver.resolve_edge_clearance(net, ItemType.TRACK).value is None:
+            # The validator reports every track as RULE_UNKNOWN without an edge
+            # clearance (conservative: illegal), so any search is futile. Measured
+            # on a KiCad QA board: 29 nets x (search + 6 repairs) = 176 s, all
+            # reported as VALIDATION failures instead of the real reason.
+            raise RuleUnknownError(
+                f"no rule states the copper-to-board-edge clearance for {net} (set "
+                "'Copper to edge clearance' in KiCad Board Setup > Constraints, or turn "
+                "conservative rule handling off in Settings as an explicit expert choice)"
+            )
     hard_min = max((v.value for v in minimum if v.value is not None), default=0)
     if request.preferred_width is not None:
         width = request.preferred_width
@@ -247,14 +261,24 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
     via_source = via.diameter.source.describe()
     if request.via_diameter is not None:
         via_source = "request"
-    for value, rule, label in (
-        (dia, via.min_diameter.value, "via diameter"),
-        (drill, via.min_drill.value, "via drill"),
+    for value, rule, label, explicit in (
+        (dia, via.min_diameter.value, "via diameter", request.via_diameter is not None),
+        (drill, via.min_drill.value, "via drill", request.via_drill is not None),
     ):
         if value is not None and rule is not None and value < rule:
-            raise RouteRequestError(
-                f"{label} {format_mm(value)} is below the {format_mm(rule)} minimum"
+            if explicit:  # the caller asked for it: refuse, never adjust silently
+                raise RouteRequestError(
+                    f"{label} {format_mm(value)} is below the {format_mm(rule)} minimum"
+                )
+            # The board's own net class states a via its board minimum forbids.
+            # No legal via exists without guessing a size, but the net can still
+            # route without vias (measured on a KiCad demo: every net was refused
+            # before, although most need no via).
+            notes.append(
+                f"{label} {format_mm(value)} from the rules is below the "
+                f"{format_mm(rule)} minimum: routing without vias"
             )
+            dia = drill = None
     if dia is None or drill is None:
         notes.append("via size unknown (no rule): routing without vias")
         dia = drill = None

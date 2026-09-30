@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from pcbrouter.domain.units import Nm, format_mm
 
@@ -187,6 +188,9 @@ class UnsupportedRule:
     #: (constraint kind, min, max) as far as they could be read (None = unreadable).
     limits: tuple[tuple[str, Nm | None, Nm | None], ...] = ()
     disallow_items: tuple[str, ...] = ()
+    #: the condition read with unsupported parts as unknown (None: no condition,
+    #: or unreadable); lets checks skip pairs the rule can never apply to
+    partial_condition: Any = None
 
     def min_for(self, *kinds: str) -> Nm | None:
         """Largest minimum this rule might impose for ``kinds`` (UNBOUNDED if a

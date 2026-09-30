@@ -42,7 +42,7 @@ from pcbrouter.geometry.raster import (
 )
 from pcbrouter.geometry.shapes import Shape
 from pcbrouter.routing.collision import item_type_of
-from pcbrouter.rules.model import ItemType
+from pcbrouter.rules.model import UNBOUNDED, ItemType, ResolvedValue
 from pcbrouter.rules.resolver import RuleResolver
 
 log = logging.getLogger(__name__)
@@ -205,6 +205,22 @@ class _Rasterizer:
             sub[hit & (sub <= np.uint8(overwrite_below))] = np.uint8(state)
 
 
+def enforced_clearance(resolver: RuleResolver, req: ResolvedValue) -> Nm | None:
+    """The clearance the exact validator will actually demand for ``req``.
+
+    With conservative rule handling a *possibly stricter* bound from an unsupported
+    critical rule is enforced too (a smaller gap is RULE_UNKNOWN, which is illegal).
+    Inflating the grid by less made the search offer paths the validator then
+    refused, repair after repair, until the net failed with VALIDATION (measured on
+    a KiCad QA board whose custom rules use ``insideCourtyard()``). An unbounded
+    bound cannot be rasterised and is left to the validator."""
+    value = req.value
+    bound = req.possibly_stricter
+    if resolver.conservative and bound is not None and bound < UNBOUNDED:
+        return bound if value is None else max(value, bound)
+    return value
+
+
 def build_occupancy(
     geo: BoardGeometry,
     resolver: RuleResolver,
@@ -249,7 +265,7 @@ def build_occupancy(
         if edge_req.value is None:
             complete = False
             notes.append("copper-to-edge clearance unknown: edge band = track half-width only")
-        reach = r_track + (edge_req.value or 0) + seg_margin
+        reach = r_track + (enforced_clearance(resolver, edge_req) or 0) + seg_margin
         for edge in geo.edges.values():
             raster.mark(edge.shape, reach, CellState.EDGE)
     else:
@@ -266,13 +282,14 @@ def build_occupancy(
 
     # Mechanical holes (and foreign holes on layers without their copper).
     hole_req = resolver.resolve_hole_clearance(net, item, layer)
+    hole_clr = enforced_clearance(resolver, hole_req) or 0
     for h in geo.holes.values():
         owner = geo.copper.get(h.owner_uid) if h.owner_uid else None
         if owner is not None and (owner.net == net or layer in owner.layers):
             continue
         if hole_req.value is None:
             complete = False
-        raster.mark(h.shape, r_track + (hole_req.value or 0) + seg_margin, CellState.BLOCKED)
+        raster.mark(h.shape, r_track + hole_clr + seg_margin, CellState.BLOCKED)
 
     # Copper. Own-net shapes are marked in a second pass so they win ties
     # against foreign clearance bands (escape sources stay passable) while
@@ -291,8 +308,9 @@ def build_occupancy(
         )  # fmt: skip
         if req.value is None:
             unknown_pairs += 1
+        clr = enforced_clearance(resolver, req) or 0
         for s in obj.shapes:
-            raster.mark(s, r_track + (req.value or 0) + seg_margin, CellState.FOREIGN_NET)
+            raster.mark(s, r_track + clr + seg_margin, CellState.FOREIGN_NET)
     # The overwrite lets a TRACK centreline leave its own pad through a foreign
     # clearance band (escape). A VIA must never get it: its radius is the reach
     # here, so every cell within one via radius of an own pad became "legal" for a

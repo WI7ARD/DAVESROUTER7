@@ -123,12 +123,23 @@ class RuleResolver:
             )
         return value
 
-    def _with_unsupported(self, value: ResolvedValue, *kinds: str) -> ResolvedValue:
-        """Attach a possibly-stricter bound from unsupported critical rules."""
+    def _with_unsupported(
+        self,
+        value: ResolvedValue,
+        *kinds: str,
+        a: ItemFacts | None = None,
+        b: ItemFacts | None = None,
+    ) -> ResolvedValue:
+        """Attach a possibly-stricter bound from unsupported critical rules. A rule
+        whose condition is definitely false for (a, b) is skipped: its supported
+        parts already rule it out (three-valued evaluation, unknown = maybe)."""
         bound: Nm | None = None
         names: list[str] = []
         for rule in self.ruleset.unsupported:
             if not rule.critical:
+                continue
+            cond = rule.partial_condition
+            if a is not None and cond is not None and not cond.may_match(a, b):
                 continue
             lo = rule.min_for(*kinds)
             if lo is None:
@@ -315,7 +326,7 @@ class RuleResolver:
                 RuleSource(RuleSourceKind.USER_OVERRIDE, "board default clearance"),
                 notes=("explicit user rule (no source rule states a clearance)",),
             )
-        value = self._with_unsupported(value, "clearance", "physical_clearance")
+        value = self._with_unsupported(value, "clearance", "physical_clearance", a=a, b=b)
         self._cache[key] = value
         return value
 
@@ -336,7 +347,9 @@ class RuleResolver:
             else unknown("no copper-to-hole clearance stated")
         )
         value = self._floor(value, self._board_min("min_hole_clearance"))
-        return self._with_unsupported(value, "hole_clearance", "physical_hole_clearance")
+        return self._with_unsupported(
+            value, "hole_clearance", "physical_hole_clearance", a=a, b=hole
+        )
 
     def resolve_hole_to_hole(self) -> ResolvedValue:
         value = self._board_min("min_hole_to_hole") or unknown("no hole-to-hole minimum stated")
@@ -358,7 +371,7 @@ class RuleResolver:
             self.overrides.board.edge_clearance,
             RuleSource(RuleSourceKind.USER_OVERRIDE, "board-edge clearance"),
         )
-        return self._with_unsupported(value, "edge_clearance")
+        return self._with_unsupported(value, "edge_clearance", a=a)
 
     # ------------------------------------------------------------ vias
     def resolve_via_rules(self, net: str | None, layer: str | None = None) -> ViaRules:

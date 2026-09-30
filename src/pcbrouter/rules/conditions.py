@@ -15,6 +15,13 @@ Examples: ``A.NetClass == 'HV' || B.NetClass == 'HV'``,
 
 Conditions are parsed into a tiny AST and evaluated against item descriptors — no
 ``eval``, no code execution.
+
+A condition that uses unsupported parts (e.g. ``A.insideArea('X')``) keeps its rule
+*unsupported*, but :func:`parse_partial` still reads it with those parts as
+``Unknown``. Three-valued (Kleene) evaluation then tells when such a rule
+*cannot* apply to a pair of items: ``A.NetClass == 'HV' && A.insideArea('C*')``
+is definitely false for a net outside class HV, whatever the area. Unknown parts
+are never assumed false.
 """
 
 from __future__ import annotations
@@ -93,7 +100,14 @@ class BoolOp:
     right: Node
 
 
-type Node = Compare | Call | Not | BoolOp
+@dataclass(frozen=True, slots=True)
+class Unknown:
+    """An unsupported sub-expression (partial parses only): true or false."""
+
+    text: str
+
+
+type Node = Compare | Call | Not | BoolOp | Unknown
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +118,13 @@ class Condition:
 
     def matches(self, a: ItemFacts, b: ItemFacts | None = None) -> bool:
         return _eval(self.root, a, b)
+
+    def may_match(self, a: ItemFacts, b: ItemFacts | None = None) -> bool:
+        """False only when the condition is definitely false for (a, b) in either
+        order (KiCad tests both); unknown parts count as possibly true."""
+        return _eval3(self.root, a, b) is not False or (
+            b is not None and _eval3(self.root, b, a) is not False
+        )
 
 
 # ------------------------------------------------------------------ parser
@@ -128,10 +149,12 @@ def _tokens(text: str) -> list[tuple[str, str]]:
 
 
 class _Parser:
-    def __init__(self, tokens: list[tuple[str, str]]) -> None:
+    def __init__(self, tokens: list[tuple[str, str]], partial: bool = False) -> None:
         self.t = tokens
         self.i = 0
         self.uses_b = False
+        #: unsupported properties/functions become Unknown instead of an error
+        self.partial = partial
 
     def peek(self) -> tuple[str, str] | None:
         return self.t[self.i] if self.i < len(self.t) else None
@@ -176,14 +199,17 @@ class _Parser:
             self.take("op", ")")
             return node
         left = self.operand()
-        if isinstance(left, Call):
-            return left
         tok = self.peek()
-        if tok is None or tok[1] not in ("==", "!=", "=~"):
+        comparing = tok is not None and tok[1] in ("==", "!=", "=~")
+        if isinstance(left, (Call, Unknown)) and not comparing:
+            return left
+        if not comparing:
             raise ConditionError("only ==, != and =~ comparisons are supported")
         op = self.take()[1]
         right = self.operand()
-        if isinstance(right, Call):
+        if isinstance(left, Unknown) or isinstance(right, Unknown):
+            return Unknown(f"{left} {op} {right}")
+        if isinstance(left, Call) or isinstance(right, Call):
             raise ConditionError("function calls cannot be compared")
         if op == "=~":
             if not isinstance(right, Literal):
@@ -194,7 +220,7 @@ class _Parser:
                 raise ConditionError(f"invalid =~ pattern {right.value!r}: {exc}") from exc
         return Compare(left, op, right)
 
-    def operand(self) -> Prop | Literal | Call:
+    def operand(self) -> Prop | Literal | Call | Unknown:
         tok = self.peek()
         if tok is None:
             raise ConditionError("unexpected end of condition")
@@ -221,9 +247,13 @@ class _Parser:
                         self.take()
                 self.take("op", ")")
                 if name not in SUPPORTED_FUNCTIONS:
+                    if self.partial:
+                        return Unknown(f"{who}.{name}()")
                     raise ConditionError(f"function {who}.{name}() is not supported")
                 return Call(who, name, tuple(args))
             if name not in SUPPORTED_PROPERTIES:
+                if self.partial:
+                    return Unknown(f"{who}.{name}")
                 raise ConditionError(f"property {who}.{name} is not supported")
             return Prop(who, name)
         raise ConditionError(f"unsupported expression {tok[1]!r}")
@@ -232,6 +262,17 @@ class _Parser:
 def parse_condition(text: str) -> Condition:
     parser = _Parser(_tokens(text))
     root = parser.parse()
+    return Condition(text, root, parser.uses_b)
+
+
+def parse_partial(text: str) -> Condition | None:
+    """Parse with unsupported parts as ``Unknown`` (for :meth:`Condition.may_match`);
+    None when even that is impossible (unreadable syntax)."""
+    try:
+        parser = _Parser(_tokens(text), partial=True)
+        root = parser.parse()
+    except ConditionError:
+        return None
     return Condition(text, root, parser.uses_b)
 
 
@@ -263,6 +304,8 @@ def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
         return _eval(node.left, a, b) or _eval(node.right, a, b)
     if isinstance(node, Not):
         return not _eval(node.operand, a, b)
+    if isinstance(node, Unknown):  # only partial parses contain it (use may_match)
+        raise ConditionError(f"cannot evaluate unsupported part {node.text}")
     if isinstance(node, Call):
         item = a if node.who == "A" else b
         if item is None:
@@ -276,3 +319,22 @@ def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
         return any(re.search(pat, val) is not None for val in left for pat in right)
     same = _match(left, right)
     return same if node.op == "==" else not same
+
+
+def _eval3(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool | None:
+    """Kleene three-valued evaluation: None = unknown."""
+    if isinstance(node, Unknown):
+        return None
+    if isinstance(node, BoolOp):
+        left, right = _eval3(node.left, a, b), _eval3(node.right, a, b)
+        if node.op == "&&":
+            if left is False or right is False:
+                return False
+            return True if (left and right) else None
+        if left is True or right is True:
+            return True
+        return False if (left is False and right is False) else None
+    if isinstance(node, Not):
+        inner = _eval3(node.operand, a, b)
+        return None if inner is None else not inner
+    return _eval(node, a, b)
