@@ -36,7 +36,6 @@ and Project panels. Unknown values show as *unknown*, never invented.
   keeps already-routed nets for review instead of discarding them.
 - Per-net Route Review (candidates, accept/reject) and Routing Jobs batch
   review (accept all/checked, undoable).
-- Optional external **Freerouting** engine integration.
 - Export to a **new** `.kicad_pcb` (gated by checks), with backups and undo.
 
 **Rules first.** Routing needs stated design rules (track widths/clearances

@@ -137,3 +137,18 @@ def test_settings_schema_has_no_secret_fields() -> None:
     for name, kinds in fields.items():
         if "string" in kinds and name != "credential_ref":
             assert not any(word in name for word in secretish), name
+
+
+def test_settings_from_versions_with_freerouting_still_load(tmp_path: Path) -> None:
+    """1.1.0 stored Freerouting fields; the engine was removed in 1.1.1."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"routing": {"freerouting_path": "C:/fr.exe", "freerouting_passes": 50,
+                                "parallel_workers": 2}}),
+        encoding="utf-8",
+    )  # fmt: skip
+    store = SettingsStore(path)
+    settings = store.load()
+    assert store.last_load_problem is None
+    assert settings.routing.parallel_workers == 2
+    assert not hasattr(settings.routing, "freerouting_path")

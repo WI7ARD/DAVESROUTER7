@@ -97,10 +97,6 @@ def test_setup_dialogs_are_singletons(window: MainWindow) -> None:
     ollama = window._ollama_dialog
     window.open_ollama_setup()
     assert window._ollama_dialog is ollama
-    window.open_freerouting_setup()
-    freerouting = window._freerouting_dialog
-    window.open_freerouting_setup()
-    assert window._freerouting_dialog is freerouting
     first.close()
 
 

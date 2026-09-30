@@ -32,8 +32,6 @@ OPTIONAL = ("openai", "anthropic", "keyring", "tiktoken")
 hiddenimports = collect_submodules("pcbrouter")
 datas = [
     (str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources"),
-    # run by KiCad's own Python as a file (Specctra DSN/SES bridge for Freerouting)
-    (str(SRC / "pcbrouter" / "kicad" / "resources"), "pcbrouter/kicad/resources"),
     # license documents ship at the top level of the installed app (LGPL
     # attribution for Qt/PySide6 plus the app EULA; picked up by the payload
     # scan like everything else, so uninstall removes them too)

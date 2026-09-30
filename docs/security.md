@@ -58,7 +58,7 @@
 Searched for API keys (`sk-`, `x-api-key`, `Authorization:`), `eval`, `exec`,
 `pickle`, `yaml.load`, `shell=True`, `os.system`, `subprocess`, debug prints,
 TODO/FIXME, `NotImplementedError`, active mocks and board-writing code. Findings: only
-obviously fake test keys; `subprocess` in GPU detection, KiCad CLI, Freerouting setup
+obviously fake test keys; `subprocess` in GPU detection, KiCad CLI
 and worker spawn (fixed argument lists, no shell, timeouts); `.exec()` hits are Qt
 dialog calls; file writes are settings (atomic), workspaces/snapshots, user-requested
 AI-session JSON exports (which refuse `.kicad_pcb` targets) and explicit board exports.

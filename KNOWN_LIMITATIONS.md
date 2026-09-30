@@ -8,7 +8,7 @@ Also see `docs/stability.md` ("Known limitations (1.x)").
   - congested areas;
   - partial power nets (GND, +3.3V) that hit the per-net time limit.
 
-  Freerouting (Router ▸ Route Board with Freerouting…) remains the practical option for boards like this. `video` (371 nets) was not re-run.
+  `video` (371 nets) was not re-run.
 - **Parallel runs are not bit-for-bit repeatable.** Results are committed in the order helpers finish, so geometry can differ slightly between runs; every result still passes the exact validator. *Single worker* is deterministic.
   - Parallel routing needs 12+ nets and the CPU backend. Helpers take a few seconds to start (a copy of the board per helper), so small boards don't benefit.
   - Nets whose regions overlap (e.g. board-wide power nets) run one at a time.
@@ -37,4 +37,4 @@ Also see `docs/stability.md` ("Known limitations (1.x)").
 ## Not verified here
 - **Real Intel Iris Xe (dpnp) execution.** No GPU in this container. The GPU path falls back to CPU and says why (`--gpu-check`).
 - **KiCad DRC of exported files.** `kicad-cli` is not installed here. The app's internal check and the reload self-check ran on every export.
-- **Real KiCad 10 opening the exported board, and a real Freerouting run.** These need Davi's machine.
+- **Real KiCad 10 opening the exported board.** This needs Davi's machine.

@@ -13,9 +13,10 @@ What the 1.x line will not break out from under users, scripts, and files.
 
 * `pcbrouter [BOARD]`, `--inspect`, `--check-command JSON`, `--version`,
   `--diagnostics`, `--gpu-check`, `--worker-selftest`, `--forget-api-keys`,
-  `--setup-gpu`, `--setup-ollama [MODEL]`, `--setup-freerouting`,
-  `--freeroute --output OUT` keep their names and JSON shapes. New flags may
-  be added; existing ones keep working.
+  `--setup-gpu`, `--setup-ollama [MODEL]`, `--route` (with `--output`,
+  `--mode`, `--workers`, `--timeout`, `--report`) keep their names and JSON
+  shapes. New flags may be added. (`--setup-freerouting` / `--freeroute` were
+  removed in 1.1.1 together with the Freerouting integration.)
 
 ## Files the app owns (never your KiCad project)
 
@@ -33,7 +34,6 @@ What the 1.x line will not break out from under users, scripts, and files.
     previewable summaries only, never the `.kicad_pcb` file;
   * Keyed profiles refuse plain-HTTP to non-local hosts (keys would travel in
     clear); local loopback HTTP (Ollama-style) and keyless endpoints are allowed;
-  * Freerouting release lookup during Freerouting setup.
 * API keys live in the OS credential store (or session memory); never in
   settings, logs, history, or exports.
 

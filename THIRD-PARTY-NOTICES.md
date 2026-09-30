@@ -18,7 +18,6 @@ Each remains under its own license; this file does not change those terms.
 
 ## Separate programs (never bundled, never modified)
 
-* **Freerouting** (GPL-3.0) — run as an external engine if you install it.
 * **Ollama** and local models — their own licenses; board data sent to a
   *local* Ollama stays on your computer.
 * **KiCad** (GPL-3.0) — optional; used only if installed (DSN/SES, DRC).

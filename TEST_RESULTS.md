@@ -48,4 +48,3 @@ Earlier run of router_basic with the cancel pressed after 0.3 s: cancel 263 ms, 
 - Real Intel Iris Xe / dpnp execution.
 - `kicad-cli` DRC of the exports.
 - KiCad 10 itself opening the exported file.
-- Real Freerouting.

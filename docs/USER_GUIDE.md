@@ -65,7 +65,7 @@ latter only when `kicad-cli` is installed and Settings ▸ Export ▸ Run KiCad 
 * Settings: `%APPDATA%\AI PCB Router\settings.json` (Settings ▸ Restore Defaults resets
   them). Logs: `%LOCALAPPDATA%\AI PCB Router\logs\`.
 
-## Other engines
-Router ▸ Route Board with Freerouting… runs the separate open-source Freerouting
-program when it is installed (Tools ▸ Set Up Freerouting…). Its results pass the same
-checks. See [freerouting.md](freerouting.md).
+## Command line
+`pcbrouter.exe board.kicad_pcb --route` routes without opening the window (same
+rules, presets, parallel helpers and checks); `pcbrouter.exe --help` lists every
+option and the exit codes (0 fully routed, 3 partially routed, 1 error).

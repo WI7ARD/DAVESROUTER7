@@ -18,7 +18,6 @@ Start with the [README](../README.md), then follow your interest:
 
 * [local_ai.md](local_ai.md) — Ollama setup, model guidance, expectations.
 * [ai_evolution.md](ai_evolution.md) — prompt strategies, ratings, benchmark.
-* [freerouting.md](freerouting.md) — external Freerouting engine integration.
 * [windows_installer.md](windows_installer.md) — installer build, install,
   SmartScreen notes, smoke test.
 * [stability.md](stability.md) — 1.x contracts: settings, CLI, files, privacy.

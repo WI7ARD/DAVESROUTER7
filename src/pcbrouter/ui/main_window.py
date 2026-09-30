@@ -156,7 +156,6 @@ class MainWindow(QMainWindow):
         self.act_route_board = self.routing_ui.act_route_board
         self.menu_router.addAction(self.act_route_net)
         self.menu_router.addAction(self.act_route_board)
-        self.menu_router.addAction(self.routing_ui.act_route_freerouting)
         tweak = self.menu_router.addMenu("&Optimize Selected Net")
         for act in self.routing_ui.optimize_actions.values():
             tweak.addAction(act)
@@ -318,13 +317,6 @@ class MainWindow(QMainWindow):
         act_gpu_setup.triggered.connect(self.open_gpu_setup)
         tools.addAction(act_gpu_setup)
         self.act_gpu_setup = act_gpu_setup
-        act_fr_setup = QAction("Set Up &Freerouting…", self)
-        act_fr_setup.setStatusTip(
-            "Find KiCad and Freerouting (the open-source autorouter) and test them"
-        )
-        act_fr_setup.triggered.connect(self.open_freerouting_setup)
-        tools.addAction(act_fr_setup)
-        self.act_freerouting_setup = act_fr_setup
         self.menu_view = view
         self.menu_tools = tools
         ai = mb.addMenu("&AI")
@@ -726,12 +718,6 @@ class MainWindow(QMainWindow):
             return
         self.routing_ui.route_board()
 
-    def _guide_freeroute(self) -> None:
-        if self.bus.context.project.session is None:
-            self.statusBar().showMessage("Open a board first (File ▸ Open Board…).", 6000)
-            return
-        self.routing_ui.route_board_freerouting()
-
     def _guide_export(self) -> None:
         if self.bus.context.project.session is None:
             self.statusBar().showMessage("Open and route a board first.", 6000)
@@ -757,17 +743,6 @@ class MainWindow(QMainWindow):
             dlg = OllamaDialog(self)
             dlg.setModal(False)
             self._ollama_dialog = dlg
-        dlg.show()
-        dlg.raise_()
-
-    def open_freerouting_setup(self) -> None:
-        from pcbrouter.ui.freerouting_dialog import FreeroutingDialog
-
-        dlg = getattr(self, "_freerouting_dialog", None)
-        if dlg is None:
-            dlg = FreeroutingDialog(self)
-            dlg.setModal(False)
-            self._freerouting_dialog = dlg
         dlg.show()
         dlg.raise_()
 

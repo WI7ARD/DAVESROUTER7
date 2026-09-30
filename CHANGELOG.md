@@ -22,6 +22,9 @@
   - each failed net says why and where (coordinates, nodes, time);
   - nets that were never tried say so.
 
+**Removed**
+- The Freerouting integration: menu entries, setup dialog, `--freeroute` / `--setup-freerouting`, and the KiCad Specctra bridge. Old settings files that still contain Freerouting fields load normally.
+
 **Product**
 - **Headless routing:** `pcbrouter board.kicad_pcb --route [--mode speed|accuracy] [--workers N] [--timeout S] [--backend cpu|auto|gpu] [--layers F.Cu,B.Cu] [--grid MM] [--output F] [--report JSON] [--kicad-drc] [--overwrite]`.
   - Exit codes: 0 fully routed, 3 partial (file written), 1 error, 2 usage.

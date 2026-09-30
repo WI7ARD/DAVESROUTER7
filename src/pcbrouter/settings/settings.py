@@ -145,9 +145,6 @@ class RoutingSettings(_Model):
     #: helper processes for parallel board routing (CPU backend only):
     #: -1 = automatic (CPU cores - 1, at most 4), 0 or 1 = off
     parallel_workers: int = Field(default=-1, ge=-1, le=16)
-    #: external Freerouting engine: freerouting.exe (installer build) or a .jar
-    freerouting_path: str | None = None
-    freerouting_passes: int = Field(default=100, ge=1, le=10_000)
 
 
 class GeometrySettings(_Model):

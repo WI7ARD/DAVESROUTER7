@@ -1,4 +1,4 @@
-"""KiCad 10 boards (format 20260206): load, route, export and Freerouting.
+"""KiCad 10 boards (format 20260206): load, route and export.
 
 KiCad 10 references nets by name only (``(net "GND")``, no net-code table) and
 adds optional IPC-4761 via fields. The fixture is generated from the MIT
@@ -18,7 +18,8 @@ from pcbrouter.kicad.rule_adapter import load_project_rules
 from pcbrouter.kicad.writer import ExportError, detect_style, export_board
 from pcbrouter.routing.board_router import BoardRouter, BoardRouterSettings, BoardStatus
 from pcbrouter.routing.working_board import Provenance, WorkingBoard
-from tests.integration.test_freerouting import BOARDS, fake_tools  # noqa: F401 (fixture)
+
+BOARDS = Path(__file__).resolve().parents[1] / "fixtures" / "boards"
 
 KICAD10_VIA = """\t(via
 \t\t(at 28 18)
@@ -99,16 +100,3 @@ def test_newer_formats_are_still_refused() -> None:
     text = to_kicad10((BOARDS / "router_basic.kicad_pcb").read_text(encoding="utf-8"))
     with pytest.raises(ExportError, match="outside the supported export range"):
         detect_style(text.replace("(version 20260206)", "(version 20270101)"))
-
-
-def test_freerouting_on_a_kicad10_board(tmp_path: Path, fake_tools: None) -> None:  # noqa: F811
-    from pcbrouter.app.application import main
-
-    src = kicad10_copy(tmp_path)
-    before = src.read_bytes()
-    out = tmp_path / "k10_fr.kicad_pcb"
-    assert main(["--freeroute", str(src), "--output", str(out), "--passes", "5"]) == 0
-    assert src.read_bytes() == before
-    text = out.read_text(encoding="utf-8")
-    assert "(version 20260206)" in text and re.search(r"\(net \d+", text) is None
-    assert len(load_board(out).board.tracks) > 0
