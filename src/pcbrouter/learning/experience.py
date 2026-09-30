@@ -94,6 +94,12 @@ def settings_features(settings: Any) -> dict[str, Any]:
     }
 
 
+def _bucket(task: Any, bf: dict[str, Any]) -> str:
+    from pcbrouter.learning.policy import task_bucket
+
+    return task_bucket(task, int(bf.get("copper_layers") or 2))
+
+
 def records_from_result(
     result: Any, settings: Any, *, salt: str, source: str = "app"
 ) -> list[dict[str, Any]]:
@@ -127,6 +133,7 @@ def records_from_result(
                     "order": order,
                     "order_frac": _r(order / max(1, len(plan.tasks) - 1)),
                     "paired": task.group is not None,
+                    "bucket": _bucket(task, bf),
                 },
                 "settings": sf,
                 "outcome": {
@@ -139,6 +146,8 @@ def records_from_result(
                     "expanded_nodes": o.expanded_nodes,
                     "route_s": _r(o.route_s),
                     "ripped": bool(o.removed_ids),
+                    "arms": list(getattr(o, "arms", []) or []),
+                    "policy": getattr(getattr(settings, "policy", None), "name", "fixed"),
                 },
             }
         )

@@ -476,6 +476,7 @@ def route_one_board(
     budget_s: float,
     conservative: bool = True,
     experience_dir: Path | None = None,
+    policy: str | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     loaded = load_board(board_path)
@@ -493,6 +494,12 @@ def route_one_board(
     )
     settings = BoardRouterSettings(budget_s=max(0.1, budget_s), base_request=base)
     settings = adjust_board_settings(settings, base, mode)
+    if policy:
+        from dataclasses import replace as _replace
+
+        from pcbrouter.learning.policy import policy_from_spec
+
+        settings = _replace(settings, policy=policy_from_spec(policy))
     pre = wb.engine.connectivity.metrics()
     result = BoardRouter(wb, settings).run()
     if experience_dir is not None:
@@ -583,6 +590,7 @@ def _worker_command(
     budget_s: float,
     conservative: bool,
     experience_dir: Path | None = None,
+    policy: str | None = None,
 ) -> list[str]:
     return [
         sys.executable,
@@ -598,6 +606,7 @@ def _worker_command(
         "--conservative",
         "yes" if conservative else "no",
         *(["--experience", str(experience_dir)] if experience_dir is not None else []),
+        *(["--policy", policy] if policy else []),
     ]
 
 
@@ -612,6 +621,7 @@ def run_corpus(
     max_boards: int | None = None,
     conservative: bool = True,
     experience_dir: Path | None = None,
+    policy: str | None = None,
 ) -> Path:
     default_modes, default_timeout = profile_defaults(profile)
     modes = modes or default_modes
@@ -647,6 +657,7 @@ def run_corpus(
                     "tags": list(spec.tags),
                     "mode": mode.value,
                     "timeout_s": timeout_s,
+                    "policy": policy or "fixed",
                     "timestamp_utc": datetime.now(UTC).isoformat(),
                 }
                 print(
@@ -661,7 +672,12 @@ def run_corpus(
                     }
                 else:
                     cmd = _worker_command(
-                        board, mode, max(1.0, timeout_s - 5.0), conservative, experience_dir
+                        board,
+                        mode,
+                        max(1.0, timeout_s - 5.0),
+                        conservative,
+                        experience_dir,
+                        policy,
                     )
                     t0 = time.perf_counter()
                     try:
@@ -923,6 +939,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--budget", type=float, required=True)
     w.add_argument("--conservative", choices=("yes", "no"), default="yes")
     w.add_argument("--experience", type=Path, default=None)
+    w.add_argument("--policy", default=None)
     return p
 
 
@@ -936,6 +953,7 @@ def main(argv: list[str] | None = None) -> int:
                 budget_s=args.budget,
                 conservative=args.conservative == "yes",
                 experience_dir=args.experience,
+                policy=args.policy,
             )
             print(json.dumps(payload, sort_keys=True))
             return 0
@@ -978,6 +996,7 @@ def main(argv: list[str] | None = None) -> int:
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
             experience_dir=None if args.no_experience else workdir / "experience",
+            policy=getattr(args, "policy", None),
         )
         print(result)
         return 0
@@ -1004,6 +1023,7 @@ def main(argv: list[str] | None = None) -> int:
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
             experience_dir=None if args.no_experience else workdir / "experience",
+            policy=getattr(args, "policy", None),
         )
         csv_path, md_path = generate_report(result)
         print(result)

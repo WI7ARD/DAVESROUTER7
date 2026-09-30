@@ -189,6 +189,9 @@ class BoardRouterSettings:
     optimize: bool = False
     priorities: dict[str, int] = field(default_factory=dict)
     groups: tuple[RouteGroup, ...] = ()
+    #: learning level 2: picks a per-net search variant ("arm"); None = the
+    #: preset for every net (see pcbrouter.learning.policy)
+    policy: Any = None
     #: explicit differential pairs (positive, negative) in addition to the ones
     #: detected by name; a pair is routed consecutively with a soft corridor
     pairs: tuple[tuple[str, str], ...] = ()
@@ -256,6 +259,8 @@ class NetOutcome:
     attempts: int = 0
     expanded_nodes: int = 0
     route_s: float = 0.0
+    #: the search variant used by each attempt (learning policy), in order
+    arms: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -906,6 +911,18 @@ class BoardRouter:
 
     def _task_request(self, fork: WorkingBoard, task: RouteTask, pass_no: int) -> RouteRequest:
         req = self._request(task, pass_no)
+        policy = self.settings.policy
+        if policy is not None:
+            from pcbrouter.learning.policy import attempt_context, task_bucket
+
+            o = self._outcomes.get(task.net)
+            attempt = len(o.arms) if o is not None else 0
+            layers = len(fork.engine.geometry.copper_layers)
+            ctx = attempt_context(task_bucket(task, layers), attempt)
+            arm = policy.choose(ctx, task.net, attempt)
+            req = policy.apply(arm, req)
+            if o is not None:
+                o.arms.append(arm)
         if task.kind is TaskKind.DIFF_PAIR and task.group:
             from pcbrouter.routing.diffpair import pair_request
 
