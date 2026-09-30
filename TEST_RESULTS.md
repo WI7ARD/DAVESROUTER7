@@ -1,6 +1,27 @@
-# Test results (executed 2026-09-29, this container: 4 CPU cores, no GPU, Xvfb)
+# Test results
 
 Only results that were actually run are listed.
+
+## v1.1.1 (executed 2026-09-30; container: 4 CPU cores, no GPU, Xvfb)
+
+**Linux, full suite** (`pytest -q`): 736 passed, 2 skipped at the Freerouting removal (3a555f4), plus the tests added since. The skips are the Wine installer build and a real-GPU route. The final count for the tagged commit is in the release report.
+
+**Real SYCL runtime** (dpctl 0.22 / dpnp 0.20 with Intel's OpenCL CPU runtime; a separate venv): the GPU tests run instead of skipping. They check that:
+- the fused kernel is bit-identical to NumPy (1, 2 and 4 layers, random and real router grids);
+- the staged diagnostic passes all 10 stages on `opencl:cpu` and stops at `gpu_selected` for `gpu`;
+- the whole `router_dense` board routes in GPU mode with 0 fallbacks and 0 check errors.
+
+**Windows CI, run 87 at 55908d8:**
+- the test suite passed;
+- the installer (355.6 MB) was built;
+- the smoke test passed against the **installed** app: version, docs installed, CLI inspect, worker process, bundled dpnp, and the staged GPU diagnostic in a child of the frozen exe (verdict "stopped at gpu_selected: no GPU device", as expected on a GPU-less runner);
+- product routing with the installed `pcbrouter.exe`: tiny 5/5; medium_2layer 34/34; modular_4layer 60/60 with 3 parallel helpers (60 results, 0 conflicts, 33 s); medium_4layer Speed 40/44;
+- the impossible board fails with exit 1 and names the net; a malformed file gives a message and writes nothing; every source board is unchanged; outputs reopen and pass the internal check;
+- the GUI starts with a corrupt settings file and the file is set aside; uninstall is refused while running and is clean afterwards.
+
+**Benchmarks:** see docs/BENCHMARKS.md. **Profile:** see docs/PROFILE.md.
+
+## Stabilization pass (executed 2026-09-29)
 
 ## Automated suite
 `.venv/bin/python -m pytest -q` on the router commit (963a98a, before the merge of 1.1.0):
