@@ -137,14 +137,19 @@ class BoardJobPanel(QWidget):
             name.setFlags(name.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             name.setCheckState(Qt.CheckState.Checked if ok else Qt.CheckState.Unchecked)
             self.table.setItem(row, 0, name)
-            # status in words (not only colour)
+            # status in words (not only colour); nets whose copper had to move
+            # for this one are accepted with it (dependency-safe acceptance)
+            extra = sorted(result.required_extra_nets({net}))
+            needs = (
+                f"Accepting it also accepts {', '.join(extra)} (moved for it). " if extra else ""
+            )
             vals = (
                 o.status.value,
                 o.reason.value if o.reason else "",
                 f"{o.length_nm / 1e6:.2f}",
                 str(o.vias),
                 str(o.passes),
-                o.message,
+                needs + o.message,
             )
             for col, text in enumerate(vals, start=1):
                 self.table.setItem(row, col, QTableWidgetItem(text))
