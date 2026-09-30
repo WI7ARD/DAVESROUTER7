@@ -100,6 +100,9 @@ class HybridSearch:
         self.on_select: Callable[[str, str], None] | None = None
         self.last_selection: tuple[str, str] | None = None
         self._device_fn: Callable[..., SearchOutcome] | None = None
+        #: set once the device search cannot be created (e.g. the driver cannot
+        #: build the kernel): every later search goes straight to the CPU
+        self._device_error: str | None = None
 
     def _selected(self, backend: str, reason: str) -> None:
         sel = (backend, reason)
@@ -115,6 +118,8 @@ class HybridSearch:
         gpu = self.gpu
         if gpu is None or not gpu.available:
             return "GPU backend unavailable"
+        if self._device_error is not None:
+            return self._device_error
         if problem.max_vias is not None and problem.vias_enabled:
             return "via limit requires the CPU A*"
         cells = problem.grid.n
@@ -143,7 +148,11 @@ class HybridSearch:
             self._selected("gpu", f"{self.mode.value.upper()} mode, grid fits on the device")
             try:
                 if self._device_fn is None:
-                    self._device_fn = device_search(self.gpu)
+                    try:
+                        self._device_fn = device_search(self.gpu)
+                    except Exception as exc:
+                        self._device_error = f"GPU kernel unavailable: {exc}"[:300]
+                        raise
                 out = self._device_fn(
                     problem, node_limit=node_limit, time_limit_s=time_limit_s, cancel=cancel
                 )

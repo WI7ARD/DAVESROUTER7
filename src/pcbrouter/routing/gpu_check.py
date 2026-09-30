@@ -87,10 +87,17 @@ def run_gpu_check(
         device = gpu.device_info().name
     except Exception:
         device = ", ".join(gate.devices) or "GPU"
-    result = GpuCheckResult("RAN", device=device)
     from pcbrouter.routing.backend import device_search
 
-    run_on_device = device_search(gpu)
+    try:
+        run_on_device = device_search(gpu)
+    except Exception as exc:  # e.g. the driver cannot build the kernel: say so, never crash
+        return GpuCheckResult(
+            "ERROR",
+            f"{exc} (the GPU is not used; routing runs on the CPU)",
+            device=device,
+        )
+    result = GpuCheckResult("RAN", device=device)
 
     def gpu_fn(problem: Any, **kw: Any) -> Any:
         kw.pop("record_explored", None)

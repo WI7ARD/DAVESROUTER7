@@ -97,22 +97,67 @@ def _usm(a: Any) -> Any:
     return a.get_array().usm_data
 
 
+class KernelBuildError(RuntimeError):
+    """No backend of the selected GPU could build the routing kernel."""
+
+
+def _backend_name(device: Any) -> str:
+    return str(getattr(device, "backend", "")).split(".")[-1].lower()
+
+
+def _opencl_twin(dpctl: Any, device: Any) -> Any | None:
+    """The OpenCL device of the same GPU (same name when there are several).
+
+    dpctl builds OpenCL C source only for OpenCL queues: on a Level Zero device
+    ``create_program_from_source`` raises SyclProgramCompilationError (seen on an
+    Intel Iris Xe, where Level Zero is the preferred GPU backend)."""
+    try:
+        gpus = list(dpctl.get_devices(backend="opencl", device_type="gpu"))
+    except Exception:
+        return None
+    same = [d for d in gpus if getattr(d, "name", None) == getattr(device, "name", None)]
+    return (same or gpus or [None])[0]
+
+
 class SyclRelax:
-    """Owns an in-order queue on one device and the built kernel."""
+    """Owns an in-order queue on one device and the built kernel.
+
+    The kernel is built for ``device``; if that backend cannot build OpenCL C
+    (Level Zero), the same GPU's OpenCL device is used instead. ``self.device`` is
+    the device that really runs the search."""
 
     def __init__(self, device: Any) -> None:
         import dpctl
         import dpctl.program as dprog
 
-        self.device = device
-        self.queue = dpctl.SyclQueue(device, property="in_order")
-        key = device.filter_string
-        with _LOCK:
-            prog = _PROGRAMS.get(key)
-            if prog is None:
-                prog = dprog.create_program_from_source(self.queue, KERNEL_SRC)
-                _PROGRAMS[key] = prog
-        self.kernel = prog.get_sycl_kernel("relax_sweep")
+        candidates = [device]
+        if _backend_name(device) != "opencl":
+            twin = _opencl_twin(dpctl, device)
+            if twin is not None:
+                candidates.append(twin)
+        tried: list[str] = []
+        for dev in candidates:
+            key = dev.filter_string
+            try:
+                queue = dpctl.SyclQueue(dev, property="in_order")
+                with _LOCK:
+                    prog = _PROGRAMS.get(key)
+                    if prog is None:
+                        prog = dprog.create_program_from_source(queue, KERNEL_SRC)
+                        _PROGRAMS[key] = prog
+                kernel = prog.get_sycl_kernel("relax_sweep")
+            except Exception as exc:  # this backend cannot build/run it: next one
+                tried.append(f"{key}: {type(exc).__name__}: {exc}".rstrip(": "))
+                continue
+            self.device, self.queue, self.kernel = dev, queue, kernel
+            self.backend = _backend_name(dev)
+            return
+        raise KernelBuildError(
+            "the GPU driver could not build the routing kernel ("
+            + "; ".join(tried)
+            + "). Update the Intel graphics driver (it provides the OpenCL GPU "
+            "runtime); routing stays on the CPU."
+        )
 
     def solve(
         self,
@@ -209,7 +254,7 @@ def relax_selftest(queue: Any) -> tuple[bool, str]:
     st_dev, dev, n_dev = eng.solve(g, dist0, targets, deadline=far)
     same = st_ref is st_dev and n_ref == n_dev and np.array_equal(ref, dev)
     return same, (
-        f"kernel built in {build_s * 1000:.0f} ms; {n_dev} sweeps; "
+        f"kernel built in {build_s * 1000:.0f} ms on {eng.device.filter_string}; {n_dev} sweeps; "
         + ("distance field identical to NumPy" if same else
            f"MISMATCH: {st_ref.value}/{st_dev.value}, sweeps {n_ref}/{n_dev}, "
            f"{int((ref != dev).sum())} cells differ")
