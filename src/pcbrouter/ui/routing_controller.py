@@ -397,6 +397,14 @@ class RoutingController(QObject):
         self.route_jobs.cancel()
 
     # ------------------------------------------------------------ board routing
+    def _policy_path(self) -> str | None:
+        if not getattr(self.w.settings.routing, "use_learned_policy", False):
+            return None
+        from pcbrouter.learning.policy import builtin_policy_path
+
+        path = builtin_policy_path()
+        return str(path) if path is not None else None
+
     def route_board(self, settings: BoardRouterSettings | None = None) -> bool:
         working = self.project.working
         if working is None:
@@ -408,6 +416,7 @@ class RoutingController(QObject):
             mode=self._mode(),
             timeout_s=plan_settings.budget_s + BOARD_TIMEOUT_GRACE_S,
             record_experience=bool(getattr(self.w.settings.routing, "record_experience", False)),
+            policy_path=self._policy_path(),
         )
         if not self._submit(job, self._board_job_done):
             return False

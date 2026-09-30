@@ -39,6 +39,9 @@ log = logging.getLogger(__name__)
 #: policy decision and board-level job results; readers accept 1 and 2
 SCHEMA = "pcbrouter-experience/2"
 MAX_BYTES = 50 * 2**20
+#: stratified retention: records kept per stratum (mode + context bucket) when
+#: the oldest file is rotated out, so rare kinds of nets are not starved first
+KEEP_PER_STRATUM = 100
 _LOCK = threading.Lock()
 
 
@@ -96,10 +99,10 @@ def settings_features(settings: Any) -> dict[str, Any]:
     }
 
 
-def _bucket(task: Any, layers: int) -> str:
+def _bucket(task: Any, layers: int, demand: float | None) -> str:
     from pcbrouter.learning.policy import task_bucket
 
-    return task_bucket(task, layers)
+    return task_bucket(task, layers, demand)
 
 
 def _profile(result: Any) -> dict[str, float]:
@@ -126,6 +129,9 @@ def records_from_result(
     plan = result.plan
     board = result.base_board
     bid = board_id(board.fingerprint, salt)
+    from pcbrouter.learning.policy import router_signature
+
+    router = router_signature()
     bf = board_features(board)
     bp = _profile(result)
     layers = int(bp.get("signal_layers") or bf.get("copper_layers") or 2)
@@ -158,6 +164,7 @@ def records_from_result(
             {
                 "schema": SCHEMA,
                 "app": pcbrouter.__version__,
+                "router": router,
                 "source": source,
                 "board": bid,
                 "board_status": status,
@@ -174,7 +181,7 @@ def records_from_result(
                     "order": order,
                     "order_frac": _r(order / max(1, len(plan.tasks) - 1)),
                     "paired": task.group is not None,
-                    "bucket": _bucket(task, layers),
+                    "bucket": _bucket(task, layers, bp.get("demand")),
                 },
                 "settings": sf,
                 "outcome": {
@@ -199,10 +206,18 @@ def records_from_result(
 class ExperienceLog:
     """Append-only JSONL with a size cap (thread- and process-tolerant appends)."""
 
-    def __init__(self, folder: Path | None = None, max_bytes: int = MAX_BYTES) -> None:
+    def __init__(
+        self,
+        folder: Path | None = None,
+        max_bytes: int = MAX_BYTES,
+        keep_per_stratum: int = KEEP_PER_STRATUM,
+    ) -> None:
         self.folder = folder or default_dir()
         self.path = self.folder / "experience.jsonl"
+        #: rotated-out records kept per stratum (see :meth:`_retain`)
+        self.keep_path = self.folder / "experience.keep.jsonl"
         self.max_bytes = max_bytes
+        self.keep_per_stratum = keep_per_stratum
 
     @property
     def salt(self) -> str:
@@ -217,15 +232,54 @@ class ExperienceLog:
             self.folder.mkdir(parents=True, exist_ok=True)
             try:
                 if self.path.stat().st_size + len(data) > self.max_bytes:
-                    os.replace(self.path, self.path.with_suffix(".jsonl.1"))
+                    old = self.path.with_suffix(".jsonl.1")
+                    if old.exists():
+                        self._retain(old)  # before its records are dropped
+                    os.replace(self.path, old)
             except FileNotFoundError:
                 pass
             with self.path.open("ab") as fh:
                 fh.write(data)
         return len(lines)
 
+    @staticmethod
+    def stratum(r: dict[str, Any]) -> str:
+        nf = r.get("net_f") or {}
+        mode = (r.get("settings") or {}).get("mode", "?")
+        return f"{mode}|{nf.get('bucket') or nf.get('kind', '?')}"
+
+    def _retain(self, dropped: Path) -> None:
+        """Stratified retention: before *dropped* is deleted by rotation, keep the
+        newest ``keep_per_stratum`` records of every stratum (mode + context
+        bucket) from it and the existing keep file. Pure FIFO would lose rare
+        strata (diff pairs, big power nets) first. The keep file is bounded to
+        half the log cap by lowering the per-stratum count until it fits."""
+        per: dict[str, list[str]] = {}
+        for p in (self.keep_path, dropped):  # oldest first, so newest end last
+            if not p.exists():
+                continue
+            with p.open(encoding="utf-8") as fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    per.setdefault(self.stratum(r), []).append(line.rstrip("\n"))
+        n = self.keep_per_stratum
+        while True:
+            kept = [line for lines in per.values() for line in lines[-n:]]
+            size = sum(len(x.encode()) + 1 for x in kept)
+            if size <= self.max_bytes // 2 or n <= 1:
+                break
+            n = max(1, n // 2)
+        tmp = self.keep_path.with_suffix(".tmp")
+        tmp.write_text("".join(x + "\n" for x in kept), encoding="utf-8")
+        os.replace(tmp, self.keep_path)
+
     def read(self) -> Iterator[dict[str, Any]]:
-        for p in (self.path.with_suffix(".jsonl.1"), self.path):
+        for p in (self.keep_path, self.path.with_suffix(".jsonl.1"), self.path):
             if not p.exists():
                 continue
             with p.open(encoding="utf-8") as fh:

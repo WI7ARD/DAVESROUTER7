@@ -32,6 +32,12 @@ OPTIONAL = ("openai", "anthropic", "keyring", "tiktoken")
 hiddenimports = collect_submodules("pcbrouter")
 datas = [
     (str(SRC / "pcbrouter" / "resources"), "pcbrouter/resources"),
+    # the experimental learned routing policy (Settings > Routing), when shipped
+    *(
+        [(str(SRC / "pcbrouter" / "learning" / "data"), "pcbrouter/learning/data")]
+        if (SRC / "pcbrouter" / "learning" / "data").is_dir()
+        else []
+    ),
     # license documents ship at the top level of the installed app (LGPL
     # attribution for Qt/PySide6 plus the app EULA; picked up by the payload
     # scan like everything else, so uninstall removes them too)

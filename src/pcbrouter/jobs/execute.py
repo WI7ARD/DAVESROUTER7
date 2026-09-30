@@ -386,6 +386,17 @@ def _route_board(job: RouteBoardJob, ctx: JobContext) -> Any:
     from pcbrouter.routing.board_router import BoardRouter, make_plan
 
     wb = working_from(job.snapshot, ctx)
+    if job.policy_path:
+        from dataclasses import replace
+
+        from pcbrouter.learning.policy import policy_from_spec
+
+        try:  # a missing or broken policy file means the fixed router, never a failed job
+            job.settings = replace(job.settings, policy=policy_from_spec(job.policy_path))
+        except Exception:
+            log.warning(
+                "[route:%s] learned policy unusable; fixed router", ctx.job_id, exc_info=True
+            )
     ctx.phase(JobPhase.PLANNING.value)
     plan = make_plan(wb, job.settings)
     ctx.check_cancel()

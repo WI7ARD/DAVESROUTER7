@@ -181,6 +181,9 @@ class SelectivePolicy(Policy):
     def choose(self, ctx: str, net: str, attempt: int) -> str:
         return self.inner.choose(ctx, net, attempt)
 
+    def compatibility(self) -> str | None:
+        return self.inner.compatibility()
+
     def select(self, profile: dict[str, float]) -> tuple[Policy | None, dict[str, Any]]:
         s = self.support
         base: dict[str, Any] = {"policy_id": self.policy_id(), "radius": round(s.radius, 3)}

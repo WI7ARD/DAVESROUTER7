@@ -286,6 +286,8 @@ class RouteBoardJob(JobBase):
     settings: Any  # BoardRouterSettings
     #: append the outcome to the local experience log (Settings > Routing)
     record_experience: bool = False
+    #: experimental learned policy file (Settings > Routing); None = fixed router
+    policy_path: str | None = None
 
     def __post_init__(self) -> None:
         self.kind, self.title = "route_board", "Routing board…"

@@ -243,6 +243,18 @@ class SettingsDialog(QDialog):
             "search settings; every route is still checked by the exact validator."
         )
         form.addRow(self.route_learn)
+        from pcbrouter.learning.policy import builtin_policy_path
+
+        self.route_policy = QCheckBox("Experimental: learned search strategy")
+        self.route_policy.setChecked(r.use_learned_policy)
+        self.route_policy.setEnabled(builtin_policy_path() is not None)
+        self.route_policy.setToolTip(
+            "Lets a policy learned on 100 real boards pick search settings per net. On "
+            "boards unlike the ones it learned from it falls back to the normal router, "
+            "and the routing report says which was used. It only chooses search "
+            "settings: every route is still checked by the exact validator."
+        )
+        form.addRow(self.route_policy)
         self.ai_autonomy = QComboBox()
         for key, label in (
             ("advisory", "Advisory — AI analyses only, never runs the router"),
@@ -384,6 +396,7 @@ class SettingsDialog(QDialog):
         s.routing.max_passes = self.route_passes.value()
         s.routing.allow_ripup = self.route_ripup.isChecked()
         s.routing.record_experience = self.route_learn.isChecked()
+        s.routing.use_learned_policy = self.route_policy.isChecked()
         s.routing.parallel_workers = int(self.route_workers.currentData())
         s.ai.autonomy_mode = self.ai_autonomy.currentData()
         s.geometry.conservative_rules = self.conservative_rules.isChecked()

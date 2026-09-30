@@ -33,6 +33,7 @@ import json
 import math
 import statistics
 import sys
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -56,6 +57,12 @@ from pcbrouter.learning.policy import (
 REPORT_SCHEMA = "pcbrouter-policy-report/1"
 
 
+def _app_version() -> str:
+    from pcbrouter import __version__
+
+    return __version__
+
+
 @dataclass
 class TrainConfig:
     #: which logging policies' records to learn from ("random" = exploration)
@@ -73,6 +80,10 @@ class TrainConfig:
     #: A/B evidence on similar boards is required before the policy is used
     ood_quantile: float = 0.75
     require_evidence: bool = True
+    #: only records written by these app versions (None = any). Router behaviour
+    #: changes between versions, so mixed-version data is non-stationary: the
+    #: default is the running version only
+    apps: tuple[str, ...] | None = field(default_factory=lambda: (_app_version(),))
 
 
 # ------------------------------------------------------------------- data
@@ -92,6 +103,8 @@ def select(records: Iterable[dict[str, Any]], cfg: TrainConfig) -> list[dict[str
         if not out.get("arms") or out.get("policy") not in cfg.policies:
             continue
         if cfg.modes is not None and (r.get("settings") or {}).get("mode") not in cfg.modes:
+            continue
+        if cfg.apps is not None and r.get("app") not in cfg.apps:
             continue
         keep.append(r)
     return keep
@@ -211,10 +224,10 @@ class Estimate:
 def replay(policy: Policy, records: Iterable[dict[str, Any]]) -> Estimate:
     """Per-attempt success of *policy* on uniformly-random logged data."""
     est = Estimate()
-    for ctx, arm, won in attempts(records):
-        if policy.choose(ctx, "", 0) == arm:
+    for a in attempts(records):
+        if policy.choose(a.ctx, "", 0) == a.arm:
             est.n += 1
-            est.wins += won
+            est.wins += a.won
     return est
 
 
@@ -289,10 +302,14 @@ def train(
     ]
 
     changed = {}
+    why = {}
     for ctx in sorted(pol.stats):
         arm = pol.choose(ctx, "", 0)
         if arm != PRESET:
             changed[ctx] = arm
+            why[ctx] = pol.eligible(ctx).get(arm, "")
+    versions = Counter(str(r.get("app")) for r in records)
+    used_versions = Counter(str(r.get("app")) for r in usable)
 
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
@@ -322,8 +339,11 @@ def train(
             if support is not None
             else None
         ),
+        "router": pol.router,
+        "app_versions": {"read": dict(versions), "used": dict(used_versions)},
         "contexts": len(pol.stats),
         "changed_contexts": changed,
+        "changed_because": why,
         "arm_costs": arm_costs(usable),
     }
     if held:
@@ -358,6 +378,8 @@ def policy_json(result: TrainResult) -> dict[str, Any]:
         "created": r["created"],
         "policy_id": r["policy_id"],
         "dataset_id": r["dataset_id"],
+        "router": r["router"],
+        "app_versions": r["app_versions"]["used"],
         "config": r["config"],
         "records": r["records"],
         "boards": r["boards"],
@@ -373,7 +395,8 @@ def format_report(result: TrainResult) -> str:
     r, pol = result.report, result.policy
     rec, boards = r["records"], r["boards"]
     lines = [
-        f"policy {r['policy_id']}  dataset {r['dataset_id']}",
+        f"policy {r['policy_id']}  dataset {r['dataset_id']}  router {r['router']}",
+        f"app versions read {r['app_versions']['read']}, used {r['app_versions']['used']}",
         f"board groups: {r['groups']['groups']} from {r['groups']['boards']} boards "
         f"({len(r['groups']['merged'])} merged near-duplicate group(s))",
         f"records: {rec['total']} total, {rec['usable']} usable "
@@ -384,9 +407,13 @@ def format_report(result: TrainResult) -> str:
         "context                          arms (wins/trials)",
     ]
     for ctx, arms in sorted(pol.stats.items()):
-        row = "  ".join(f"{a}:{s.wins:g}/{s.trials:g}" for a, s in sorted(arms.items()))
+        row = "  ".join(
+            f"{a}:{s.wins:g}/{s.trials:g}" + (f"@{s.cost_s:.2g}s" if s.cost_s is not None else "")
+            for a, s in sorted(arms.items())
+        )
         pick = r["changed_contexts"].get(ctx)
-        lines.append(f"{ctx:32s} {row}" + (f"  -> {pick}" if pick else ""))
+        because = r["changed_because"].get(ctx, "")
+        lines.append(f"{ctx:40s} {row}" + (f"  -> {pick} ({because})" if pick else ""))
     lines += ["", "cost per arm (single-attempt nets): nets, median s, median nodes"]
     for a, c in r["arm_costs"].items():
         lines.append(f"  {a:12s} {c['nets']:6d} {c['median_s']:8.3f} {c['median_nodes']:10.0f}")
@@ -447,6 +474,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="train Speed and Accuracy separately and write one policy-set file",
     )
+    p.add_argument(
+        "--app",
+        default=None,
+        help="app versions to learn from, comma-separated, or 'any' (default: this version)",
+    )
     p.add_argument("--dup-radius", type=float, default=1.0)
     p.add_argument("--ood-quantile", type=float, default=0.75)
     return p
@@ -468,6 +500,8 @@ def main(argv: list[str] | None = None) -> int:
         ood_quantile=args.ood_quantile,
         require_evidence=not args.no_require_evidence,
     )
+    if args.app:
+        cfg.apps = None if args.app == "any" else tuple(x.strip() for x in args.app.split(","))
     records = load_records(args.log or [default_dir()])
     evidence = [e for path in args.evidence or [] for e in load_evidence(path)]
     if args.per_mode:

@@ -630,8 +630,9 @@ class BoardRouter:
         self._deadline: float | None = None
         #: the policy in force for this job (settings.policy after selection)
         self._policy: Any = None
-        #: routable (non-plane) layers, the policy's layer context
+        #: routable (non-plane) layers and routing demand: the policy's board context
         self._routable_layers: int | None = None
+        self._demand: float | None = None
         self._emit: Callable[..., None] = lambda **_kw: None
 
     def run(
@@ -934,6 +935,7 @@ class BoardRouter:
         search settings, the validator still decides every route."""
         policy = self.settings.policy
         self._routable_layers = None
+        self._demand = None
         for_mode = getattr(policy, "for_mode", None)
         if for_mode is not None:  # a policy set: one policy per mode
             policy = for_mode(self.settings.mode)
@@ -944,11 +946,20 @@ class BoardRouter:
                 }
         if policy is None:
             return None, None
+        compat = getattr(policy, "compatibility", None)
+        why = compat() if callable(compat) else None
+        if why:  # never silently apply statistics learned on another router
+            return None, {
+                "decision": "FALLBACK_FIXED",
+                "reason": why,
+                "text": f"FALLBACK_FIXED: {why}",
+            }
         try:
             from pcbrouter.learning.features import board_profile
 
             profile = board_profile(fork.board, plan.tasks)
             self._routable_layers = int(profile["signal_layers"])
+            self._demand = float(profile["demand"])
             select = getattr(policy, "select", None)
             if select is None:
                 pid = getattr(policy, "policy_id", None)
@@ -967,14 +978,18 @@ class BoardRouter:
         req = self._request(task, pass_no)
         policy = self._policy
         if policy is not None:
-            from pcbrouter.learning.policy import attempt_context, task_bucket
+            from pcbrouter.learning.policy import PRESET, attempt_context, task_bucket
 
             o = self._outcomes.get(task.net)
             attempt = len(o.arms) if o is not None else 0
             layers = self._routable_layers or len(fork.engine.geometry.copper_layers)
-            ctx = attempt_context(task_bucket(task, layers), attempt)
+            prev = o.reason.value if o is not None and attempt and o.reason else None
+            ctx = attempt_context(task_bucket(task, layers, self._demand), attempt, prev)
             arm = policy.choose(ctx, task.net, attempt)
-            req = policy.apply(arm, req)
+            varied = policy.apply(arm, req)
+            if varied == req:  # the arm changed nothing here: it was the preset
+                arm = PRESET
+            req = varied
             if o is not None:
                 o.arms.append(arm)
         if task.kind is TaskKind.DIFF_PAIR and task.group:

@@ -148,6 +148,9 @@ class RoutingSettings(_Model):
     #: keep a local, anonymised log of routing outcomes (features, settings,
     #: result per net; never net names) that the router learns from
     record_experience: bool = True
+    #: experimental: let the bundled learned policy pick per-net search settings;
+    #: it falls back to the fixed router on unfamiliar boards (off by default)
+    use_learned_policy: bool = False
 
 
 class GeometrySettings(_Model):
