@@ -101,7 +101,12 @@ coldfire Speed, 1 worker, 600 s, same code otherwise (`--trials 1`):
 The suite boards were re-run after the change (1 worker, 300 s budget). Nets,
 vias and lengths matched the table above: small_2layer 11/11 both modes,
 medium_4layer 40/44 (Speed) and 44/44 (Accuracy), dense_2layer 35/35 both modes.
-| hhkittesc ESC (4L, 94 nets, 900 s) | accuracy | auto (3) | 92/94 | 274 | 922 | 0 (31 pre-existing) |
+| hhkittesc ESC (4L, 94 nets, 900 s budget) | accuracy | auto (4) | 93/94 | 278 | 548 | 0 (31 pre-existing) |
+| hhkittesc ESC + **Power class 3.0/0.6 mm** (1200 s) | accuracy | auto (4) | 79/94 | 234 | 959 | 0 (31 pre-existing) |
+
+The Power-class ESC run fails mainly at U3's 0.65 mm-pitch pins. A 3 mm net-class
+width cannot enter them, and the router has no neck-down. See
+`benchmarks/boards/hhkittesc/results/README.md`.
 
 ## GPU kernel (SYCL), measured on the OpenCL **CPU** device
 

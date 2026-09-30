@@ -19,6 +19,7 @@ Also see `docs/stability.md` ("Known limitations (1.x)").
 - **The DRC repair loop is not built.** Routed copper is DRC-clean by construction (the exact validator gates every commit), so no route → DRC → rip-up loop exists.
 - **Through vias only.** Blind/buried vias are not generated, and routing is tested only on 2- and 4-layer boards. Boards with more copper layers load, but routing them is untested.
 - **Straight segments only** (0/45/90°). No arcs.
+- **No neck-down.** A net class width applies to the whole net. A wide power class (e.g. 3 mm) cannot reach fine-pitch pins on the same net: Davi's ESC routes 79/94 with a 3.0 mm Power class vs 93/94 without it. Draw high-current nodes as zones, and keep sense connections in a narrow class.
 
 ## AI constraints (see docs/CAPABILITIES.md)
 - **Differential pairs are a soft preference.** The two nets are routed one after the other and the second follows a soft corridor along the first. Gap, skew and impedance are **not** controlled; gap and skew are measured and reported after routing.
