@@ -44,6 +44,25 @@ result, and re-routes anything that became illegal. Parallel routing is used wit
 CPU backend only. *Single worker* gives identical results run after run; parallel runs
 may differ slightly (all results are validated).
 
+## GPU acceleration (optional, Intel)
+The CPU router is the default and always works. On Intel GPUs (Iris Xe, Arc) the
+app can run each net's path search as a fused GPU kernel:
+
+1. `pcbrouter.exe --gpu-check` prints a staged report. It shows the library, the
+   SYCL devices, the selected GPU (Level Zero first), a memory allocation on it, a
+   kernel run whose result is checked against the CPU, the routing kernel checked
+   against the CPU, and a small benchmark. `gpu_ready: true` means all of that
+   passed; otherwise the `verdict` names the stage that failed and why.
+2. Settings ▸ Compute ▸ GPU (or `--route --backend gpu`) routes on the GPU. Every
+   GPU path still goes through the same exact validator as CPU paths.
+   *Auto* uses the CPU until measurements show the GPU is faster on a board size.
+   If a GPU search fails, that search is redone on the CPU and the routing card
+   says so. `--backend gpu` on the command line fails with a clear message when no
+   usable GPU exists.
+
+GPU paths ignore bend costs (the search state has no direction), so they can
+differ slightly in shape from CPU paths. Both obey identical hard rules.
+
 ## Reading the result
 The Routing Jobs panel and the status bar show, e.g.
 `FULLY_ROUTED — 32/32 nets (100 %), 136 new via(s), 4050.8 mm, 58 s`.

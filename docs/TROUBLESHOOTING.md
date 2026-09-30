@@ -9,6 +9,6 @@
 | Export says **UNVERIFIED** | The internal check found errors on the board — often from copper or zone fills that were already in the source file. Open the Internal Geometry Check panel to see each one. |
 | Routing card stays on "Preparing the board…" | Large boards (thousands of objects, big pours) take a few seconds to prepare; Cancel works at every step. |
 | Cancel takes a moment | Cancel stops at the next check point (normally < 1 s); a stuck worker is stopped after 5 s. |
-| GPU mode is slower or falls back to CPU | GPU routing is optional; the routing card says which backend actually ran and why. `pcbrouter.exe --gpu-check` prints a GPU report. |
+| GPU mode is slower or falls back to CPU | GPU routing is optional; the routing card says which backend actually ran and why. `pcbrouter.exe --gpu-check` shows the stage that fails. `gpu_selected` failing means no GPU runtime, so install or update the Intel graphics driver (it provides Level Zero / OpenCL). `fused_kernel` failing means the driver cannot build the routing kernel; routing stays on the CPU. |
 | The app crashed | `%LOCALAPPDATA%\AI PCB Router\logs\crash.log` and `pcbrouter.log` contain the details; Help ▸ Export Diagnostic Bundle collects them. |
 | Settings look wrong | Settings ▸ Restore Defaults. An unreadable settings file is reset automatically (a backup is kept). |
