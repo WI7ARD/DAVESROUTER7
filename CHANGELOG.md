@@ -21,8 +21,38 @@
   replay estimate on held-out boards against the preset with a 95 % interval,
   and prints the cost per arm.
 - `pcbrouter --route --policy policy.json`, `tools/run_benchmarks.py --policy`
-  and Real100 `--policy` use a trained policy. The desktop app does not load
-  one yet.
+  and Real100 `--policy` use a trained policy. The desktop app uses one only
+  through the experimental opt-in below.
+
+**Learning v3: cost-aware, sample-size-aware policies** (`docs/LEARNING.md`,
+`docs/EXPERIENCE_SCHEMA.md`)
+- An arm replaces the preset in a context only with at least 8 trials and
+  either a 95 % Wilson lower bound above the preset's upper bound, or at most
+  half the preset's median attempt cost at no loss of success. This replaces
+  the flat 0.05 margin. Among those arms the choice weighs success against
+  attempt cost.
+- Contexts add a board-density band (routing demand, edges 0.03 / 0.13) and
+  split retries by the previous failure: `retry:limit`, `retry:no_path`,
+  `retry:other`, `retry:unknown`.
+- `greedier` is capped at heuristic weight 1.5, the Speed preset's bound. An
+  arm that changes nothing is recorded as `preset`.
+- Policy files carry the app, geometry-engine and rule-engine versions they
+  were learned on. On a mismatch the router falls back to the fixed router and
+  says why. The trainer uses only records of the running app version by
+  default (`--app X,Y|any`) and reports the versions read and used.
+- The experience log keeps the newest 100 records per mode and context in
+  `experience.keep.jsonl` when old records rotate out, so rare kinds of nets
+  are not lost first. Records add the router versions; the schema stays
+  `pcbrouter-experience/2`, fields are only ever added, and golden v1/v2
+  fixtures pin compatibility.
+- Settings ▸ Routing ▸ *Experimental: learned search strategy* (off by
+  default). It is enabled only when the app ships a Real100 policy file, which
+  happens only if its evaluation is not REJECTED.
+
+**Real100 harness**
+- Two runs started in the same second no longer write into one results file.
+  The default file name carries the process id, an existing file is never
+  appended to, and `run --out` names the file.
 
 **Routing (Real100 tuning round 1: 1,539 → 1,755 nets on the 41 routable boards)**
 - The search grid demands exactly the clearance the validator enforces. This

@@ -176,3 +176,27 @@ accept one, name it in the commit message.
   limits it to boxed-in pads.
 - **A wide net class cannot reach fine-pitch pins** (no neck-down). This is a board
   or rules issue, not a search bug. Report it; do not tune around it.
+- **Side-by-side runs need distinct output files.** Two runs started in the same
+  second once got the same timestamped name and interleaved their lines, which
+  made an A/B compare mixed data. Default names now carry the pid and an existing
+  file is refused, but name each run anyway: `run --out speed_base.jsonl`.
+- **Group near-duplicate boards before any train/held-out split.** Real100 K067
+  and K088 are variants of one design; a split by board put one in each half, so
+  the held-out result leaked. The trainer groups boards with near-identical
+  profiles (`--dup-radius`). Any hand-made split must do the same.
+- **Repeat A/Bs, paired, at least 3 times.** Single runs of time-budgeted boards
+  varied by up to ±35 nets with machine load alone. Run baseline and candidate
+  side by side (same load) and repeat; one run is not evidence.
+- **A per-net reward misses the damage a route does to later nets.** The first
+  learned policy routed its own nets but sealed off channels on `medium_4layer`
+  (Speed 40 → 38, Accuracy 44 → 39; later nets NO_PATH after a few hundred
+  expansions). Always check the guard boards, `medium_4layer` above all, and
+  board-level totals, not per-net or replay estimates.
+- **Evaluate a routing strategy with the paired A/B tool:**
+  ```bash
+  python tools/real100_compare.py --baseline fixed --candidate P --repeat N \
+      --guard --check-validity [--ids ...] [--json ab.json]
+  ```
+  It runs both side by side `N` times, gives each board a verdict and applies
+  the ACCEPTED / EXPERIMENTAL / REJECTED gate (`pcbrouter.benchmark.ab`,
+  `docs/LEARNING.md`).
