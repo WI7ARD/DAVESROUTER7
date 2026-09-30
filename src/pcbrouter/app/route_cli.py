@@ -200,6 +200,7 @@ def route_cli(
     grid_mm: float | None = None,
     overwrite: bool = False,
     record_experience: bool = False,
+    policy: str | None = None,
 ) -> int:
     from dataclasses import replace
 
@@ -239,6 +240,18 @@ def route_cli(
         BoardRouterSettings(base_request=base, parallel_workers=n_workers), base, RouteMode(mode)
     )
     settings = replace(settings, budget_s=budget_s)
+    if policy:
+        from pcbrouter.learning.policy import policy_from_spec
+
+        try:
+            chosen_policy = policy_from_spec(policy)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            return run.finish(EXIT_ERROR, f"Cannot load --policy {policy}: {exc}")
+        trained = getattr(chosen_policy, "trained_modes", None)
+        if trained and mode not in trained:
+            print(f"Warning: this policy was trained for {', '.join(trained)} mode, not {mode}.")
+        settings = replace(settings, policy=chosen_policy)
+        run.report["policy"] = getattr(chosen_policy, "name", "fixed")
     run.report["workers"] = n_workers
     ctx = JobContext(0, send=lambda _msg: None)
     factory = ctx.router_factory(backend, top_level=False)

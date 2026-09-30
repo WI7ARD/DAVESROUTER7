@@ -20,7 +20,9 @@
   frozen policy from exploration records. It splits by board, reports a
   replay estimate on held-out boards against the preset with a 95 % interval,
   and prints the cost per arm.
-- Real100 takes `--policy`. The app does not load learned policies yet.
+- `pcbrouter --route --policy policy.json`, `tools/run_benchmarks.py --policy`
+  and Real100 `--policy` use a trained policy. The desktop app does not load
+  one yet.
 
 **Routing (Real100 tuning round 1: 1,539 → 1,755 nets on the 41 routable boards)**
 - The search grid demands exactly the clearance the validator enforces. This

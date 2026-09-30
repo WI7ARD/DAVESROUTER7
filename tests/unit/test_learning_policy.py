@@ -105,3 +105,34 @@ def test_router_records_one_arm_per_attempt_and_stays_legal() -> None:
         recs = records_from_result(res, replace(base, policy=policy), salt="s")
         assert all(r["outcome"]["policy"] == ("random" if policy else "fixed") for r in recs)
         assert all(r["net_f"]["bucket"] for r in recs)
+
+
+def test_cli_route_loads_a_trained_policy_and_rejects_a_bad_one(tmp_path: Path) -> None:
+    import json
+
+    from pcbrouter.app.route_cli import route_cli
+
+    src = Path(__file__).parent.parent / "fixtures" / "boards" / "router_basic.kicad_pcb"
+    for suffix in (".kicad_pcb", ".kicad_pro"):
+        s = src.with_suffix(suffix)
+        if s.exists():
+            (tmp_path / s.name).write_bytes(s.read_bytes())
+    board = tmp_path / src.name
+    good = tmp_path / "policy.json"
+    ThompsonPolicy({"c": {"greedier": ArmStats(9, 10)}}).save(good)
+    report = tmp_path / "r.json"
+    code = route_cli(board, tmp_path / "o.kicad_pcb", "speed", 0, 60.0, report, False,
+                     policy=str(good))  # fmt: skip
+    assert code in (0, 3) and json.loads(report.read_text())["policy"] == "thompson"
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"schema": "something-else"}')
+    code = route_cli(board, tmp_path / "o2.kicad_pcb", "speed", 0, 60.0, report, False,
+                     policy=str(bad))  # fmt: skip
+    assert code not in (0, 3) and not (tmp_path / "o2.kicad_pcb").exists()
+
+
+def test_policy_remembers_the_modes_it_was_trained_for() -> None:
+    data = ThompsonPolicy().to_json()
+    data["trained"] = {"config": {"modes": ["speed"]}}
+    assert ThompsonPolicy.from_json(data).trained_modes == ("speed",)
+    assert ThompsonPolicy.from_json(ThompsonPolicy().to_json()).trained_modes is None

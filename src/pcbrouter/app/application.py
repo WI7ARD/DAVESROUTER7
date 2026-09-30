@@ -163,6 +163,9 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--grid", type=float, metavar="MM",
                         help="routing grid in mm, 0.025-1.0 (--route; default: the "
                         "mode's)")  # fmt: skip
+    parser.add_argument("--policy", metavar="POLICY.json",
+                        help="trained search-variant policy (tools/train_policy.py) "
+                        "(--route; default: the mode's preset for every net)")  # fmt: skip
     parser.add_argument("--no-experience", action="store_true",
                         help="do not add this run to the local routing experience log "
                         "(--route; anonymised, never leaves this computer)")  # fmt: skip
@@ -336,7 +339,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return route_cli(args.board, args.output, args.mode, args.workers, args.budget,
                          args.report, args.kicad_drc, backend=args.backend,
                          layers=args.layers, grid_mm=args.grid,
-                         overwrite=args.overwrite,
+                         overwrite=args.overwrite, policy=args.policy,
                          record_experience=learn and not args.no_experience)  # fmt: skip
     if args.worker_selftest:
         from pcbrouter.jobs.selftest import run_worker_selftest

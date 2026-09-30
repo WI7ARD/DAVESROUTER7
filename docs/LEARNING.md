@@ -101,8 +101,14 @@ evaluation set: about 3,900 nets per standard run.
    success, not board completion under a time budget, so it is a filter, not
    the acceptance test.
 
+4. **Use it:** `pcbrouter BOARD.kicad_pcb --route --policy policy.json`
+   (also `tools/run_benchmarks.py --policy`). The CLI warns when a policy trained
+   for one mode is used in the other. Train one policy per mode (`--mode`): the
+   same arm means different things on top of the Speed and Accuracy presets.
+
 **Guard rails:** frozen policies are deterministic; `fixed` stays the default
-until a trained policy has passed the A/B; the app does not load a policy yet.
+until a trained policy has passed the A/B; the desktop app does not load a
+policy yet.
 
 ## Level 3 — learned difficulty and ordering (later)
 

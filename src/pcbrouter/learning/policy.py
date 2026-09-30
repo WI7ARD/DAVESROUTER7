@@ -119,6 +119,8 @@ class ThompsonPolicy(Policy):
     #: an arm must beat the preset's mean by this much to replace it (frozen)
     margin: float = 0.05
     min_trials: int = 8
+    #: the modes the training data came from (None = any / unknown)
+    trained_modes: tuple[str, ...] | None = None
     name = "thompson"
 
     def __post_init__(self) -> None:
@@ -162,11 +164,13 @@ class ThompsonPolicy(Policy):
             c: {a: ArmStats(float(w), float(t)) for a, (w, t) in arms.items()}
             for c, arms in data["stats"].items()
         }
+        modes = ((data.get("trained") or {}).get("config") or {}).get("modes")
         return cls(
             stats,
             frozen=frozen,
             margin=float(data.get("margin", 0.05)),
             min_trials=int(data.get("min_trials", 8)),
+            trained_modes=tuple(modes) if modes else None,
         )
 
     def save(self, path: Path) -> None:

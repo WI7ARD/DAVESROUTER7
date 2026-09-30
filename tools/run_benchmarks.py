@@ -46,12 +46,14 @@ def _child_usage() -> tuple[float, float]:
 
 
 def run_one(exe: list[str], board: Path, mode: str, workers: int, budget: float,
-            out_dir: Path) -> dict[str, Any]:  # fmt: skip
+            out_dir: Path, policy: str | None = None) -> dict[str, Any]:  # fmt: skip
     tag = f"{board.stem}_{mode}_w{workers}"
     report = out_dir / f"{tag}.json"
     output = out_dir / f"{tag}.kicad_pcb"
     cmd = [*exe, str(board), "--route", "--mode", mode, "--workers", str(workers),
            "--budget", str(budget), "--output", str(output), "--report", str(report)]  # fmt: skip
+    if policy:
+        cmd += ["--policy", policy]
     cpu0, _ = _child_usage()
     t0 = time.monotonic()
     try:
@@ -130,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--boards", nargs="+", default=ORDER)
     ap.add_argument("--extra", nargs="*", type=Path, default=[], help="more .kicad_pcb files")
     ap.add_argument("--trials", type=int, default=1, help="runs per board/mode/workers")
+    ap.add_argument("--policy", default=None, help="trained policy.json passed to --route")
     args = ap.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     suite = write_suite(args.out / "boards", args.boards)
@@ -145,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         for mode in args.modes:
             for w in args.workers:
                 trials = [
-                    run_one(exe, board, mode, w, args.budget, args.out)
+                    run_one(exe, board, mode, w, args.budget, args.out, args.policy)
                     for _ in range(max(1, args.trials))
                 ]
                 times = [t["route_s"] for t in trials if isinstance(t["route_s"], (int, float))]
