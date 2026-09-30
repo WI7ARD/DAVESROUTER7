@@ -24,6 +24,7 @@ import json
 import random
 import shutil
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -138,7 +139,7 @@ def _board_text(
     h: float,
     parts: list[_Part],
     nets: list[str],
-    keepouts: list[Box] | tuple[()] = (),
+    keepouts: Sequence[Box] = (),
 ) -> str:
     codes = {n: i + 1 for i, n in enumerate(nets)}
     layer_ids = {"F.Cu": 0, "In1.Cu": 1, "In2.Cu": 2, "B.Cu": 31}

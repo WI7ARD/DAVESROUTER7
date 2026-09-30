@@ -1,0 +1,77 @@
+name: CI
+
+# Lint, type-check and the test suite on Linux and Windows, two Python versions.
+# GPU tests are skipped here (hosted runners have no GPU; see gpu.yml). The
+# installer is built and smoke-tested by windows-installer.yml.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: ruff
+        run: python -m ruff check src tests tools
+      - name: black
+        run: python -m black --check src tests tools
+      - name: mypy
+        run: python -m mypy src
+
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Qt system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: pytest (GPU tests skip without a device)
+        # The coverage gate runs once (Linux, 3.12); the floor sits just below the
+        # measured total so a real drop fails the build (docs/TEST_RESULTS.md).
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ] && [ "${{ matrix.python }}" = "3.12" ]; then
+            python -m pytest -q -rs --cov=pcbrouter --cov-report=term --cov-fail-under=${COV_FLOOR}
+          else
+            python -m pytest -q -rs
+          fi
+        env:
+          COV_FLOOR: "81"  # measured 83 % (1.1.1, Linux, Python 3.12, no GPU)
