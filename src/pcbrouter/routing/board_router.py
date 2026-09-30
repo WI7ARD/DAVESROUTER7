@@ -93,6 +93,12 @@ def route_net_refined(
 PASS1_NODE_LIMIT = 300_000
 PASS1_SLICE = 3.0
 PASS1_MIN_SLICE_S = 2.0
+#: pass 2+ and rip-up: one net may use at most this share of the board budget
+#: (>= PASS2_MIN_SLICE_S). Measured on a 4-layer ESC: a board-wide GND pour took
+#: 600 s of a 900 s budget in pass 2 (and still failed), so rip-up never ran for
+#: the three nets that only needed earlier copper moved.
+PASS2_SHARE = 0.2
+PASS2_MIN_SLICE_S = 30.0
 
 
 class Strategy(Enum):
@@ -757,6 +763,9 @@ class BoardRouter:
                 )
             # NO_ESCAPE / VALIDATION / RULE_UNKNOWN: the space is exhausted or
             # forbidden — retry at base budget (often rip-up helps)
+            share = max(PASS2_MIN_SLICE_S, PASS2_SHARE * self.settings.budget_s)
+            total = req.total_time_limit_s
+            req = replace(req, total_time_limit_s=share if total is None else min(total, share))
         if self._deadline is not None:
             # the job budget also bounds the work *inside* one net
             left = max(0.001, self._deadline - time.perf_counter())

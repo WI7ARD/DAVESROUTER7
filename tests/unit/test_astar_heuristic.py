@@ -10,7 +10,10 @@ almost everywhere and A* degraded to a Dijkstra flood. One box per pad group
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from pcbrouter.routing.cost.model import DEFAULT_COST_MODEL
 from pcbrouter.routing.occupancy import GridSpec
@@ -115,3 +118,42 @@ def test_coarse_to_fine_finds_routes_and_falls_back() -> None:
     closed = replace(p, grid=replace(p.grid, passable=[ring]))
     out2 = search(closed, node_limit=2_000_000, time_limit_s=60)
     assert out2.status is SearchStatus.NO_PATH and out2.expanded < 200_000
+
+
+def test_lazy_heuristic_tiles_give_identical_searches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Large grids compute the heuristic field in tiles on demand and read cost
+    arrays through memoryviews; forcing that path on real router problems must
+    reproduce the full-field search exactly (same status, cost and path)."""
+    from dataclasses import replace
+
+    from pcbrouter.kicad.loader import load_board
+    from pcbrouter.kicad.rule_adapter import load_project_rules
+    from pcbrouter.routing.request import RouteRequest
+    from pcbrouter.routing.router import Router
+    from pcbrouter.routing.search import astar
+    from pcbrouter.routing.working_board import WorkingBoard
+
+    boards = Path(__file__).parent.parent / "fixtures" / "boards"
+    for name, net in (("router_dense.kicad_pcb", "S3"), ("router_dense.kicad_pcb", "USB_N"),
+                      ("router_basic.kicad_pcb", "A")):  # fmt: skip
+        path = boards / name
+        wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+        problems: list[object] = []
+
+        def spy(problem: object, _p: list = problems, **kw: object) -> object:
+            g = problem.grid  # type: ignore[attr-defined]
+            _p.append((replace(problem, grid=replace(  # type: ignore[type-var]
+                g, passable=[p.copy() for p in g.passable], near=[p.copy() for p in g.near],
+                penalty=[None if p is None else p.copy() for p in g.penalty],
+                factor=[None if p is None else p.copy() for p in g.factor],
+                via_ok=None if g.via_ok is None else g.via_ok.copy())), kw))  # fmt: skip
+            return astar.search(problem, **kw)  # type: ignore[arg-type]
+
+        Router(wb.engine, search_fn=spy).route_net(RouteRequest(net, candidates=1))
+        assert problems
+        for problem, kw in problems:
+            full = astar._search(problem, **kw)  # type: ignore[arg-type]
+            monkeypatch.setattr(astar, "LIST_MAX_CELLS", 0)
+            lazy = astar._search(problem, **kw)  # type: ignore[arg-type]
+            monkeypatch.setattr(astar, "LIST_MAX_CELLS", 2_000_000)
+            assert (lazy.status, lazy.cost, lazy.path) == (full.status, full.cost, full.path)

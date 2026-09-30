@@ -21,6 +21,11 @@ from pcbrouter.routing.cost.model import DEFAULT_COST_MODEL, CostModel
 DEFAULT_GRID_NM: Nm = 100_000
 DEFAULT_TIME_LIMIT_S = 30.0
 DEFAULT_NODE_LIMIT = 1_500_000
+#: hard ceiling on states expanded by ONE search, whatever escalation asks for:
+#: the A* keeps ~0.9 KB of bookkeeping per expanded state (measured: 5.2M states,
+#: 4.85 GB in one routing helper on a board-wide GND pour), so 3M bounds a search
+#: near 3 GB — a laptop with several helpers must not run out of memory
+MAX_SEARCH_NODES = 3_000_000
 MAX_CANDIDATES = 5
 
 

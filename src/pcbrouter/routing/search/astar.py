@@ -44,8 +44,10 @@ import itertools
 import math
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -360,6 +362,19 @@ def search(
     return out
 
 
+#: grids above this many cells (all layers) are read through memoryviews and
+#: get their heuristic field computed lazily in H_TILE x H_TILE tiles
+LIST_MAX_CELLS = 2_000_000
+H_TILE = 128
+
+
+def _flat_seq(cells: int) -> Callable[[npt.NDArray[Any]], Any]:
+    """Converter to the per-cell lookup sequence the search loop indexes."""
+    if cells <= LIST_MAX_CELLS:
+        return lambda a: a.reshape(-1).tolist()
+    return lambda a: memoryview(np.ascontiguousarray(a, dtype=np.float64).reshape(-1))
+
+
 def _search(
     problem: SearchProblem,
     *,
@@ -379,8 +394,14 @@ def _search(
     target = [t.reshape(-1).tobytes() for t in problem.targets]
     # Plain Python lists (not NumPy scalars): the hot loop indexes these
     # millions of times, and each NumPy scalar materialisation costs ~100 ns.
-    penalty = [None if p is None else p.reshape(-1).tolist() for p in g.penalty]
-    factor = [None if f is None else f.reshape(-1).tolist() for f in g.factor]
+    # Small grids: plain lists (fastest per lookup). Large grids (board-wide pour
+    # nets): zero-copy float64 memoryviews — converting 10M cells per layer to
+    # lists cost seconds and ~1 GB per search even when the search itself
+    # expanded only ~20k nodes (measured on a 195x135 mm 4-layer board). Same
+    # values either way, so paths and determinism are unchanged.
+    as_seq = _flat_seq(n * nl)
+    penalty = [None if p is None else as_seq(p) for p in g.penalty]
+    factor = [None if f is None else as_seq(f) for f in g.factor]
     vias_on = problem.vias_enabled and g.via_ok is not None and nl > 1
     via_ok = g.via_ok.reshape(-1).tobytes() if vias_on and g.via_ok is not None else b""
     vlim = problem.max_vias
@@ -420,12 +441,15 @@ def _search(
     ny = g.ny
     rows = np.arange(ny, dtype=np.float64).reshape(-1, 1)
     cols = np.arange(nx, dtype=np.float64).reshape(1, -1)
-    hfield: list[list[float]] = []
-    for li in range(nl):
+
+    def h_block(li: int, ra: int, rb: int, ca: int, cb: int) -> npt.NDArray[np.float64]:
+        """Heuristic for rows ra:rb x cols ca:cb of layer li (elementwise, so any
+        block gives exactly the values of the full field)."""
+        rs, cs = rows[ra:rb], cols[:, ca:cb]
         best_arr: npt.NDArray[np.float64] | None = None
         for bl, (r0, r1, c0, c1) in boxes2:
-            dr = np.where(rows < r0, r0 - rows, np.where(rows > r1, rows - r1, 0.0))
-            dc = np.where(cols < c0, c0 - cols, np.where(cols > c1, cols - c1, 0.0))
+            dr = np.where(rs < r0, r0 - rs, np.where(rs > r1, rs - r1, 0.0))
+            dc = np.where(cs < c0, c0 - cs, np.where(cs > c1, cs - c1, 0.0))
             lo = np.minimum(dr, dc)
             hi = np.maximum(dr, dc)
             if manhattan:
@@ -447,7 +471,34 @@ def _search(
         assert best_arr is not None
         if weight != 1.0:
             best_arr = best_arr * weight
-        hfield.append(best_arr.reshape(-1).tolist())
+        return np.broadcast_to(best_arr, (rb - ra, cb - ca))
+
+    # Large grids (board-wide pour nets): tiles of the field are computed the
+    # first time the search touches them. A connection on a 10M-cell grid
+    # usually expands ~20k cells, yet the full field cost seconds per search.
+    lazy = n * nl > LIST_MAX_CELLS
+    tiles_x = (nx + H_TILE - 1) // H_TILE
+    hfield: list[Any] = []
+    h_done: list[bytearray] = []
+    h_bufs: list[npt.NDArray[np.float64]] = []
+    for li in range(nl):
+        if lazy:
+            buf = np.empty(n, dtype=np.float64)
+            h_bufs.append(buf)
+            hfield.append(memoryview(buf))
+            h_done.append(bytearray(tiles_x * ((ny + H_TILE - 1) // H_TILE)))
+        else:
+            hfield.append(as_seq(h_block(li, 0, ny, 0, nx)))
+
+    def h_at(li: int, idx: int, r: int, c: int) -> float:
+        t = (r // H_TILE) * tiles_x + c // H_TILE
+        if not h_done[li][t]:
+            tr, tc = divmod(t, tiles_x)
+            ra, ca = tr * H_TILE, tc * H_TILE
+            rb, cb = min(ny, ra + H_TILE), min(nx, ca + H_TILE)
+            h_bufs[li].reshape(ny, nx)[ra:rb, ca:cb] = h_block(li, ra, rb, ca, cb)
+            h_done[li][t] = 1
+        return float(hfield[li][idx])
 
     # Turn bend-cost table [incoming dir 0..8][move]: None = disallowed (> 90°).
     # Step lengths per move (R3): hoisted out of the per-neighbour loop.
@@ -498,7 +549,16 @@ def _search(
             if s in best_g:
                 continue
             best_g[s] = 0.0
-            heapq.heappush(heap, (hfield[li][idx], 0.0, tie, 0.0, s))
+            if not lazy:
+                h0 = hfield[li][idx]
+            else:
+                r0, c0 = divmod(idx, nx)
+                done_l = h_done[li]
+                if done_l[(r0 // H_TILE) * tiles_x + c0 // H_TILE]:
+                    h0 = hfield[li][idx]
+                else:
+                    h0 = h_at(li, idx, r0, c0)
+            heapq.heappush(heap, (h0, 0.0, tie, 0.0, s))
             tie += 1
     if not heap:
         return SearchOutcome(SearchStatus.NO_PATH, elapsed_s=time.perf_counter() - t0)
@@ -542,6 +602,7 @@ def _search(
         base = (v * nl + li) * n
         turn_costs = _turn_cost[d]
         h_layer = hfield[li]
+        h_done_l = h_done[li] if lazy else b""
         lstep = layer_step[li]
         for nd in dirs:
             bcost = turn_costs[nd]
@@ -573,7 +634,11 @@ def _search(
                 if ng < cb:
                     cell_best[ck] = ng
                 parent[ns] = s
-                heapq.heappush(heap, (ng + h_layer[ni], -ng, tie, ng, ns))
+                if not lazy or h_done_l[(rr // H_TILE) * tiles_x + cc // H_TILE]:
+                    hn = h_layer[ni]
+                else:
+                    hn = h_at(li, ni, rr, cc)
+                heapq.heappush(heap, (ng + hn, -ng, tie, ng, ns))
                 tie += 1
         if vias_on and via_ok[idx] and (not track_vias or v + 1 < nv):
             v2 = v + 1 if track_vias else v
@@ -585,7 +650,8 @@ def _search(
                 if ng < best_g.get(ns, math.inf):
                     best_g[ns] = ng
                     parent[ns] = s
-                    heapq.heappush(heap, (ng + hfield[l2][idx], -ng, tie, ng, ns))
+                    hv = h_at(l2, idx, r, c) if lazy else hfield[l2][idx]
+                    heapq.heappush(heap, (ng + hv, -ng, tie, ng, ns))
                     tie += 1
     out = SearchOutcome(status, expanded=expanded, elapsed_s=time.perf_counter() - t0)
     if record_explored:

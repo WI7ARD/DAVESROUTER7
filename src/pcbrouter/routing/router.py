@@ -47,6 +47,7 @@ from pcbrouter.routing.path.simplify import (
 )
 from pcbrouter.routing.proposal import ProposalSource, RouteProposal, RouteSegment, RouteVia
 from pcbrouter.routing.request import (
+    MAX_SEARCH_NODES,
     NormalisedRequest,
     RouteRequest,
     RouteRequestError,
@@ -203,7 +204,7 @@ class Router:
                 break
             req = replace(
                 req,
-                node_limit=req.node_limit * 2,
+                node_limit=min(req.node_limit * 2, MAX_SEARCH_NODES),
                 time_limit_s=req.time_limit_s * 1.5,
             )
             result.status, result.reason = RouteStatus.NO_ROUTE, None
@@ -454,21 +455,30 @@ class Router:
         start = min(range(len(groups)), key=lambda i: (sizes[i], i))
         connected_idx = {start}
         remaining_idx = [j for j in range(len(groups)) if j != start]
-        # cell -> group index per layer, for attributing reached endpoints
-        cell_to_group: list[dict[int, int]] = [{} for _ in range(nl)]
-        for j, gc in enumerate(group_cells_all):
+        # cell -> group index per layer, for attributing reached endpoints (the
+        # lowest group index wins on shared cells, as before). Arrays, not dicts:
+        # pour groups hold millions of cells.
+        n_cells = grid.nx * grid.ny
+        cell_to_group = [np.full(n_cells, -1, dtype=np.int32) for _ in range(nl)]
+        for j in reversed(range(len(group_cells_all))):
             for li in range(nl):
-                for idx in gc[li].tolist():
-                    cell_to_group[li].setdefault(int(idx), j)
+                cell_to_group[li][group_cells_all[j][li]] = j
+        # connected copper as masks, grown per connection: flatnonzero gives the
+        # same sorted cells np.unique(concatenate(...)) gave, without re-merging
+        # the (possibly huge) connected pour on every connection
+        connected_mask = [np.zeros(n_cells, dtype=np.bool_) for _ in range(nl)]
+
+        def connect(j: int) -> None:
+            for li in range(nl):
+                connected_mask[li][group_cells_all[j][li]] = True
+
+        connect(start)
         extra_sources: list[list[int]] = [[] for _ in range(nl)]
         vias_used = 0
         while remaining_idx:
             if cancel is not None and cancel.is_set():
                 raise GridCancelled()
-            merged = [
-                np.unique(np.concatenate([group_cells_all[j][li] for j in sorted(connected_idx)]))
-                for li in range(nl)
-            ]
+            merged = [np.flatnonzero(connected_mask[li]).astype(np.int64) for li in range(nl)]
             sources = _thin_sources(merged, grid.nx, grid.ny)
             for li in range(nl):
                 if extra_sources[li]:
@@ -523,7 +533,7 @@ class Router:
                 t_search = time.perf_counter()
                 outcome = self.search_fn(
                     problem,
-                    node_limit=norm.request.node_limit,
+                    node_limit=min(norm.request.node_limit, MAX_SEARCH_NODES),
                     time_limit_s=self._search_time(norm.request.time_limit_s),
                     cancel=cancel,
                     record_explored=self.record_explored,
@@ -552,7 +562,7 @@ class Router:
                         t_esc = time.perf_counter()
                         outcome = self.search_fn(
                             problem,
-                            node_limit=norm.request.node_limit,
+                            node_limit=min(norm.request.node_limit, MAX_SEARCH_NODES),
                             time_limit_s=self._search_time(norm.request.time_limit_s),
                             cancel=cancel,
                             record_explored=self.record_explored,
@@ -599,7 +609,8 @@ class Router:
                 connections_total=attempt.total,
             )
             end_li, end_idx = connection.cells[-1]
-            hit = cell_to_group[end_li].get(int(end_idx))
+            found = int(cell_to_group[end_li][int(end_idx)])
+            hit: int | None = found if found >= 0 else None
             if hit is None or hit not in remaining_idx:
                 # Shared cells map first-wins above; attribute exactly instead
                 # of guessing remaining_idx[0] (a wrong guess ends the loop
@@ -618,6 +629,7 @@ class Router:
                 return attempt
             remaining_idx.remove(hit)
             connected_idx.add(hit)
+            connect(hit)
             for seg in connection.segments:
                 li = grid.layers.index(seg.layer)
                 for p in (seg.start, seg.end):
