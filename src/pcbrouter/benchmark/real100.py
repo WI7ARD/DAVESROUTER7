@@ -26,7 +26,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,8 +40,10 @@ from pcbrouter.routing.presets import RouteMode, adjust_board_settings
 from pcbrouter.routing.request import RouteRequest
 from pcbrouter.routing.working_board import WorkingBoard
 
-SCHEMA = "davesrouter-real100/1"
-USER_AGENT = "DAVESROUTER-Real100/1.0 (+benchmark corpus fetcher)"
+SCHEMA = "davesrouter-real100/1.1"
+#: manifests this harness reads (1.1 = same boards, documents the strip policy)
+SCHEMAS = frozenset({"davesrouter-real100/1", SCHEMA})
+USER_AGENT = "DAVESROUTER-Real100/1.1 (+benchmark corpus fetcher)"
 RAW_BASE = "https://raw.githubusercontent.com/KiCad/kicad-source-mirror"
 
 
@@ -83,7 +85,7 @@ class Manifest:
 def load_manifest(path: Path | None = None) -> Manifest:
     p = path or default_manifest()
     data = json.loads(p.read_text(encoding="utf-8"))
-    if data.get("schema") != SCHEMA:
+    if data.get("schema") not in SCHEMAS:
         raise ValueError(f"unsupported Real100 manifest schema: {data.get('schema')!r}")
     boards = tuple(
         BoardSpec(
@@ -203,22 +205,32 @@ def fetch_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> list
     return out
 
 
-def _top_level_forms(text: str) -> Iterable[tuple[int, int, str]]:
-    """Yield ``(start, end, symbol)`` for direct children of the outer kicad_pcb form.
+ROUTE_SYMBOLS = frozenset({"segment", "via", "arc"})
 
-    The scanner is intentionally tiny but quote/escape aware. It does not interpret
-    KiCad syntax; it only finds balanced top-level S-expressions while preserving
-    every byte of text outside removed route-copper forms.
+
+def strip_routing_copper(text: str) -> tuple[str, dict[str, int]]:
+    """Remove only top-level routed copper: ``(segment …)``, ``(via …)`` and
+    copper-track ``(arc …)`` children of the outer ``(kicad_pcb …)`` form.
+
+    Footprints, pads, zones, keepouts, graphics (``gr_arc`` is a different
+    symbol), board outline, rules, net table, setup, groups and every unknown
+    construct stay byte-for-byte unchanged. The scanner respects strings, escapes
+    and ``;`` comments, and consumes the removed object's trailing blanks and one
+    line break, so no blank lines are left behind (Real100 pack builder 1.1).
     """
-    depth = 0
-    in_string = False
-    escaped = False
-    child_start: int | None = None
-    child_symbol = ""
-    i = 0
-    n = len(text)
+    if "(kicad_pcb" not in text:
+        raise ValueError("not a KiCad board")
+    counts = {"segment": 0, "via": 0, "arc": 0}
+    out: list[str] = []
+    last = depth = 0
+    in_string = escaped = in_comment = False
+    i, n = 0, len(text)
     while i < n:
         ch = text[i]
+        if in_comment:
+            in_comment = ch not in "\r\n"
+            i += 1
+            continue
         if in_string:
             if escaped:
                 escaped = False
@@ -228,64 +240,73 @@ def _top_level_forms(text: str) -> Iterable[tuple[int, int, str]]:
                 in_string = False
             i += 1
             continue
-        if ch == '"':
+        if ch == ";":
+            in_comment = True
+        elif ch == '"':
             in_string = True
-            i += 1
-            continue
-        if ch == "(":
-            depth += 1
-            if depth == 2:  # child of outer (kicad_pcb ...)
-                child_start = i
-                j = i + 1
-                while j < n and text[j].isspace():
+        elif ch == "(":
+            if depth == 1 and (sym := _head_symbol(text, i)) in ROUTE_SYMBOLS:
+                end = _matching_paren(text, i)
+                out.append(text[last:i])
+                j = end + 1
+                while j < n and text[j] in " \t":
                     j += 1
-                k = j
-                while k < n and not text[k].isspace() and text[k] not in "()":
-                    k += 1
-                child_symbol = text[j:k]
-            i += 1
-            continue
-        if ch == ")":
-            if depth == 2 and child_start is not None:
-                yield child_start, i + 1, child_symbol
-                child_start = None
-                child_symbol = ""
+                if text.startswith("\r\n", j):
+                    j += 2
+                elif j < n and text[j] in "\r\n":
+                    j += 1
+                last = i = j
+                counts[sym] += 1
+                continue
+            depth += 1
+        elif ch == ")":
             depth -= 1
             if depth < 0:
-                raise ValueError("unbalanced ')' while scanning KiCad board")
-            i += 1
-            continue
+                raise ValueError("malformed KiCad board: unexpected ')'")
         i += 1
-    if in_string or depth != 0:
-        raise ValueError("unbalanced KiCad board while stripping routing copper")
+    if depth != 0 or in_string:
+        raise ValueError("malformed KiCad board: unbalanced parentheses or string")
+    out.append(text[last:])
+    return "".join(out), counts
 
 
-def strip_routing_copper(text: str) -> tuple[str, dict[str, int]]:
-    """Remove only top-level routed copper: segment, via and track-arc objects.
+def _head_symbol(text: str, open_paren: int) -> str:
+    i = open_paren + 1
+    n = len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    j = i
+    while j < n and not text[j].isspace() and text[j] not in "()":
+        j += 1
+    return text[i:j]
 
-    Footprints, pads, zones, keepouts, graphics, board outline, rules, net table,
-    setup, groups and all unknown constructs remain byte-for-byte unchanged.
-    """
-    forms = list(_top_level_forms(text))
-    if not forms and "(kicad_pcb" not in text:
-        raise ValueError("not a KiCad board")
-    remove = [(a, b, sym) for a, b, sym in forms if sym in {"segment", "via", "arc"}]
-    counts = {"segment": 0, "via": 0, "arc": 0}
-    for _, _, sym in remove:
-        counts[sym] += 1
-    if not remove:
-        return text, counts
-    parts: list[str] = []
-    pos = 0
-    for start, end, _ in remove:
-        parts.append(text[pos:start])
-        # Keep a newline when a whole route object occupied its own line so the
-        # resulting file remains human-readable without reformatting anything else.
-        if start > 0 and text[start - 1] not in "\r\n":
-            parts.append(" ")
-        pos = end
-    parts.append(text[pos:])
-    return "".join(parts), counts
+
+def _matching_paren(text: str, start: int) -> int:
+    """Index of the ``)`` closing ``text[start] == "("`` (strings/comments aware)."""
+    depth = 0
+    in_string = escaped = in_comment = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_comment:
+            in_comment = ch not in "\r\n"
+        elif in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == ";":
+            in_comment = True
+        elif ch == '"':
+            in_string = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    raise ValueError(f"unbalanced S-expression starting at character {start}")
 
 
 def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dict[str, Any]:
@@ -296,16 +317,33 @@ def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dic
     dest_dir = _entry_dir(workdir, "prepared", spec)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / spec.name
-    if dest.exists() and not force:
+    if dest.exists() and (dest_dir / "SOURCE.json").exists() and not force:
         return {"id": spec.id, "status": "ok", "cached": True, "path": str(dest)}
     raw = src.read_bytes()
-    text = raw.decode("utf-8-sig")
-    stripped, counts = strip_routing_copper(text)
-    dest.write_text(stripped, encoding="utf-8", newline="")
+    if git_blob_sha1(raw) != spec.git_blob_sha1:  # never derive from an unverified source
+        raise RuntimeError(f"{spec.id}: downloaded board does not match its pinned Git blob")
+    stripped, counts = strip_routing_copper(raw.decode("utf-8-sig"))
+    again, leftovers = strip_routing_copper(stripped)
+    if any(leftovers.values()) or again != stripped:
+        raise RuntimeError(f"{spec.id}: route stripping is not idempotent: {leftovers}")
+    data = stripped.encode("utf-8")
+    dest.write_bytes(data)
+    sidecars = []
     for suffix in (".kicad_pro", ".kicad_dru"):
         side = src_dir / src.with_suffix(suffix).name
         if side.is_file():
             shutil.copy2(side, dest_dir / side.name)
+            sidecars.append(side.name)
+    meta = {
+        "id": spec.id,
+        "source_path": spec.source_path,
+        "git_blob_sha1": spec.git_blob_sha1,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "unrouted_sha256": hashlib.sha256(data).hexdigest(),
+        "transform": {"name": "strip_routing_copper", "removed": counts, "zones_preserved": True},
+        "sidecars": sidecars,
+    }
+    (dest_dir / "SOURCE.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return {
         "id": spec.id,
         "status": "ok",
@@ -314,8 +352,19 @@ def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dic
         "removed_segments": counts["segment"],
         "removed_vias": counts["via"],
         "removed_track_arcs": counts["arc"],
-        "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(),
+        "sidecars": sidecars,
+        "sha256": meta["unrouted_sha256"],
     }
+
+
+def _write_rules_inventory(rows: list[dict[str, Any]], path: Path) -> None:
+    keys = ["id", "status", "removed_segments", "removed_vias", "removed_track_arcs",
+            "sidecars", "sha256", "error"]  # fmt: skip
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=keys, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({**r, "sidecars": ";".join(r.get("sidecars") or [])})
 
 
 def prepare_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> list[dict[str, Any]]:
@@ -327,6 +376,7 @@ def prepare_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> li
         except Exception as exc:
             out.append({"id": spec.id, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
     (workdir / "prepare_status.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    _write_rules_inventory(out, workdir / "rules_inventory.csv")
     return out
 
 
@@ -426,6 +476,10 @@ def route_one_board(
     loaded = load_board(board_path)
     rules = load_project_rules(board_path)
     wb = WorkingBoard(loaded.board, rules, config=EngineConfig(conservative=conservative))
+    # the hard timeout covers loading too: route only in what is left, keeping a
+    # reserve for the post-route connectivity check (big boards load for 20 s)
+    load_s = time.perf_counter() - started
+    budget_s = max(0.1, (budget_s - load_s) * 0.9)
     base = RouteRequest(
         "",
         candidates=1,
@@ -445,6 +499,20 @@ def route_one_board(
         "mode": mode.value,
         "runtime_s": round(time.perf_counter() - started, 6),
         "router_summary": result.summary(),
+        "load_s": round(load_s, 3),
+        "route_budget_s": round(budget_s, 3),
+        "failure_reasons": dict(
+            Counter(
+                (o.reason.value if o.reason else o.status.value)
+                for o in result.outcomes.values()
+                if o.status.value != "SUCCESS"
+            )
+        ),
+        "failed_examples": [
+            f"{o.net}: {(o.message or '')[:240]}"
+            for o in result.outcomes.values()
+            if o.status.value != "SUCCESS"
+        ][:8],
         "metrics": result.metrics.to_dict(),
         "pre_connectivity": pre,
         "post_connectivity": post,
@@ -740,6 +808,12 @@ def generate_report(results_path: Path, *, output_dir: Path | None = None) -> tu
             f"{c}/{a} ({_pct(c, a)}) |"
         )
 
+    reasons: Counter[str] = Counter()
+    for r in ok:
+        reasons.update(r.get("failure_reasons") or {})
+    if reasons:
+        lines += ["", "## Unrouted nets by reason", "", "| Reason | Nets |", "|---|---:|"]
+        lines += [f"| {k} | {v} |" for k, v in reasons.most_common()]
     lines += [
         "",
         "## Per-board results",

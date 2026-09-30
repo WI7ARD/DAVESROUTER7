@@ -40,6 +40,32 @@ def test_strip_routing_copper_only_removes_top_level_route_objects() -> None:
     assert "(pad " in stripped
 
 
+def test_strip_respects_strings_comments_and_is_idempotent() -> None:
+    text = (
+        "(kicad_pcb (version 20240108)\n"
+        '  (title_block (comment 1 "not a (via here)"))\n'
+        "  ; (segment (start 0 0) (end 1 1)) in a comment stays\n"
+        '  (segment (start 0 0) (end 2 0) (width 0.25) (layer "F.Cu") (net 1))\n'
+        '  (via (at 2 0) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1))\n'
+        '  (gr_line (start 0 0) (end 1 0) (layer "Edge.Cuts"))\n'
+        ")\n"
+    )
+    stripped, counts = strip_routing_copper(text)
+    assert counts == {"segment": 1, "via": 1, "arc": 0}
+    assert '"not a (via here)"' in stripped and "; (segment" in stripped
+    assert "\n\n" not in stripped  # removed objects leave no blank lines
+    again, leftovers = strip_routing_copper(stripped)
+    assert again == stripped and leftovers == {"segment": 0, "via": 0, "arc": 0}
+
+
+def test_both_manifest_schemas_load(tmp_path: Path) -> None:
+    data = json.loads((ROOT / "benchmarks" / "real100" / "manifest.json").read_text("utf-8"))
+    for schema in ("davesrouter-real100/1", "davesrouter-real100/1.1"):
+        path = tmp_path / f"{schema.rsplit('/', 1)[1]}.json"
+        path.write_text(json.dumps({**data, "schema": schema}), encoding="utf-8")
+        assert len(load_manifest(path).boards) == 100
+
+
 def test_strip_real_fixture_retains_loadable_board_and_nets(tmp_path: Path) -> None:
     src = ROOT / "tests" / "fixtures" / "boards" / "router_dense.kicad_pcb"
     before = load_board(src).board

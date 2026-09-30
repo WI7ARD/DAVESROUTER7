@@ -204,3 +204,17 @@ For meaningful before/after comparisons, keep fixed:
 - conservative-rule setting.
 
 Timing results are machine-dependent. Completion, validity, crashes, timeouts, and route-quality changes are usually more portable than absolute seconds.
+
+## Standalone pack builder (1.1)
+
+`pack_builder/` builds a self-contained ZIP of the 100 unrouted boards plus their
+`.kicad_pro` / `.kicad_dru` rules, for machines without this repository:
+
+- **Windows:** double-click `pack_builder/DOWNLOAD_AND_BUILD_REAL100.bat`.
+- **Linux/macOS:** run `pack_builder/DOWNLOAD_AND_BUILD_REAL100.sh`.
+
+Inside the repository the output goes to `work/pack/`. `prepare` and the builder
+use the same stripper: strings, escapes and `;` comments are respected, and no
+blank lines are left behind. Both verify that a second strip removes nothing,
+and each board gets a `SOURCE.json` with source and unrouted SHA-256.
+`prepare` also writes `work/rules_inventory.csv`.

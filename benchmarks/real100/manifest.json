@@ -1,7 +1,7 @@
 {
-  "schema": "davesrouter-real100/1",
+  "schema": "davesrouter-real100/1.1",
   "suite_name": "DAVESROUTER Benchmark Suite \u2014 100 Real KiCad Boards",
-  "suite_version": "1.0.0",
+  "suite_version": "1.1.0",
   "source_repository": "https://github.com/KiCad/kicad-source-mirror",
   "source_ref": "fec63a6f5197a584e27b1bc3e7b8431be9c05a78",
   "source_ref_date": "2026-09-30T08:23:01Z",
@@ -9,7 +9,7 @@
   "notes": [
     "80 PCBNew QA/regression boards + 20 official KiCad demo designs.",
     "Board bytes are fetched on demand and are not vendored in DAVESROUTER.",
-    "Generated unrouted copies are local benchmark derivatives only."
+    "Generated boards are unrouted benchmark derivatives: all top-level segments, vias, and copper track arcs are stripped after source-hash verification; zones and design rules are preserved."
   ],
   "boards": [
     {
