@@ -133,10 +133,13 @@ def policy_identity(spec: str) -> dict[str, Any]:
     }
 
 
-def _launch_real100(spec: str, mode: str, a: argparse.Namespace) -> subprocess.Popen[str]:
+def _launch_real100(
+    spec: str, mode: str, a: argparse.Namespace, out: Path
+) -> subprocess.Popen[str]:
     cmd = [
         sys.executable, str(ROOT / "tools" / "benchmark_real100.py"), "run",
         "--profile", a.profile, "--modes", mode, "--no-experience", "--policy", spec,
+        "--out", str(out),
     ]  # fmt: skip
     if a.ids:
         cmd += ["--ids", a.ids]
@@ -198,7 +201,7 @@ def run_ab(a: argparse.Namespace) -> int:
     for rep in range(a.repeat):
         # every strategy x mode side by side: paired runs share the machine load
         procs = {
-            (arm, m): _launch_real100(spec, m, a)
+            (arm, m): _launch_real100(spec, m, a, outdir / f"{arm}_{m}_r{rep}.jsonl")
             for arm, spec in (("base", base_spec), ("cand", cand_spec))
             for m in modes
         }

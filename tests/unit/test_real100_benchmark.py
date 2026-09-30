@@ -135,3 +135,16 @@ def test_worker_can_check_validity_of_new_copper(tmp_path: Path) -> None:
     assert build_parser().parse_args(["run", "--check-validity"]).check_validity
     cmd = _worker_command(tmp_path / "b.kicad_pcb", RouteMode.SPEED, 10.0, True, None, None, True)
     assert cmd[-1] == "--check-validity"
+
+
+def test_side_by_side_runs_never_share_a_results_file(tmp_path: Path) -> None:
+    import pytest
+
+    from pcbrouter.benchmark.real100 import build_parser, run_corpus
+
+    assert build_parser().parse_args(["run", "--out", "x.jsonl"]).out == Path("x.jsonl")
+    out = tmp_path / "r.jsonl"
+    out.write_text("")
+    manifest = load_manifest()
+    with pytest.raises(FileExistsError):
+        run_corpus(manifest, tmp_path, profile="smoke", ids={"K001"}, out_path=out)

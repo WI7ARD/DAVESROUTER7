@@ -645,6 +645,7 @@ def run_corpus(
     experience_dir: Path | None = None,
     policy: str | None = None,
     check_validity: bool = False,
+    out_path: Path | None = None,
 ) -> Path:
     default_modes, default_timeout = profile_defaults(profile)
     modes = modes or default_modes
@@ -655,7 +656,11 @@ def run_corpus(
     runs_dir = workdir / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    result_path = runs_dir / f"real100-{profile}-{stamp}.jsonl"
+    # the pid keeps runs started in the same second (side-by-side A/B) apart
+    result_path = out_path or runs_dir / f"real100-{profile}-{stamp}-p{os.getpid()}.jsonl"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    if result_path.exists():
+        raise FileExistsError(f"{result_path} exists; results are never appended to old runs")
 
     env = os.environ.copy()
     src = str(repo_root() / "src")
@@ -946,6 +951,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="search-variant policy: fixed (default), random:SEED or a policy.json",
     )
+    r.add_argument("--out", type=Path, default=None, help="results .jsonl (default: runs/)")
     r.add_argument(
         "--check-validity",
         action="store_true",
@@ -1035,6 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
             experience_dir=None if args.no_experience else workdir / "experience",
             policy=args.policy,
             check_validity=args.check_validity,
+            out_path=args.out,
         )
         print(result)
         return 0
