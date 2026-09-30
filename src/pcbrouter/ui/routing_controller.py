@@ -407,6 +407,7 @@ class RoutingController(QObject):
             plan_settings,
             mode=self._mode(),
             timeout_s=plan_settings.budget_s + BOARD_TIMEOUT_GRACE_S,
+            record_experience=bool(getattr(self.w.settings.routing, "record_experience", False)),
         )
         if not self._submit(job, self._board_job_done):
             return False

@@ -234,6 +234,15 @@ class SettingsDialog(QDialog):
         )
         form.addRow("Parallel routing:", self.route_workers)
         form.addRow(self.route_ripup)
+        self.route_learn = QCheckBox("Keep a local routing log to learn from")
+        self.route_learn.setChecked(r.record_experience)
+        self.route_learn.setToolTip(
+            "After each board routing job, record per net: board and net features, the "
+            "search settings and the outcome. Net names and coordinates are never "
+            "stored and nothing leaves this computer. The router uses it to choose "
+            "search settings; every route is still checked by the exact validator."
+        )
+        form.addRow(self.route_learn)
         self.ai_autonomy = QComboBox()
         for key, label in (
             ("advisory", "Advisory — AI analyses only, never runs the router"),
@@ -374,6 +383,7 @@ class SettingsDialog(QDialog):
         s.routing.strategy = self.route_strategy.currentData()
         s.routing.max_passes = self.route_passes.value()
         s.routing.allow_ripup = self.route_ripup.isChecked()
+        s.routing.record_experience = self.route_learn.isChecked()
         s.routing.parallel_workers = int(self.route_workers.currentData())
         s.ai.autonomy_mode = self.ai_autonomy.currentData()
         s.geometry.conservative_rules = self.conservative_rules.isChecked()

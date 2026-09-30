@@ -409,7 +409,12 @@ def _route_board(job: RouteBoardJob, ctx: JobContext) -> Any:
         except Exception:
             log.debug("[route:%s] partial snapshot not transferable", ctx.job_id, exc_info=True)
 
-    return router.run(plan, _board_control(ctx), ctx.board_progress, on_partial=on_partial)
+    result = router.run(plan, _board_control(ctx), ctx.board_progress, on_partial=on_partial)
+    if job.record_experience:
+        from pcbrouter.learning.experience import record_board_job
+
+        record_board_job(result, job.settings, source="app")
+    return result
 
 
 def _ai_plan(job: AIPlanJob, ctx: JobContext) -> Any:

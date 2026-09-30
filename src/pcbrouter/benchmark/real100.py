@@ -470,7 +470,12 @@ def _write_inventory_csv(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def route_one_board(
-    board_path: Path, mode: RouteMode, *, budget_s: float, conservative: bool = True
+    board_path: Path,
+    mode: RouteMode,
+    *,
+    budget_s: float,
+    conservative: bool = True,
+    experience_dir: Path | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     loaded = load_board(board_path)
@@ -490,6 +495,10 @@ def route_one_board(
     settings = adjust_board_settings(settings, base, mode)
     pre = wb.engine.connectivity.metrics()
     result = BoardRouter(wb, settings).run()
+    if experience_dir is not None:
+        from pcbrouter.learning.experience import record_board_job
+
+        record_board_job(result, settings, folder=experience_dir, source="real100")
     post = WorkingBoard(
         result.final_board, rules, config=EngineConfig(conservative=conservative)
     ).engine.connectivity.metrics()
@@ -568,7 +577,13 @@ def profile_defaults(profile: str) -> tuple[tuple[RouteMode, ...], float]:
     raise ValueError(profile)
 
 
-def _worker_command(board: Path, mode: RouteMode, budget_s: float, conservative: bool) -> list[str]:
+def _worker_command(
+    board: Path,
+    mode: RouteMode,
+    budget_s: float,
+    conservative: bool,
+    experience_dir: Path | None = None,
+) -> list[str]:
     return [
         sys.executable,
         "-m",
@@ -582,6 +597,7 @@ def _worker_command(board: Path, mode: RouteMode, budget_s: float, conservative:
         str(budget_s),
         "--conservative",
         "yes" if conservative else "no",
+        *(["--experience", str(experience_dir)] if experience_dir is not None else []),
     ]
 
 
@@ -595,6 +611,7 @@ def run_corpus(
     ids: set[str] | None = None,
     max_boards: int | None = None,
     conservative: bool = True,
+    experience_dir: Path | None = None,
 ) -> Path:
     default_modes, default_timeout = profile_defaults(profile)
     modes = modes or default_modes
@@ -643,7 +660,9 @@ def run_corpus(
                         "error": "prepared board missing; run fetch + prepare",
                     }
                 else:
-                    cmd = _worker_command(board, mode, max(1.0, timeout_s - 5.0), conservative)
+                    cmd = _worker_command(
+                        board, mode, max(1.0, timeout_s - 5.0), conservative, experience_dir
+                    )
                     t0 = time.perf_counter()
                     try:
                         proc = subprocess.run(
@@ -882,6 +901,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--ids", default=None, help="comma-separated IDs such as K001,K081")
     r.add_argument("--max-boards", type=int, default=None)
     r.add_argument("--conservative", choices=("yes", "no"), default="yes")
+    r.add_argument(
+        "--no-experience",
+        action="store_true",
+        help="do not write routing experience records (work/experience/)",
+    )
     rep = sub.add_parser("report", help="turn a JSONL run into CSV + Markdown")
     rep.add_argument("results", type=Path)
     a = sub.add_parser("all", help="fetch, prepare, inventory, run, report")
@@ -891,12 +915,14 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--max-boards", type=int, default=None)
     a.add_argument("--force", action="store_true")
     a.add_argument("--conservative", choices=("yes", "no"), default="yes")
+    a.add_argument("--no-experience", action="store_true")
 
     w = sub.add_parser("worker", help=argparse.SUPPRESS)
     w.add_argument("--board", type=Path, required=True)
     w.add_argument("--mode", choices=("speed", "accuracy"), required=True)
     w.add_argument("--budget", type=float, required=True)
     w.add_argument("--conservative", choices=("yes", "no"), default="yes")
+    w.add_argument("--experience", type=Path, default=None)
     return p
 
 
@@ -909,6 +935,7 @@ def main(argv: list[str] | None = None) -> int:
                 RouteMode(args.mode),
                 budget_s=args.budget,
                 conservative=args.conservative == "yes",
+                experience_dir=args.experience,
             )
             print(json.dumps(payload, sort_keys=True))
             return 0
@@ -950,6 +977,7 @@ def main(argv: list[str] | None = None) -> int:
             ids=ids,
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
+            experience_dir=None if args.no_experience else workdir / "experience",
         )
         print(result)
         return 0
@@ -975,6 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout_s=args.timeout,
             max_boards=args.max_boards,
             conservative=args.conservative == "yes",
+            experience_dir=None if args.no_experience else workdir / "experience",
         )
         csv_path, md_path = generate_report(result)
         print(result)

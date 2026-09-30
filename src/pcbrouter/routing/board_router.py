@@ -251,6 +251,11 @@ class NetOutcome:
     added_ids: list[str] = field(default_factory=list)
     #: generated ids this net's final route required removing (rip-up)
     removed_ids: list[str] = field(default_factory=list)
+    #: effort over the whole job (every pass): searches started for this net,
+    #: states expanded and seconds spent (learning / experience log)
+    attempts: int = 0
+    expanded_nodes: int = 0
+    route_s: float = 0.0
 
 
 @dataclass
@@ -922,6 +927,9 @@ class BoardRouter:
         metrics.absorb(res.metrics)
         o = outcomes[task.net]
         o.passes = pass_no
+        o.attempts += 1
+        o.expanded_nodes += int(res.metrics.expanded_nodes)
+        o.route_s += float(res.metrics.elapsed_s)
         if res.status is RouteStatus.ALREADY_CONNECTED:
             o.status = RouteStatus.SUCCESS
             metrics.clean_nets += 1  # nothing to route: trivially clean

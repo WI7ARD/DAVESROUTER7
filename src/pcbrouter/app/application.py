@@ -163,6 +163,9 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--grid", type=float, metavar="MM",
                         help="routing grid in mm, 0.025-1.0 (--route; default: the "
                         "mode's)")  # fmt: skip
+    parser.add_argument("--no-experience", action="store_true",
+                        help="do not add this run to the local routing experience log "
+                        "(--route; anonymised, never leaves this computer)")  # fmt: skip
     parser.add_argument("--overwrite", action="store_true",
                         help="allow --output to be the source board itself; a timestamped "
                         "backup is written to pcbrouter-backups/ first (--route)")  # fmt: skip
@@ -326,10 +329,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("--route needs a BOARD.kicad_pcb")
             return 2
         setup_logging(None, logging.WARNING, console=sys.stderr is not None)
+        try:
+            learn = SettingsStore().load().routing.record_experience
+        except Exception:  # unreadable settings: the default (on) applies
+            learn = True
         return route_cli(args.board, args.output, args.mode, args.workers, args.budget,
                          args.report, args.kicad_drc, backend=args.backend,
                          layers=args.layers, grid_mm=args.grid,
-                         overwrite=args.overwrite)  # fmt: skip
+                         overwrite=args.overwrite,
+                         record_experience=learn and not args.no_experience)  # fmt: skip
     if args.worker_selftest:
         from pcbrouter.jobs.selftest import run_worker_selftest
 

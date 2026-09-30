@@ -145,6 +145,9 @@ class RoutingSettings(_Model):
     #: helper processes for parallel board routing (CPU backend only):
     #: -1 = automatic (CPU cores - 1, at most 4), 0 or 1 = off
     parallel_workers: int = Field(default=-1, ge=-1, le=16)
+    #: keep a local, anonymised log of routing outcomes (features, settings,
+    #: result per net; never net names) that the router learns from
+    record_experience: bool = True
 
 
 class GeometrySettings(_Model):

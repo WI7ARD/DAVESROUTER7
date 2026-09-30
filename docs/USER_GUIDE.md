@@ -95,6 +95,17 @@ kept. It is produced from the settings the router will actually use. Differentia
 pairs are routed together, but gap, skew and impedance are not controlled. Length
 targets are measured and reported, not tuned. Full table: `CAPABILITIES.md`.
 
+## Learning from your routing (local)
+With Settings ▸ Routing ▸ *Keep a local routing log to learn from* on (the
+default), each board-routing job adds anonymised per-net records to a local file:
+
+- features, search settings and the outcome for each net;
+- no net names, no coordinates;
+- nothing is sent anywhere.
+
+The router will use this log to choose search settings for your kinds of boards;
+the exact validator still checks every route. See `LEARNING.md`.
+
 ## Files
 * Output: `<name>_routed.kicad_pcb` next to the source (a sidecar `.pcbrouter.json`
   records provenance). Overwriting the source must be enabled explicitly (Settings ▸

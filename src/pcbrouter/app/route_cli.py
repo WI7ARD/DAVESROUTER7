@@ -199,6 +199,7 @@ def route_cli(
     layers: str | None = None,
     grid_mm: float | None = None,
     overwrite: bool = False,
+    record_experience: bool = False,
 ) -> int:
     from dataclasses import replace
 
@@ -265,6 +266,10 @@ def route_cli(
     except KeyboardInterrupt:
         return run.finish(EXIT_ERROR, "Interrupted; nothing was written.")
     run.report["route_s"] = round(time.monotonic() - t0, 1)
+    if record_experience:
+        from pcbrouter.learning.experience import record_board_job
+
+        run.report["experience_records"] = record_board_job(result, settings, source="cli")
     run.report.update(_resource_usage())
     run.report["log"] = [line for line in result.log if "parallel" in line][:5]
     for line in run.report["log"]:

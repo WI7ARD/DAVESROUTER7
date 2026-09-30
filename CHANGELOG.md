@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Learning, level 1: routing experience log** (`docs/LEARNING.md`)
+- After each board-routing job (app, CLI, Real100) one record per net is added
+  to a local log: board/net features, search settings, outcome and effort.
+- The log is anonymised: net names and coordinates are never stored, and the
+  board is identified by a salted hash. It is capped at 50 MB and never leaves
+  the computer.
+- Turn it off in Settings ▸ Routing, or with `--no-experience` for one CLI run.
+  It is the data the next level learns search settings from.
+
 **Routing (Real100 tuning round 1: 1,539 → 1,755 nets on the 41 routable boards)**
 - The search grid demands exactly the clearance the validator enforces. This
   includes the "possibly stricter" bound of unsupported custom rules, whose

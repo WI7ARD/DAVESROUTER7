@@ -284,6 +284,8 @@ class RouteNetJob(JobBase):
 class RouteBoardJob(JobBase):
     snapshot: WorkingSnapshot
     settings: Any  # BoardRouterSettings
+    #: append the outcome to the local experience log (Settings > Routing)
+    record_experience: bool = False
 
     def __post_init__(self) -> None:
         self.kind, self.title = "route_board", "Routing board…"

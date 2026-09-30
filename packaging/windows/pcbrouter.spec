@@ -42,6 +42,7 @@ datas = [
     (str(ROOT / "docs" / "USER_GUIDE.md"), "docs"),
     (str(ROOT / "docs" / "TROUBLESHOOTING.md"), "docs"),
     (str(ROOT / "docs" / "CAPABILITIES.md"), "docs"),
+    (str(ROOT / "docs" / "LEARNING.md"), "docs"),
     (str(ROOT / "KNOWN_LIMITATIONS.md"), "docs"),
     (str(ROOT / "CHANGELOG.md"), "docs"),
 ]
