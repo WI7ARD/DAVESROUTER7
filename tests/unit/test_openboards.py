@@ -451,6 +451,15 @@ def test_curate_caches_downloads_including_misses(
         ("CERN Open Hardware Licence Version 2 - Strongly Reciprocal", "CERN-OHL-S-2.0"),
         ("CERN Open Hardware Licence Version 2 - Weakly Reciprocal", "CERN-OHL-W-2.0"),
         ("CERN Open Hardware Licence Version 2 - Permissive", "CERN-OHL-P-2.0"),
+        (
+            "CERN Open Hardware Licence Version 2 - Permissive\n\nPreamble ... unlike the "
+            "strongly reciprocal and weakly reciprocal variants ...",
+            "CERN-OHL-P-2.0",
+        ),
+        (
+            "This source describes Open Hardware and is licensed under the CERN-OHL-P v2.",
+            "CERN-OHL-P-2.0",
+        ),
         ("Attribution-ShareAlike 4.0 International", "CC-BY-SA-4.0"),
         ("Creative Commons Attribution 4.0 International Public License", "CC-BY-4.0"),
         ("Apache License\n Version 2.0, January 2004", "Apache-2.0"),

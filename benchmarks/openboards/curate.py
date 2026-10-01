@@ -64,7 +64,7 @@ from pcbrouter.benchmark.real100 import (  # noqa: E402
 SUITE_NAME = "DAVESROUTER OpenBoards — pinned open-source KiCad projects"
 SUITE_VERSION = "1.0.0"
 #: bump when the acceptance checks change: cached verdicts are keyed by it
-CURATE_VERSION = 1
+CURATE_VERSION = 2
 #: first KiCad 6.0 board file format; older files (KiCad 5 and 5.99 nightlies) are rejected
 KICAD6_MIN_VERSION = 20211014
 LICENSE_NAMES = (
@@ -141,14 +141,14 @@ def classify_license(text: str) -> tuple[str | None, str]:
     head = t[:600]
     if "noncommercial" in t or "non-commercial" in t:
         return None, "non-commercial licence"
-    if "cern" in t and "strongly reciprocal" in t:
-        return "CERN-OHL-S-2.0", "CERN OHL v2 strongly reciprocal"
-    if "cern" in t and "weakly reciprocal" in t:
-        return "CERN-OHL-W-2.0", "CERN OHL v2 weakly reciprocal"
-    if "cern open hardware licence version 2 - permissive" in t or (
-        "cern" in t and "version 2" in t and "permissive" in t
-    ):
-        return "CERN-OHL-P-2.0", "CERN OHL v2 permissive"
+    # CERN OHL v2: the variant is in the title (each text mentions the others)
+    for variant, word in (("S", "strongly reciprocal"), ("W", "weakly reciprocal"),
+                          ("P", "permissive")):  # fmt: skip
+        if re.search(rf"cern open hardware licen[cs]e version 2 - {word}", head):
+            return f"CERN-OHL-{variant}-2.0", f"CERN OHL v2 {word}"
+    m = re.search(r"cern[- ]ohl[- ]([psw])(?:-2\.0|[- ]v ?2)", t)
+    if m:
+        return f"CERN-OHL-{m.group(1).upper()}-2.0", "names CERN OHL v2"
     if re.search(r"cern (open hardware licence|ohl) v\.? ?1\.2", t):
         return "CERN-OHL-1.2", "CERN OHL v1.2"
     if "attribution-sharealike 4.0" in t or "cc-by-sa-4.0" in t or "cc by-sa 4.0" in t:

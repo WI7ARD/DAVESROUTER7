@@ -1,16 +1,16 @@
 # OpenBoards corpus
 
-65 accepted boards from 46 repositories (suite 1.0.0, generated 2026-10-01T00:54:56Z by `curate.py`). Numbers are `learning.features.board_profile` of the **stripped** board: `signal_layers` = copper layers minus plane-like layers (>60 % zone cover), `long_net_frac` = share of nets whose airwire exceeds a quarter of the board diagonal, `demand` = airwire length per routable area and signal layer.
+60 accepted boards from 46 repositories (suite 1.0.0, generated 2026-10-01T01:01:27Z by `curate.py`). Numbers are `learning.features.board_profile` of the **stripped** board: `signal_layers` = copper layers minus plane-like layers (>60 % zone cover), `long_net_frac` = share of nets whose airwire exceeds a quarter of the board diagonal, `demand` = airwire length per routable area and signal layer.
 
 ## Coverage
 
-- copper layers: {2: 32, 4: 22, 6: 4, 8: 5, 12: 2}
-- signal (routable) layers: {1: 44, 2: 12, 3: 2, 4: 5, 5: 1, 6: 1}
-- with plane layers: 63; all-signal: 2
-- domains: {'keyboard': 13, 'fpga': 11, 'mcu': 11, 'breakout': 11, 'sbc_carrier': 4, 'memory': 4, 'power': 3, 'video': 2, 'rf': 2, 'badge': 2, 'led': 2}
-- original routing complete (`reference_complete`): 63/65
-- selector gaps: 4+ free signal layers without planes: 1; long-net share > 0.8: 4; pad density > 8 /cm²: 37; single routable layer: 44
-- licences: {'MIT': 19, 'Apache-2.0': 13, 'CERN-OHL-S-2.0': 10, 'LicenseRef-LoneDynamics-BSD-1-Clause-variant': 8, 'CC-BY-SA-4.0': 6, 'CC-BY-4.0': 3, '0BSD': 2, 'CERN-OHL-1.2': 2, 'SHL-2.1': 2}
+- copper layers: {2: 27, 4: 22, 6: 4, 8: 5, 12: 2}
+- signal (routable) layers: {1: 39, 2: 10, 3: 2, 4: 7, 5: 1, 6: 1}
+- with plane layers: 56; all-signal: 4
+- domains: {'mcu': 13, 'fpga': 9, 'breakout': 9, 'keyboard': 9, 'power': 5, 'sbc_carrier': 4, 'memory': 4, 'video': 2, 'rf': 2, 'badge': 2, 'led': 1}
+- original routing complete (`reference_complete`): 58/60
+- selector gaps: 4+ free signal layers without planes: 3; long-net share > 0.8: 4; pad density > 8 /cm²: 38; single routable layer: 39
+- licences: {'MIT': 18, 'Apache-2.0': 13, 'CERN-OHL-S-2.0': 12, 'LicenseRef-LoneDynamics-BSD-1-Clause-variant': 6, 'CC-BY-SA-4.0': 4, '0BSD': 2, 'CERN-OHL-1.2': 2, 'CC-BY-4.0': 2, 'SHL-2.1': 1}
 
 ## Accepted boards
 
@@ -59,30 +59,25 @@
 | O041 | `opulo-inc/lumenpnp` pnp/pcb/ftp/ftp.kicad_pcb | breakout | 2 | 1 | 41 | 169 | 3.0 | 0.02 | 0.074 | CC-BY-SA-4.0 | yes |
 | O042 | `hackclub/hackpad` extras/orpheuspad/pcb/orpheuspad_pcb.kicad_pcb | keyboard | 2 | 2 | 18 | 64 | 1.3 | 0.94 | 0.105 | MIT | yes |
 | O043 | `davidphilipbarr/Sweep` Sweep Bling MX/pcb/sweep-bling-mx__pcb.kicad_pcb | keyboard | 2 | 1 | 23 | 469 | 4.3 | 0.57 | 0.114 | SHL-2.1 | yes |
-| O044 | `davidphilipbarr/Sweep` Sweep half-swept/half-swept.kicad_pcb | keyboard | 2 | 1 | 24 | 414 | 4.4 | 0.54 | 0.112 | SHL-2.1 | yes |
-| O045 | `foostan/crkbd` pcbs/corne-cherry/hotswap/corne-cherry.kicad_pcb | keyboard | 2 | 1 | 152 | 950 | 3.2 | 0.12 | 0.239 | CC-BY-4.0 | yes |
-| O046 | `foostan/crkbd` pcbs/corne-chocolate/hotswap/corne-chocolate.kicad_pcb | keyboard | 2 | 1 | 152 | 996 | 3.3 | 0.12 | 0.239 | CC-BY-4.0 | yes |
-| O047 | `kata0510/Lily58` Pro_V2/Pro_V2.kicad_pcb | keyboard | 2 | 1 | 212 | 1246 | 3.3 | 0.12 | 0.189 | MIT | yes |
-| O048 | `kata0510/Lily58` Lite_Rev3/Lily58_Lite_Rev3.kicad_pcb | keyboard | 2 | 1 | 91 | 530 | 1.5 | 0.24 | 0.114 | MIT | yes |
-| O049 | `josefadamcik/SofleKeyboard` Sofle_Pico/PCB/Sofle_Pico.kicad_pcb | keyboard | 2 | 1 | 92 | 1687 | 10.0 | 0.24 | 0.202 | MIT | yes |
-| O050 | `josefadamcik/SofleKeyboard` Sofle_v2_soldered/PCB/SofleKeyboard.kicad_pcb | keyboard | 2 | 1 | 55 | 439 | 2.7 | 0.27 | 0.151 | MIT | yes |
-| O051 | `GEIGEIGEIST/TOTEM` PCB/totem_0-3/totem_0_3.kicad_pcb | keyboard | 2 | 1 | 69 | 528 | 2.2 | 0.55 | 0.223 | CERN-OHL-S-2.0 | yes |
-| O052 | `pashutk/chocofi` pcb/chocofi.kicad_pcb | keyboard | 2 | 1 | 44 | 435 | 4.3 | 0.34 | 0.201 | CERN-OHL-S-2.0 | yes |
-| O053 | `duckyb/urchin` main.kicad_pcb | keyboard | 2 | 1 | 68 | 570 | 2.9 | 0.26 | 0.114 | MIT | yes |
-| O054 | `gtips/reviung` reviung46/pcb/reviung46_ver1_1/reviung46/reviung46.kicad_pcb | keyboard | 2 | 1 | 73 | 541 | 2.0 | 0.25 | 0.192 | MIT | yes |
-| O055 | `machdyne/keks` pcb/keks_v1/keks.kicad_pcb | fpga | 4 | 2 | 194 | 854 | 13.3 | 0.15 | 0.321 | LicenseRef-LoneDynamics-BSD-1-Clause-variant | yes |
-| O056 | `machdyne/minze` pcb/minze_v1/minze.kicad_pcb | mcu | 4 | 1 | 108 | 593 | 20.8 | 0.24 | 0.639 | LicenseRef-LoneDynamics-BSD-1-Clause-variant | yes |
-| O057 | `machdyne/bonbon` pcb/bonbon_v1/bonbon.kicad_pcb | fpga | 4 | 2 | 88 | 486 | 21.1 | 0.28 | 0.354 | LicenseRef-LoneDynamics-BSD-1-Clause-variant | yes |
-| O058 | `DangerousPrototypes/BusPirate5-hardware` adapter-flash-dip-1REV3/flash-zif-rev3.kicad_pcb | breakout | 2 | 1 | 13 | 60 | 4.6 | 0.77 | 0.247 | MIT | yes |
-| O059 | `DangerousPrototypes/BusPirate5-hardware` adapter-sim-iccard-1REV3C/sim-rev3c.kicad_pcb | breakout | 2 | 1 | 15 | 94 | 4.0 | 0.87 | 0.368 | MIT | yes |
-| O060 | `DangerousPrototypes/BusPirate5-hardware` adapter-stemma-qwiic-grove-gravity-bog-plank-1REV1/stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pcb | breakout | 2 | 1 | 11 | 81 | 4.0 | 0.45 | 0.199 | MIT | yes |
-| O061 | `DangerousPrototypes/BusPirate5-hardware` adapter-ir-toy-3REV3/bp5-ir-toy-v3-rev3.kicad_pcb | breakout | 2 | 1 | 19 | 99 | 10.8 | 0.37 | 0.229 | MIT | yes |
-| O062 | `DangerousPrototypes/BusPirate5-hardware` adapter-ram-ddr5-1REV2/adapter-ram-ddr5-1REV2.kicad_pcb | memory | 2 | 1 | 19 | 620 | 15.4 | 0.32 | 0.112 | MIT | yes |
-| O063 | `opulo-inc/lumenpnp` pnp/pcb/datum/datum.kicad_pcb | breakout | 2 | 1 | 1 | 44 | 1.6 | 0.00 | 0.003 | CC-BY-SA-4.0 | yes |
-| O064 | `opulo-inc/lumenpnp` pnp/pcb/xy-limit/xy-limit.kicad_pcb | breakout | 2 | 1 | 3 | 12 | 0.5 | 1.00 | 0.044 | CC-BY-SA-4.0 | yes |
-| O065 | `opulo-inc/lumenpnp` pnp/pcb/blade12/blade12.kicad_pcb | led | 2 | 1 | 16 | 176 | 3.5 | 0.19 | 0.147 | CC-BY-SA-4.0 | yes |
+| O044 | `foostan/crkbd` pcbs/corne-cherry/hotswap/corne-cherry.kicad_pcb | keyboard | 2 | 1 | 152 | 950 | 3.2 | 0.12 | 0.239 | CC-BY-4.0 | yes |
+| O045 | `kata0510/Lily58` Pro_V2/Pro_V2.kicad_pcb | keyboard | 2 | 1 | 212 | 1246 | 3.3 | 0.12 | 0.189 | MIT | yes |
+| O046 | `josefadamcik/SofleKeyboard` Sofle_Pico/PCB/Sofle_Pico.kicad_pcb | keyboard | 2 | 1 | 92 | 1687 | 10.0 | 0.24 | 0.202 | MIT | yes |
+| O047 | `GEIGEIGEIST/TOTEM` PCB/totem_0-3/totem_0_3.kicad_pcb | keyboard | 2 | 1 | 69 | 528 | 2.2 | 0.55 | 0.223 | CERN-OHL-S-2.0 | yes |
+| O048 | `pashutk/chocofi` pcb/chocofi.kicad_pcb | keyboard | 2 | 1 | 44 | 435 | 4.3 | 0.34 | 0.201 | CERN-OHL-S-2.0 | yes |
+| O049 | `duckyb/urchin` main.kicad_pcb | keyboard | 2 | 1 | 68 | 570 | 2.9 | 0.26 | 0.114 | MIT | yes |
+| O050 | `gtips/reviung` reviung46/pcb/reviung46_ver1_1/reviung46/reviung46.kicad_pcb | keyboard | 2 | 1 | 73 | 541 | 2.0 | 0.25 | 0.192 | MIT | yes |
+| O051 | `machdyne/minze` pcb/minze_v1/minze.kicad_pcb | mcu | 4 | 1 | 108 | 593 | 20.8 | 0.24 | 0.639 | LicenseRef-LoneDynamics-BSD-1-Clause-variant | yes |
+| O052 | `DangerousPrototypes/BusPirate5-hardware` adapter-flash-dip-1REV3/flash-zif-rev3.kicad_pcb | breakout | 2 | 1 | 13 | 60 | 4.6 | 0.77 | 0.247 | MIT | yes |
+| O053 | `DangerousPrototypes/BusPirate5-hardware` adapter-sim-iccard-1REV3C/sim-rev3c.kicad_pcb | breakout | 2 | 1 | 15 | 94 | 4.0 | 0.87 | 0.368 | MIT | yes |
+| O054 | `DangerousPrototypes/BusPirate5-hardware` adapter-ir-toy-3REV3/bp5-ir-toy-v3-rev3.kicad_pcb | breakout | 2 | 1 | 19 | 99 | 10.8 | 0.37 | 0.229 | MIT | yes |
+| O055 | `DangerousPrototypes/BusPirate5-hardware` adapter-ram-ddr5-1REV2/adapter-ram-ddr5-1REV2.kicad_pcb | memory | 2 | 1 | 19 | 620 | 15.4 | 0.32 | 0.112 | MIT | yes |
+| O056 | `opulo-inc/lumenpnp` pnp/pcb/xy-limit/xy-limit.kicad_pcb | breakout | 2 | 1 | 3 | 12 | 0.5 | 1.00 | 0.044 | CC-BY-SA-4.0 | yes |
+| O057 | `DangerousPrototypes/BusPirate5-hardware` bus_pirate_pcb/5XL-REV0/5XL-REV0.kicad_pcb | mcu | 4 | 4 | 185 | 876 | 13.7 | 0.09 | 0.104 | MIT | yes |
+| O058 | `DangerousPrototypes/BusPirate5-hardware` bus_pirate_pcb/development/7-REV1B-prototype-2/7-REV1B.kicad_pcb | mcu | 4 | 4 | 210 | 1100 | 17.2 | 0.12 | 0.148 | MIT | yes |
+| O059 | `Jana-Marie/OtterPill` HW v1.4/OtterPill.kicad_pcb | power | 2 | 1 | 47 | 204 | 26.8 | 0.38 | 0.713 | CERN-OHL-S-2.0 | yes |
+| O060 | `Jana-Marie/ligra` ligra_back/ligra_back.kicad_pcb | power | 2 | 1 | 33 | 233 | 2.0 | 0.21 | 0.072 | CERN-OHL-S-2.0 | yes |
 
-## Rejected candidates (16)
+## Rejected candidates (18)
 
 | Candidate | Reason |
 |---|---|
@@ -102,3 +97,5 @@
 | `beekeeb/piantor` pcb/left/keyboard_pcb.kicad_pcb | unknown licence (LICENSE: non-commercial licence) |
 | `DangerousPrototypes/BusPirate5-hardware` adapter-blank-plank-1REV0B/blank-plank-rev0b.kicad_pcb | original routing incomplete (1 connections missing on 1 nets) |
 | `emfcamp/badge-2024-hardware` tildagon-2026/tildagon-2026-touch/tildagon-2026-touch.kicad_pcb | unknown licence (LICENSE.txt: unrecognised licence text) |
+| `wntrblm/Castor_and_Pollux` hardware/mainboard/mainboard.kicad_pcb | unknown licence (hardware/mainboard/LICENSE: unrecognised licence text) |
+| `hydrabus/hydrabus` hardware/HydraBus_1_0_Rev1_5_Kicad/HydraBus.kicad_pcb | no licence file found |

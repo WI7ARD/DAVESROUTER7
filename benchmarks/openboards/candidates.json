@@ -429,19 +429,22 @@
   "domain": "mcu",
   "tags": [
    "motor_driver"
-  ]
+  ],
+  "license_note": "LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)"
  },
  {
   "repo": "opulo-inc/lumenpnp",
   "ref": "main",
   "board": "pnp/pcb/ring-light/ringLight.kicad_pcb",
-  "domain": "led"
+  "domain": "led",
+  "license_note": "LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)"
  },
  {
   "repo": "opulo-inc/lumenpnp",
   "ref": "main",
   "board": "pnp/pcb/ftp/ftp.kicad_pcb",
-  "domain": "breakout"
+  "domain": "breakout",
+  "license_note": "LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)"
  },
  {
   "repo": "hackclub/hackpad",
@@ -626,7 +629,8 @@
   "repo": "opulo-inc/lumenpnp",
   "ref": "main",
   "board": "pnp/pcb/xy-limit/xy-limit.kicad_pcb",
-  "domain": "breakout"
+  "domain": "breakout",
+  "license_note": "LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)"
  },
  {
   "repo": "DangerousPrototypes/BusPirate5-hardware",

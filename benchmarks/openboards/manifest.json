@@ -2,8 +2,8 @@
   "schema": "davesrouter-openboards/1",
   "suite_name": "DAVESROUTER OpenBoards — pinned open-source KiCad projects",
   "suite_version": "1.0.0",
-  "created_utc": "2026-10-01T00:54:56Z",
-  "board_count": 65,
+  "created_utc": "2026-10-01T01:01:27Z",
+  "board_count": 60,
   "notes": [
     "Open-source KiCad 6+ projects from many repositories, each pinned by commit and Git blob SHA-1 (board and sidecar .kicad_pro/.kicad_dru).",
     "Board bytes are fetched on demand and are not vendored in DAVESROUTER.",
@@ -2030,52 +2030,6 @@
     },
     {
       "id": "O044",
-      "name": "half-swept.kicad_pcb",
-      "family": "keyboard",
-      "repository": "davidphilipbarr/Sweep",
-      "commit": "8ba72a256d627567660ecc0b6f51bb18fa8badb5",
-      "ref": "main",
-      "source_path": "Sweep half-swept/half-swept.kicad_pcb",
-      "source_size_bytes": 2319893,
-      "git_blob_sha1": "d8f1670b0affd8fce30833f4c5056df592092be7",
-      "sidecars": [
-        {
-          "path": "Sweep half-swept/half-swept.kicad_pro",
-          "git_blob_sha1": "c92b8fc9b2706edffab697ab8cd3ada381239c5b",
-          "size": 5519
-        }
-      ],
-      "license": "SHL-2.1",
-      "license_file": "LICENSE",
-      "license_note": "Solderpad Hardware License",
-      "attribution": "davidphilipbarr/Sweep @ 8ba72a256d627567660ecc0b6f51bb18fa8badb5",
-      "difficulty": "small",
-      "route_policy": "route",
-      "tags": [
-        "split",
-        "keyboard",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright 2020 David Barr",
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 2.0,
-        "area_cm2": 94.6407,
-        "pads": 414.0,
-        "nets_to_route": 24.0,
-        "pad_density_cm2": 4.3744,
-        "long_net_frac": 0.5417,
-        "demand": 0.1116,
-        "pitch_p10_mm": 1.27,
-        "multi_pad_frac": 0.9167
-      }
-    },
-    {
-      "id": "O045",
       "name": "corne-cherry.kicad_pcb",
       "family": "keyboard",
       "repository": "foostan/crkbd",
@@ -2121,53 +2075,7 @@
       }
     },
     {
-      "id": "O046",
-      "name": "corne-chocolate.kicad_pcb",
-      "family": "keyboard",
-      "repository": "foostan/crkbd",
-      "commit": "63366fb7f51cf2a796462fdd90527e99dd126055",
-      "ref": "main",
-      "source_path": "pcbs/corne-chocolate/hotswap/corne-chocolate.kicad_pcb",
-      "source_size_bytes": 4697701,
-      "git_blob_sha1": "2edd933457ff66fe3d33ccc00d3e058836599fc7",
-      "sidecars": [
-        {
-          "path": "pcbs/corne-chocolate/hotswap/corne-chocolate.kicad_pro",
-          "git_blob_sha1": "a11b06def1dd5ef97bce1aab237b3d8d84fd5639",
-          "size": 12027
-        }
-      ],
-      "license": "CC-BY-4.0",
-      "license_file": "LICENSE_CC",
-      "license_note": "Creative Commons BY 4.0; repository ships LICENSE_CC (CC BY 4.0) and LICENSE_MIT; CC BY 4.0 taken for the PCB design",
-      "attribution": "foostan/crkbd @ 63366fb7f51cf2a796462fdd90527e99dd126055",
-      "difficulty": "normal",
-      "route_policy": "route",
-      "tags": [
-        "split",
-        "keyboard",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": null,
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 1.0,
-        "area_cm2": 297.9957,
-        "pads": 996.0,
-        "nets_to_route": 152.0,
-        "pad_density_cm2": 3.3423,
-        "long_net_frac": 0.1184,
-        "demand": 0.239,
-        "pitch_p10_mm": 0.4,
-        "multi_pad_frac": 0.1316
-      }
-    },
-    {
-      "id": "O047",
+      "id": "O045",
       "name": "Pro_V2.kicad_pcb",
       "family": "keyboard",
       "repository": "kata0510/Lily58",
@@ -2213,53 +2121,7 @@
       }
     },
     {
-      "id": "O048",
-      "name": "Lily58_Lite_Rev3.kicad_pcb",
-      "family": "keyboard",
-      "repository": "kata0510/Lily58",
-      "commit": "58c649797c185b7b32b9928d4546665153cfacfd",
-      "ref": "master",
-      "source_path": "Lite_Rev3/Lily58_Lite_Rev3.kicad_pcb",
-      "source_size_bytes": 2395612,
-      "git_blob_sha1": "b833e0c808209412b31f73d1091a8c30586ce51b",
-      "sidecars": [
-        {
-          "path": "Lite_Rev3/Lily58_Lite_Rev3.kicad_pro",
-          "git_blob_sha1": "6c44879256b46e407c98771a427b5479a445c48f",
-          "size": 12287
-        }
-      ],
-      "license": "MIT",
-      "license_file": "LICENSE",
-      "license_note": "MIT",
-      "attribution": "kata0510/Lily58 @ 58c649797c185b7b32b9928d4546665153cfacfd",
-      "difficulty": "normal",
-      "route_policy": "route",
-      "tags": [
-        "split",
-        "keyboard",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright (c) 2018 Naoki Katahira",
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 2.0,
-        "area_cm2": 348.5075,
-        "pads": 530.0,
-        "nets_to_route": 91.0,
-        "pad_density_cm2": 1.5208,
-        "long_net_frac": 0.2418,
-        "demand": 0.1141,
-        "pitch_p10_mm": 0.5,
-        "multi_pad_frac": 0.2418
-      }
-    },
-    {
-      "id": "O049",
+      "id": "O046",
       "name": "Sofle_Pico.kicad_pcb",
       "family": "keyboard",
       "repository": "josefadamcik/SofleKeyboard",
@@ -2306,53 +2168,7 @@
       }
     },
     {
-      "id": "O050",
-      "name": "SofleKeyboard.kicad_pcb",
-      "family": "keyboard",
-      "repository": "josefadamcik/SofleKeyboard",
-      "commit": "fb294f7c58d0f91c379a9ef339159d4d056643e9",
-      "ref": "master",
-      "source_path": "Sofle_v2_soldered/PCB/SofleKeyboard.kicad_pcb",
-      "source_size_bytes": 3998488,
-      "git_blob_sha1": "495f48d7ec4a583d527152986607d501fda0c86a",
-      "sidecars": [
-        {
-          "path": "Sofle_v2_soldered/PCB/SofleKeyboard.kicad_pro",
-          "git_blob_sha1": "df87e2dfbee7bb23e9114e330d0c9b4612a43aec",
-          "size": 10401
-        }
-      ],
-      "license": "MIT",
-      "license_file": "LICENSE",
-      "license_note": "MIT",
-      "attribution": "josefadamcik/SofleKeyboard @ fb294f7c58d0f91c379a9ef339159d4d056643e9",
-      "difficulty": "small",
-      "route_policy": "route",
-      "tags": [
-        "split",
-        "keyboard",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright (c) 2019 Josef Adamcik",
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 2.0,
-        "area_cm2": 164.3018,
-        "pads": 439.0,
-        "nets_to_route": 55.0,
-        "pad_density_cm2": 2.6719,
-        "long_net_frac": 0.2727,
-        "demand": 0.1512,
-        "pitch_p10_mm": 2.5539,
-        "multi_pad_frac": 0.2727
-      }
-    },
-    {
-      "id": "O051",
+      "id": "O047",
       "name": "totem_0_3.kicad_pcb",
       "family": "keyboard",
       "repository": "GEIGEIGEIST/TOTEM",
@@ -2398,7 +2214,7 @@
       }
     },
     {
-      "id": "O052",
+      "id": "O048",
       "name": "chocofi.kicad_pcb",
       "family": "keyboard",
       "repository": "pashutk/chocofi",
@@ -2444,7 +2260,7 @@
       }
     },
     {
-      "id": "O053",
+      "id": "O049",
       "name": "main.kicad_pcb",
       "family": "keyboard",
       "repository": "duckyb/urchin",
@@ -2490,7 +2306,7 @@
       }
     },
     {
-      "id": "O054",
+      "id": "O050",
       "name": "reviung46.kicad_pcb",
       "family": "keyboard",
       "repository": "gtips/reviung",
@@ -2535,52 +2351,7 @@
       }
     },
     {
-      "id": "O055",
-      "name": "keks.kicad_pcb",
-      "family": "fpga",
-      "repository": "machdyne/keks",
-      "commit": "e9cb1409b9eda69ecc34fb1a6499abee27b2e5f1",
-      "ref": "main",
-      "source_path": "pcb/keks_v1/keks.kicad_pcb",
-      "source_size_bytes": 2409203,
-      "git_blob_sha1": "fea206cc7fa4d56ed96504f96c7fc62128f895cb",
-      "sidecars": [
-        {
-          "path": "pcb/keks_v1/keks.kicad_pro",
-          "git_blob_sha1": "d151d9f5b23a957bae905c24b971d25f173ab08e",
-          "size": 11187
-        }
-      ],
-      "license": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
-      "license_file": "LICENSE.md",
-      "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)",
-      "attribution": "machdyne/keks @ e9cb1409b9eda69ecc34fb1a6499abee27b2e5f1",
-      "difficulty": "dense",
-      "route_policy": "route",
-      "tags": [
-        "fpga",
-        "4layer",
-        "planes",
-        "dense_pads"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright (c) 2022 Lone Dynamics Corporation. All rights reserved.",
-      "stats": {
-        "copper_layers": 4.0,
-        "signal_layers": 2.0,
-        "plane_layers": 2.0,
-        "area_cm2": 64.0085,
-        "pads": 854.0,
-        "nets_to_route": 194.0,
-        "pad_density_cm2": 13.342,
-        "long_net_frac": 0.1495,
-        "demand": 0.3206,
-        "pitch_p10_mm": 0.5,
-        "multi_pad_frac": 0.0567
-      }
-    },
-    {
-      "id": "O056",
+      "id": "O051",
       "name": "minze.kicad_pcb",
       "family": "mcu",
       "repository": "machdyne/minze",
@@ -2626,52 +2397,7 @@
       }
     },
     {
-      "id": "O057",
-      "name": "bonbon.kicad_pcb",
-      "family": "fpga",
-      "repository": "machdyne/bonbon",
-      "commit": "4835f22a8c286885a557ceae6d4b688f9c346257",
-      "ref": "main",
-      "source_path": "pcb/bonbon_v1/bonbon.kicad_pcb",
-      "source_size_bytes": 1546305,
-      "git_blob_sha1": "ee4472fc60593df139ebf5763753107fcadab9a9",
-      "sidecars": [
-        {
-          "path": "pcb/bonbon_v1/bonbon.kicad_pro",
-          "git_blob_sha1": "da49f9c8eff416a25d3dfb50e91ffb32badd4613",
-          "size": 11597
-        }
-      ],
-      "license": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
-      "license_file": "LICENSE.md",
-      "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)",
-      "attribution": "machdyne/bonbon @ 4835f22a8c286885a557ceae6d4b688f9c346257",
-      "difficulty": "dense",
-      "route_policy": "route",
-      "tags": [
-        "fpga",
-        "4layer",
-        "planes",
-        "dense_pads"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright (c) 2022 Lone Dynamics Corporation. All rights reserved.",
-      "stats": {
-        "copper_layers": 4.0,
-        "signal_layers": 2.0,
-        "plane_layers": 2.0,
-        "area_cm2": 23.04,
-        "pads": 486.0,
-        "nets_to_route": 88.0,
-        "pad_density_cm2": 21.0938,
-        "long_net_frac": 0.2841,
-        "demand": 0.3537,
-        "pitch_p10_mm": 0.4,
-        "multi_pad_frac": 0.2045
-      }
-    },
-    {
-      "id": "O058",
+      "id": "O052",
       "name": "flash-zif-rev3.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2717,7 +2443,7 @@
       }
     },
     {
-      "id": "O059",
+      "id": "O053",
       "name": "sim-rev3c.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2764,53 +2490,7 @@
       }
     },
     {
-      "id": "O060",
-      "name": "stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pcb",
-      "family": "breakout",
-      "repository": "DangerousPrototypes/BusPirate5-hardware",
-      "commit": "acb9cd667ce608e7eb560a663938787343b424c4",
-      "ref": "main",
-      "source_path": "adapter-stemma-qwiic-grove-gravity-bog-plank-1REV1/stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pcb",
-      "source_size_bytes": 295005,
-      "git_blob_sha1": "5ed74485ec8f9b394709fed18051687adf29b2d3",
-      "sidecars": [
-        {
-          "path": "adapter-stemma-qwiic-grove-gravity-bog-plank-1REV1/stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pro",
-          "git_blob_sha1": "02a289c9b97c6fc78fec6cd16eba8651a61d8503",
-          "size": 33536
-        }
-      ],
-      "license": "MIT",
-      "license_file": "LICENSE.TXT",
-      "license_note": "MIT",
-      "attribution": "DangerousPrototypes/BusPirate5-hardware @ acb9cd667ce608e7eb560a663938787343b424c4",
-      "difficulty": "small",
-      "route_policy": "route",
-      "tags": [
-        "adapter",
-        "breakout",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": "Copyright (c) 2023 Ian Lesnet, Where Labs LLC",
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 2.0,
-        "area_cm2": 20.1621,
-        "pads": 81.0,
-        "nets_to_route": 11.0,
-        "pad_density_cm2": 4.0174,
-        "long_net_frac": 0.4545,
-        "demand": 0.1988,
-        "pitch_p10_mm": 1.0,
-        "multi_pad_frac": 0.4545
-      }
-    },
-    {
-      "id": "O061",
+      "id": "O054",
       "name": "bp5-ir-toy-v3-rev3.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2857,7 +2537,7 @@
       }
     },
     {
-      "id": "O062",
+      "id": "O055",
       "name": "adapter-ram-ddr5-1REV2.kicad_pcb",
       "family": "memory",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2904,52 +2584,7 @@
       }
     },
     {
-      "id": "O063",
-      "name": "datum.kicad_pcb",
-      "family": "breakout",
-      "repository": "opulo-inc/lumenpnp",
-      "commit": "5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
-      "ref": "main",
-      "source_path": "pnp/pcb/datum/datum.kicad_pcb",
-      "source_size_bytes": 239665,
-      "git_blob_sha1": "afb0f7ab6b0110de03d33ff48021f6699941230d",
-      "sidecars": [
-        {
-          "path": "pnp/pcb/datum/datum.kicad_pro",
-          "git_blob_sha1": "20cace9b9682405240c9692e404afc0f46cf2aa0",
-          "size": 11700
-        }
-      ],
-      "license": "CC-BY-SA-4.0",
-      "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
-      "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
-      "difficulty": "small",
-      "route_policy": "route",
-      "tags": [
-        "breakout",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": null,
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 1.0,
-        "area_cm2": 28.0,
-        "pads": 44.0,
-        "nets_to_route": 1.0,
-        "pad_density_cm2": 1.5714,
-        "long_net_frac": 0.0,
-        "demand": 0.0029,
-        "pitch_p10_mm": 1.8369,
-        "multi_pad_frac": 1.0
-      }
-    },
-    {
-      "id": "O064",
+      "id": "O056",
       "name": "xy-limit.kicad_pcb",
       "family": "breakout",
       "repository": "opulo-inc/lumenpnp",
@@ -2995,30 +2630,172 @@
       }
     },
     {
-      "id": "O065",
-      "name": "blade12.kicad_pcb",
-      "family": "led",
-      "repository": "opulo-inc/lumenpnp",
-      "commit": "5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
+      "id": "O057",
+      "name": "5XL-REV0.kicad_pcb",
+      "family": "mcu",
+      "repository": "DangerousPrototypes/BusPirate5-hardware",
+      "commit": "acb9cd667ce608e7eb560a663938787343b424c4",
       "ref": "main",
-      "source_path": "pnp/pcb/blade12/blade12.kicad_pcb",
-      "source_size_bytes": 928480,
-      "git_blob_sha1": "13bcdefd6a1b7c8c84edcf2e95b08f0d74f9a979",
+      "source_path": "bus_pirate_pcb/5XL-REV0/5XL-REV0.kicad_pcb",
+      "source_size_bytes": 3085963,
+      "git_blob_sha1": "7f25cc0b964e13216821b32003f19e7aacecd7bd",
       "sidecars": [
         {
-          "path": "pnp/pcb/blade12/blade12.kicad_pro",
-          "git_blob_sha1": "5552c3813721d93d71188e4e2feedb10e92d2a37",
-          "size": 13329
+          "path": "bus_pirate_pcb/5XL-REV0/5XL-REV0.kicad_pro",
+          "git_blob_sha1": "5902c800eedf0addaeb707a766fb1f5e2f540156",
+          "size": 31931
         }
       ],
-      "license": "CC-BY-SA-4.0",
-      "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
-      "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
+      "license": "MIT",
+      "license_file": "LICENSE.TXT",
+      "license_note": "MIT",
+      "attribution": "DangerousPrototypes/BusPirate5-hardware @ acb9cd667ce608e7eb560a663938787343b424c4",
+      "difficulty": "dense",
+      "route_policy": "route",
+      "tags": [
+        "tool",
+        "mcu",
+        "4layer",
+        "all_signal",
+        "free_signal_4plus",
+        "dense_pads"
+      ],
+      "reference_complete": true,
+      "copyright": "Copyright (c) 2023 Ian Lesnet, Where Labs LLC",
+      "stats": {
+        "copper_layers": 4.0,
+        "signal_layers": 4.0,
+        "plane_layers": 0.0,
+        "area_cm2": 64.1231,
+        "pads": 876.0,
+        "nets_to_route": 185.0,
+        "pad_density_cm2": 13.6612,
+        "long_net_frac": 0.0865,
+        "demand": 0.1043,
+        "pitch_p10_mm": 0.5,
+        "multi_pad_frac": 0.1514
+      }
+    },
+    {
+      "id": "O058",
+      "name": "7-REV1B.kicad_pcb",
+      "family": "mcu",
+      "repository": "DangerousPrototypes/BusPirate5-hardware",
+      "commit": "acb9cd667ce608e7eb560a663938787343b424c4",
+      "ref": "main",
+      "source_path": "bus_pirate_pcb/development/7-REV1B-prototype-2/7-REV1B.kicad_pcb",
+      "source_size_bytes": 3020612,
+      "git_blob_sha1": "d4fc0872fae61689703828a406b7864a2347f873",
+      "sidecars": [
+        {
+          "path": "bus_pirate_pcb/development/7-REV1B-prototype-2/7-REV1B.kicad_pro",
+          "git_blob_sha1": "bba71c6b39d84acd37bc2669609b9b31f39d2346",
+          "size": 36274
+        }
+      ],
+      "license": "MIT",
+      "license_file": "LICENSE.TXT",
+      "license_note": "MIT",
+      "attribution": "DangerousPrototypes/BusPirate5-hardware @ acb9cd667ce608e7eb560a663938787343b424c4",
+      "difficulty": "dense",
+      "route_policy": "route",
+      "tags": [
+        "tool",
+        "mcu",
+        "4layer",
+        "all_signal",
+        "free_signal_4plus",
+        "dense_pads"
+      ],
+      "reference_complete": true,
+      "copyright": "Copyright (c) 2023 Ian Lesnet, Where Labs LLC",
+      "stats": {
+        "copper_layers": 4.0,
+        "signal_layers": 4.0,
+        "plane_layers": 0.0,
+        "area_cm2": 64.1231,
+        "pads": 1100.0,
+        "nets_to_route": 210.0,
+        "pad_density_cm2": 17.1545,
+        "long_net_frac": 0.119,
+        "demand": 0.1476,
+        "pitch_p10_mm": 0.4375,
+        "multi_pad_frac": 0.1381
+      }
+    },
+    {
+      "id": "O059",
+      "name": "OtterPill.kicad_pcb",
+      "family": "power",
+      "repository": "Jana-Marie/OtterPill",
+      "commit": "f0e7371ea88523a160302d86425b684c089768ad",
+      "ref": "main",
+      "source_path": "HW v1.4/OtterPill.kicad_pcb",
+      "source_size_bytes": 751003,
+      "git_blob_sha1": "f2abc93a87c4380a3ceafeb681cdf754c86ee1ce",
+      "sidecars": [
+        {
+          "path": "HW v1.4/OtterPill.kicad_pro",
+          "git_blob_sha1": "f094920c167f6a1822174fc39d4ecd1a634d9cf5",
+          "size": 10125
+        }
+      ],
+      "license": "CERN-OHL-S-2.0",
+      "license_file": "LICENSE.md",
+      "license_note": "CERN OHL v2 strongly reciprocal",
+      "attribution": "Jana-Marie/OtterPill @ f0e7371ea88523a160302d86425b684c089768ad",
       "difficulty": "small",
       "route_policy": "route",
       "tags": [
-        "led",
+        "usb_pd",
+        "power",
+        "2layer",
+        "planes",
+        "single_routable_layer",
+        "dense_pads"
+      ],
+      "reference_complete": true,
+      "copyright": null,
+      "stats": {
+        "copper_layers": 2.0,
+        "signal_layers": 1.0,
+        "plane_layers": 2.0,
+        "area_cm2": 7.6032,
+        "pads": 204.0,
+        "nets_to_route": 47.0,
+        "pad_density_cm2": 26.8308,
+        "long_net_frac": 0.383,
+        "demand": 0.7126,
+        "pitch_p10_mm": 0.5,
+        "multi_pad_frac": 0.2128
+      }
+    },
+    {
+      "id": "O060",
+      "name": "ligra_back.kicad_pcb",
+      "family": "power",
+      "repository": "Jana-Marie/ligra",
+      "commit": "8a98f3938c20fe3ed07bfb34e7d43f243e21f519",
+      "ref": "main",
+      "source_path": "ligra_back/ligra_back.kicad_pcb",
+      "source_size_bytes": 3340819,
+      "git_blob_sha1": "92674a471fa3bf7fc68ebbe4d7691f953cf3a810",
+      "sidecars": [
+        {
+          "path": "ligra_back/ligra_back.kicad_pro",
+          "git_blob_sha1": "8ad8b0301544f14d4addc68f09818c64c1fa395e",
+          "size": 14102
+        }
+      ],
+      "license": "CERN-OHL-S-2.0",
+      "license_file": "LICENSE",
+      "license_note": "CERN OHL v2 strongly reciprocal",
+      "attribution": "Jana-Marie/ligra @ 8a98f3938c20fe3ed07bfb34e7d43f243e21f519",
+      "difficulty": "small",
+      "route_policy": "route",
+      "tags": [
+        "led_driver",
+        "power",
         "2layer",
         "planes",
         "single_routable_layer"
@@ -3029,14 +2806,14 @@
         "copper_layers": 2.0,
         "signal_layers": 1.0,
         "plane_layers": 2.0,
-        "area_cm2": 49.8164,
-        "pads": 176.0,
-        "nets_to_route": 16.0,
-        "pad_density_cm2": 3.533,
-        "long_net_frac": 0.1875,
-        "demand": 0.1468,
+        "area_cm2": 113.7461,
+        "pads": 233.0,
+        "nets_to_route": 33.0,
+        "pad_density_cm2": 2.0484,
+        "long_net_frac": 0.2121,
+        "demand": 0.0717,
         "pitch_p10_mm": 1.0,
-        "multi_pad_frac": 0.25
+        "multi_pad_frac": 0.2121
       }
     }
   ]
