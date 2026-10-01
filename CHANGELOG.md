@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**Routing completion**
+- Custom-rule conditions on a property only zones have (`A.Name == 'x'`) no
+  longer constrain tracks, vias and pads. KiCad yields an undefined value for a
+  missing property, and `==` / `!=` against it are false (checked in KiCad's
+  source). Real100 K037 is now fully routed in both modes (12/14 and 13/14
+  before).
+- Rip-up no longer crashes a job when the rerouted net is refused by the
+  validator; the rip-up is rolled back and logged.
+- Completion endgame (being evaluated): when only a few nets are missing and
+  budget is left, rip-up-and-reroute rounds try to finish the board. In Speed it
+  only moves copper the job created.
+
 **Learned search policy v3 evaluated: EXPERIMENTAL** — on held-out and guard
 boards the selector fell back to the fixed router every time (no regression, no
 measured gain; `medium_4layer` is out of distribution). Bundled as the opt-in

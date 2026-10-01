@@ -205,3 +205,11 @@ accept one, name it in the commit message.
   boards the selector fell back to the fixed router every time. Identical
   strategies still differ by up to ±6 nets on K067 Accuracy between runs, so a
   single-board change of that size is noise. Measure policies at board level.
+- **Check KiCad's own semantics before calling a rule "unknown".** K037's
+  `A.Name == 'outer_pour'` (0.4 mm) was treated as possibly applying to every
+  item, which boxed in fine-pitch pads (VALIDATION). In KiCad only zones have
+  `Name`, and comparisons with a missing property are false. Reading
+  `pcbexpr_evaluator.cpp` at the pinned commit settled it; K037 went to 14/14.
+- **Every commit inside rip-up must catch `CommitError`.** A validator-refused
+  reroute inside `_try_ripup` crashed the whole job (K022 Speed). Roll back,
+  log, continue.
