@@ -57,6 +57,11 @@ class RuleUnknownError(ValueError):
     """A value needed to route is not stated by any rule (conservative refusal)."""
 
 
+class UnsupportedRuleError(RuleUnknownError):
+    """A rule that applies to the net needs a feature the router does not have
+    (e.g. coupled diff-pair routing): refused with the rule named."""
+
+
 def new_request_id() -> str:
     return f"req-{uuid.uuid4().hex[:10]}"
 
@@ -233,6 +238,10 @@ def normalise(engine: BoardEngine, request: RouteRequest) -> NormalisedRequest:
                 "'Copper to edge clearance' in KiCad Board Setup > Constraints, or turn "
                 "conservative rule handling off in Settings as an explicit expert choice)"
             )
+    if engine.config.conservative:
+        refusal = resolver.diff_pair_refusal(net)
+        if refusal is not None:
+            raise UnsupportedRuleError(refusal)
     hard_min = max((v.value for v in minimum if v.value is not None), default=0)
     if request.preferred_width is not None:
         width = request.preferred_width

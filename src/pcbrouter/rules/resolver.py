@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pcbrouter.domain.units import Nm, internal_to_mm
-from pcbrouter.rules.conditions import ItemFacts, diff_pair_bases
+from pcbrouter.rules.conditions import ItemFacts, diff_pair_bases, diff_pair_partner
 from pcbrouter.rules.model import (
     UNBOUNDED,
     ItemType,
@@ -519,6 +519,59 @@ class RuleResolver:
             u.name for u in self.ruleset.unsupported if u.critical and item in u.disallow_items
         )
         return DisallowResult(bool(hits), tuple(hits), unknown_rules)
+
+    # ------------------------------------------------------------ diff pairs
+    def diff_pair_refusal(self, net: str | None) -> str | None:
+        """Why *net* cannot be routed as an independent net, or None.
+
+        KiCad's diff-pair DRC (``drc_test_provider_diff_pair_coupling``) treats
+        every parallel, unobstructed P/N segment pair as coupled and reports an
+        error when its gap is outside an explicit ``diff_pair_gap`` rule's
+        min/max (unless a ``diff_pair_uncoupled`` rule passes), and when the
+        uncoupled length exceeds ``diff_pair_uncoupled``'s max. This router does
+        not route coupled pairs, so it cannot promise either: such nets are
+        refused with the rule named. Net-class diff-pair gaps are implicit rules
+        with only a minimum (the board minimum clearance), which ordinary
+        clearance already meets."""
+        names = self.ruleset.net_names
+        if not net or not names:
+            return None
+        partner = diff_pair_partner(net, names)
+        if partner is None:
+            return None
+        facts = self.facts(net, ItemType.TRACK)
+        reasons: list[str] = []
+        for rule in self.ruleset.unsupported:
+            if rule.severity not in (None, "error"):
+                continue
+            cond = rule.partial_condition
+            if cond is not None and cond.evaluate(facts) is False:
+                continue
+            for kind, lo, hi in rule.limits:
+                if kind == "diff_pair_uncoupled" and hi is not None:
+                    reasons.append(
+                        f"rule '{rule.name}' limits uncoupled length to "
+                        f"{internal_to_mm(hi):g} mm"
+                    )
+                elif kind == "diff_pair_gap" and hi is not None:
+                    reasons.append(
+                        f"rule '{rule.name}' requires a pair gap of at most "
+                        f"{internal_to_mm(hi):g} mm"
+                    )
+                elif kind == "diff_pair_gap" and lo is not None:
+                    clr = self.resolve_clearance(net, partner).value
+                    if clr is None or lo > clr:
+                        reasons.append(
+                            f"rule '{rule.name}' requires a pair gap of at least "
+                            f"{internal_to_mm(lo):g} mm (above the clearance)"
+                        )
+        if not reasons:
+            return None
+        return (
+            f"{net} is half of differential pair {net}/{partner}: "
+            + "; ".join(dict.fromkeys(reasons))
+            + " - coupled diff-pair routing is not supported, so it is not routed"
+        )
 
     # ------------------------------------------------------------ summaries
     def summary(self, net: str | None) -> NetRuleSummary:

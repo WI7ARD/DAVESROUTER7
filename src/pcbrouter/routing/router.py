@@ -54,6 +54,7 @@ from pcbrouter.routing.request import (
     RouteRequestError,
     RuleUnknownError,
     SoftRegionKind,
+    UnsupportedRuleError,
     normalise,
 )
 from pcbrouter.routing.result import (
@@ -186,7 +187,11 @@ class Router:
                 result.status, result.message = RouteStatus.INVALID_REQUEST, str(exc)
                 return self._done(result, t0)
             except RuleUnknownError as exc:
-                result.status, result.reason = RouteStatus.RULE_UNKNOWN, FailureReason.RULE_UNKNOWN
+                result.status, result.reason = RouteStatus.RULE_UNKNOWN, (
+                    FailureReason.UNSUPPORTED_RULE
+                    if isinstance(exc, UnsupportedRuleError)
+                    else FailureReason.RULE_UNKNOWN
+                )
                 result.message = str(exc)
                 return self._done(result, t0)
             result.width = norm.width

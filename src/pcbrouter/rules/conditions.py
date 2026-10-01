@@ -373,14 +373,8 @@ UNDEFINED = _Undefined()
 type _Value = tuple[str, ...] | _Undefined | None  # None = unknown here
 
 
-def diff_pair_bases(net: str | None, net_names: frozenset[str]) -> tuple[str, ...]:
-    """Base names ``A.inDiffPair(name)`` matches for *net* (KiCad
-    ``inDiffPairFunc`` + ``DRC_ENGINE::MatchDpSuffix``): the net ends in ``P``/``N``
-    or ``+``/``-`` (optionally followed by digits/underscores), its partner net
-    exists on the board, and the base (or, if the base ends in ``_``, the part
-    before that last ``_``) is what the argument is matched against."""
-    if not net:
-        return ()
+def _dp_split(net: str) -> tuple[str, str, str] | None:
+    """``MatchDpSuffix``: (base, complement net, suffix tail) or None."""
     count, comp = 0, ""
     for ch in reversed(net):
         count += 1
@@ -389,10 +383,27 @@ def diff_pair_bases(net: str | None, net_names: frozenset[str]) -> tuple[str, ..
         comp = {"+": "-", "-": "+", "N": "P", "P": "N"}.get(ch, "")
         break
     if not comp:
-        return ()
+        return None
     base = net[: len(net) - count]
-    if base + comp + net[len(net) - count + 1 :] not in net_names:
+    return base, base + comp + net[len(net) - count + 1 :], net[len(net) - count :]
+
+
+def diff_pair_partner(net: str | None, net_names: frozenset[str]) -> str | None:
+    """The other net of *net*'s differential pair, when it exists on the board."""
+    split = _dp_split(net) if net else None
+    return split[1] if split is not None and split[1] in net_names else None
+
+
+def diff_pair_bases(net: str | None, net_names: frozenset[str]) -> tuple[str, ...]:
+    """Base names ``A.inDiffPair(name)`` matches for *net* (KiCad
+    ``inDiffPairFunc`` + ``DRC_ENGINE::MatchDpSuffix``): the net ends in ``P``/``N``
+    or ``+``/``-`` (optionally followed by digits/underscores), its partner net
+    exists on the board, and the base (or, if the base ends in ``_``, the part
+    before that last ``_``) is what the argument is matched against."""
+    split = _dp_split(net) if net else None
+    if split is None or split[1] not in net_names:
         return ()
+    base = split[0]
     return (base, base[: base.rfind("_")]) if base.endswith("_") else (base,)
 
 

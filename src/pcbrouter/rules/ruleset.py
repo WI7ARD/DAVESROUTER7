@@ -176,6 +176,7 @@ def _compile(
             disallow_items=tuple(
                 i for c in spec.constraints if c.kind == "disallow" for i in c.items
             ),
+            severity=spec.severity,
             partial_condition=partial,
         )
     constraints = tuple(Constraint(c.kind, c.min, c.opt, c.max, c.items) for c in spec.constraints)

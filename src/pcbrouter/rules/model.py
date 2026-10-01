@@ -193,6 +193,8 @@ class UnsupportedRule:
     #: the condition read with unsupported parts as unknown (None: no condition,
     #: or unreadable); lets checks skip pairs the rule can never apply to
     partial_condition: Any = None
+    #: KiCad rule severity as written (None = default "error")
+    severity: str | None = None
 
     def min_for(self, *kinds: str) -> Nm | None:
         """Largest minimum this rule might impose for ``kinds`` (UNBOUNDED if a

@@ -30,6 +30,8 @@ class FailureReason(Enum):
     LAYER_RESTRICTION = "LAYER_RESTRICTION"
     CONGESTION = "CONGESTION"  # blocked by other (router-generated) routes
     RULE_UNKNOWN = "RULE_UNKNOWN"
+    #: a rule applies that needs a feature the router lacks (named in the message)
+    UNSUPPORTED_RULE = "UNSUPPORTED_RULE"
     TIMEOUT = "TIMEOUT"
     VALIDATION = "VALIDATION"  # search path kept failing the exact validator
 

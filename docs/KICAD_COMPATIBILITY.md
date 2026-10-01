@@ -46,7 +46,7 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | `hole_clearance / hole_to_hole` | **SUPPORTED** |  |  |
 | `edge_clearance` | **SUPPORTED** |  |  |
 | `disallow` | **SUPPORTED** |  |  |
-| `diff_pair_gap / diff_pair_uncoupled` | **UNSUPPORTED** | currently classed non-critical: pair nets are routed independently. KiCad can flag gap/uncoupled-length errors. Must become enforced or a precise refusal (open defect). |  |
+| `diff_pair_gap / diff_pair_uncoupled` | **PARTIAL** | pair nets are routed independently, so explicit rules KiCad would flag (gap max, uncoupled max, gap min above the clearance; severity error) refuse those nets with UNSUPPORTED_RULE naming the rule; net-class diff-pair gaps (implicit, minimum only) are met by clearance. Coupled routing: not implemented. | tests/unit/test_diff_pair_refusal.py |
 | `length / skew` | **UNSUPPORTED** | reported, not enforced |  |
 | `connection_width (min_connection)` | **UNSUPPORTED** | KiCad flags copper necks below the minimum connection width (K035): not modelled |  |
 | `silk_clearance / courtyard_clearance / text_*` | **UNSUPPORTED** | non-copper; not affected by routing |  |
