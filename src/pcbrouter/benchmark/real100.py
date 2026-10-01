@@ -603,7 +603,9 @@ def route_one_board(
 
         settings = _replace(settings, policy=policy_from_spec(policy))
     pre = wb.engine.connectivity.metrics()
+    t_route = time.perf_counter()
     result = BoardRouter(wb, settings).run()
+    routing_s = time.perf_counter() - t_route
     if experience_dir is not None:
         from pcbrouter.learning.experience import record_board_job
 
@@ -635,6 +637,8 @@ def route_one_board(
         **validity,
         **saved,
         "endgame": result.endgame,
+        "routing_s": round(routing_s, 3),
+        **_peak_rss(),
         "policy_decision": result.policy_decision,
         "status": "ok",
         "route_status": result.status.value,
@@ -663,6 +667,22 @@ def route_one_board(
         "rule_warning_count": len(rules.warnings),
         "project_rules_found": rules.found_any,
         "conservative_rules": conservative,
+    }
+
+
+def _peak_rss() -> dict[str, Any]:
+    """Peak resident memory of this worker and of its finished helper processes
+    (MB; ``ru_maxrss`` is KiB on Linux, bytes on macOS; absent on Windows)."""
+    try:
+        import resource
+    except ImportError:  # Windows
+        return {}
+    scale = 1024 * 1024 if sys.platform == "darwin" else 1024
+    own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    return {
+        "peak_rss_mb": round(own * 1024 / scale / 1024, 1),
+        "helpers_peak_rss_mb": round(kids * 1024 / scale / 1024, 1),
     }
 
 
