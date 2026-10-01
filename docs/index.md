@@ -12,6 +12,11 @@ Start with the [README](../README.md), then follow your interest:
 * [rules_engine.md](rules_engine.md) — rule resolution, unknowns policy.
 * [internal_drc.md](internal_drc.md) — the internal geometry check (not KiCad DRC).
 * [connectivity.md](connectivity.md) — nets, groups, ratsnest.
+* [KICAD_COMPATIBILITY.md](KICAD_COMPATIBILITY.md) — KiCad rule/feature support
+  matrix, verified against KiCad DRC.
+* [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) — what is not (yet) handled, with
+  the mechanism and evidence.
+* [BENCHMARKS.md](BENCHMARKS.md) — Real100 / OpenBoards results and A/B records.
 * [security.md](security.md) — threat model, secrets, prompt-injection policy.
 
 ## Features
