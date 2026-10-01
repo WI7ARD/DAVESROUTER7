@@ -31,7 +31,7 @@ def test_strip_routing_copper_only_removes_top_level_route_objects() -> None:
   (gr_arc (start 0 0) (mid 1 1) (end 2 0) (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
 )"""
     stripped, counts = strip_routing_copper(text)
-    assert counts == {"segment": 1, "via": 1, "arc": 1}
+    assert counts == {"segment": 1, "via": 1, "arc": 1, "teardrop": 0}
     assert "(segment " not in stripped
     assert "(via " not in stripped
     assert "\n  (arc " not in stripped
@@ -51,11 +51,28 @@ def test_strip_respects_strings_comments_and_is_idempotent() -> None:
         ")\n"
     )
     stripped, counts = strip_routing_copper(text)
-    assert counts == {"segment": 1, "via": 1, "arc": 0}
+    assert counts == {"segment": 1, "via": 1, "arc": 0, "teardrop": 0}
     assert '"not a (via here)"' in stripped and "; (segment" in stripped
     assert "\n\n" not in stripped  # removed objects leave no blank lines
     again, leftovers = strip_routing_copper(stripped)
-    assert again == stripped and leftovers == {"segment": 0, "via": 0, "arc": 0}
+    assert again == stripped and leftovers == {"segment": 0, "via": 0, "arc": 0, "teardrop": 0}
+
+
+def test_strip_removes_teardrop_zones_but_keeps_pours() -> None:
+    """Teardrops belong to the stripped tracks; ordinary pours stay."""
+    text = (
+        "(kicad_pcb (version 20240108)\n"
+        '  (zone (net 1) (net_name "N") (layer "F.Cu") (name "$teardrop_padvia$")\n'
+        "    (attr (teardrop (type padvia)))\n"
+        "    (polygon (pts (xy 0 0) (xy 1 0) (xy 1 1))))\n"
+        '  (zone (net 2) (net_name "GND") (layer "F.Cu") (name "pour")\n'
+        "    (polygon (pts (xy 0 0) (xy 9 0) (xy 9 9))))\n"
+        ")\n"
+    )
+    stripped, counts = strip_routing_copper(text)
+    assert counts["teardrop"] == 1
+    assert "teardrop" not in stripped and '(name "pour")' in stripped
+    assert "\n\n" not in stripped
 
 
 def test_both_manifest_schemas_load(tmp_path: Path) -> None:

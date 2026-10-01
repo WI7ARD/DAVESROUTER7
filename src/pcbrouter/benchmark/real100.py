@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -302,21 +303,27 @@ def fetch_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> list
 
 
 ROUTE_SYMBOLS = frozenset({"segment", "via", "arc"})
+#: KiCad 7+ teardrop zones: generated from tracks, so they go with them
+_TEARDROP_RE = re.compile(r"\(\s*attr\s*\(\s*teardrop\b")
 
 
 def strip_routing_copper(text: str) -> tuple[str, dict[str, int]]:
     """Remove only top-level routed copper: ``(segment …)``, ``(via …)`` and
-    copper-track ``(arc …)`` children of the outer ``(kicad_pcb …)`` form.
+    copper-track ``(arc …)`` children of the outer ``(kicad_pcb …)`` form, plus
+    teardrop zones (``(zone … (attr (teardrop …)))``): KiCad generates those from
+    the tracks, and left behind they are orphan copper blobs on pads that new
+    routes join at odd angles (Real100 K035: 339 of them; KiCad then flags
+    connection_width necks). Pack builder 1.2.
 
     Footprints, pads, zones, keepouts, graphics (``gr_arc`` is a different
     symbol), board outline, rules, net table, setup, groups and every unknown
     construct stay byte-for-byte unchanged. The scanner respects strings, escapes
     and ``;`` comments, and consumes the removed object's trailing blanks and one
-    line break, so no blank lines are left behind (Real100 pack builder 1.1).
+    line break, so no blank lines are left behind.
     """
     if "(kicad_pcb" not in text:
         raise ValueError("not a KiCad board")
-    counts = {"segment": 0, "via": 0, "arc": 0}
+    counts = {"segment": 0, "via": 0, "arc": 0, "teardrop": 0}
     out: list[str] = []
     last = depth = 0
     in_string = escaped = in_comment = False
@@ -341,8 +348,15 @@ def strip_routing_copper(text: str) -> tuple[str, dict[str, int]]:
         elif ch == '"':
             in_string = True
         elif ch == "(":
-            if depth == 1 and (sym := _head_symbol(text, i)) in ROUTE_SYMBOLS:
+            sym = _head_symbol(text, i) if depth == 1 else ""
+            end = -1
+            if sym == "zone":
                 end = _matching_paren(text, i)
+                if _TEARDROP_RE.search(text, i, end):
+                    sym = "teardrop"
+            if sym in ROUTE_SYMBOLS or sym == "teardrop":
+                if end < 0:
+                    end = _matching_paren(text, i)
                 out.append(text[last:i])
                 j = end + 1
                 while j < n and text[j] in " \t":
@@ -452,6 +466,7 @@ def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dic
         "removed_segments": counts["segment"],
         "removed_vias": counts["via"],
         "removed_track_arcs": counts["arc"],
+        "removed_teardrops": counts["teardrop"],
         "sidecars": sidecars,
         "sha256": meta["unrouted_sha256"],
     }
@@ -459,7 +474,7 @@ def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dic
 
 def _write_rules_inventory(rows: list[dict[str, Any]], path: Path) -> None:
     keys = ["id", "status", "removed_segments", "removed_vias", "removed_track_arcs",
-            "sidecars", "sha256", "error"]  # fmt: skip
+            "removed_teardrops", "sidecars", "sha256", "error"]  # fmt: skip
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=keys, extrasaction="ignore")
         writer.writeheader()
