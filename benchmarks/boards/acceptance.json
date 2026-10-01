@@ -1,0 +1,19 @@
+{
+  "schema": "davesrouter-acceptance/1",
+  "description": "Davi's own boards: every supported board must route clean or carry a precise, justified limitation.",
+  "boards": [
+    {
+      "id": "esc",
+      "name": "hhkittesc ESC (Power class 3.0 mm / 0.6 mm)",
+      "board": "hhkittesc/hhkittesc.kicad_pcb",
+      "project": "hhkittesc/results/hhkittesc_power_routed.kicad_pro",
+      "budget_s": {"speed": 300, "accuracy": 1200}
+    },
+    {
+      "id": "reva",
+      "name": "Router_Benchmark_RevA (2 layers, 32 nets)",
+      "board": "router_benchmark_reva/Router_Benchmark_RevA.kicad_pcb",
+      "budget_s": {"speed": 120, "accuracy": 300}
+    }
+  ]
+}
