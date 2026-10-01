@@ -92,7 +92,7 @@
  "stage3_unsupported.kicad_pcb": {
   "components": 2,
   "drc_errors": 0,
-  "drc_warnings": 2,
+  "drc_warnings": 0,
   "fingerprint": "272f2d6154072eb7093f6ff46071ae9345df67ffc93b041942fb5c9c73865a3e",
   "nets_connected": 1,
   "pads": 4,
