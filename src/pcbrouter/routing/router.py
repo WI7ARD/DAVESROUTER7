@@ -785,7 +785,8 @@ class Router:
             for li, layer in enumerate(grid.layers):
                 if layer not in item.layers:
                     continue
-                for s in item.shapes:
+                # an unflashed pad layer is reached only through the drill hole
+                for s in item.contact_shapes(layer):
                     cells = grid.cells_within(s, 0.0, cancel)
                     if cells.size == 0:
                         idx = grid.index_of(item.bounds.center)

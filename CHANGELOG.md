@@ -38,6 +38,12 @@
   `/D[0]`). Before, a stricter rule could silently not apply.
 - Graphics and visible text on copper layers are obstacles (KiCad flagged
   tracks crossing copper text on Real100 K067).
+- Pads and vias with `remove_unused_layers` connect on an unflashed layer only
+  through their drill hole, as in KiCad's connectivity (`CN_VISITOR`,
+  NEVER_FLASHED). The router counted an inner-layer track touching such a
+  pad's ring as connected; KiCad reported it unconnected (Real100 K035, K074).
+  Route goals on those layers are now the hole. `(remove_unused_layers no)`
+  (KiCad 9 syntax) was read as *yes*.
 - New rule constructs: `A.Net`, `isPlated()`, `existsOnLayer()`,
   `inDiffPair()`, `Pad_Type`, `Pad_Shape`; a fact a call site cannot know makes
   a rule *possibly* apply (stricter value kept), never guessed.

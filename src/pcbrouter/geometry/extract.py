@@ -16,7 +16,8 @@ Representation table (accuracy in brackets):
 * custom pads: anchor + primitives [exact for polygons/lines/circles; conservative
   for arcs (chords + sagitta), Bezier curves (convex hull) and hollow outlines (filled)]
 * unknown pad shapes [unknown: bounding rectangle, flagged]
-* THT pads with ``remove_unused_layers`` [conservative: copper kept on all layers]
+* THT pads / vias with ``remove_unused_layers`` [conservative: copper kept on all
+  layers for clearance; connections on an unflashed layer must reach the hole]
 * tracks [exact]; arc tracks [conservative: chords + sagitta margin]
 * vias [exact]; zone fills [exact as stored in the file — may be stale]
 """
@@ -326,12 +327,26 @@ def track_item(track: Track) -> CopperItem:
     )
 
 
+def _pad_hole_only_layers(pad: Pad, layers: frozenset[str]) -> frozenset[str]:
+    """Copper layers a plated pad flashes only when connected (KiCad
+    ``PAD::ConditionallyFlashed``): every layer with ``remove_unused_layers``,
+    except F.Cu/B.Cu with ``keep_end_layers``."""
+    if pad.pad_type is not PadType.THROUGH_HOLE or not pad.remove_unused_layers:
+        return frozenset()
+    ends = {"F.Cu", "B.Cu"} if pad.keep_end_layers else set()
+    return frozenset(layers - ends)
+
+
 def via_items(via: Via, copper_layers: tuple[str, ...]) -> tuple[CopperItem, HoleItem | None]:
     """Geometry of one via: its copper and its drilled hole."""
     uid = f"via:{via.id}"
     order = list(copper_layers)
     layers = frozenset(layer for layer in copper_layers if via.spans_layer(layer, order))
     shape = circle(via.position, via.diameter // 2)
+    hole_only: frozenset[str] = frozenset()
+    if via.remove_unused_layers and via.drill:
+        ends = {via.start_layer, via.end_layer} if via.keep_end_layers else set()
+        hole_only = frozenset(layers - ends)
     item = CopperItem(
         uid=uid,
         kind=ItemKind.VIA,
@@ -344,6 +359,8 @@ def via_items(via: Via, copper_layers: tuple[str, ...]) -> tuple[CopperItem, Hol
         locked=via.locked,
         diameter=via.diameter,
         drill=via.drill,
+        hole_only_layers=hole_only,
+        hole=circle(via.position, via.drill // 2) if hole_only and via.drill else None,
     )
     hole = None
     if via.drill:
@@ -401,6 +418,8 @@ def build_board_geometry(board: Board) -> BoardGeometry:
                 drill=pad.drill,
                 accuracy=acc,
                 note=note,
+                hole_only_layers=_pad_hole_only_layers(pad, layers) if hole else frozenset(),
+                hole=hole,
             )
         if hole is not None:
             hid = f"hole:{pad.id}"

@@ -62,5 +62,6 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | Feature | Status | Notes | Evidence |
 |---|---|---|---|
 | `copper text and graphics` | **SUPPORTED** | gr_*/fp_* and visible text on copper are no-net obstacles; text is a conservative box | tests/unit/test_copper_graphics.py, tests/unit/test_rule_fidelity.py |
+| `pad/via remove_unused_layers` | **SUPPORTED** | connections on an unflashed layer must reach the drill hole (KiCad CN_VISITOR NEVER_FLASHED); route goals there are the hole; clearance keeps the full copper (conservative) | tests/unit/test_unflashed_layers.py (live KiCad check) |
 | `zone fills` | **PARTIAL** | foreign fills are treated as refillable (KiCad workflow: refill after routing); a refill can split a pour or starve thermals (oracle: completion disagreements, starved_thermal) |  |
 | `board file formats` | **PARTIAL** | load: KiCad 5-10; export: 20211014-20261231 (KiCad 6-10); KiCad 5.99 dev formats are refused with a precise message |  |

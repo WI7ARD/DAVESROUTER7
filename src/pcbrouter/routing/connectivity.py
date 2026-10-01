@@ -5,6 +5,8 @@ items are joined when their copper *touches* on a layer they share (gap <= 1 nm,
 :func:`~pcbrouter.geometry.clearance.touches`). That covers T-junctions, crossings,
 track-into-pad, overlapping traces and zone fills; a via joins every layer it spans.
 Two tracks crossing on different layers without a via are *not* connected.
+As in KiCad, a pad or via with ``remove_unused_layers`` connects on an unflashed
+layer only through its drill hole (zone fills still see its full copper).
 
 A net is "fully connected" when all of its pads end up in one group. "Having
 tracks" is never taken to mean "routed".
@@ -176,7 +178,10 @@ def _net_connectivity(geo: BoardGeometry, net: str, uids: list[str]) -> NetConne
                     continue
                 if uf.find(item.uid) == uf.find(other.uid):
                     continue
-                if any(touches(a, b) for a in item.shapes for b in other.shapes):
+                to_zone = ItemKind.ZONE_FILL in (item.kind, other.kind)
+                mine = item.contact_shapes(layer, to_zone=to_zone)
+                theirs = other.contact_shapes(layer, to_zone=to_zone)
+                if any(touches(a, b) for a in mine for b in theirs):
                     uf.union(item.uid, other.uid)
                     edges.append((item.uid, other.uid, layer))
     pads = sorted(i.uid for i in items if i.kind is ItemKind.PAD)

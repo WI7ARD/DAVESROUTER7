@@ -28,6 +28,10 @@ class Via:
     end_layer: str | None
     via_type: ViaType = ViaType.THROUGH
     locked: bool = False
+    #: As for pads: unflashed layers connect only through the hole; ``keep_end_layers``
+    #: always flashes the start and end layers.
+    remove_unused_layers: bool = False
+    keep_end_layers: bool = False
 
     @property
     def bounds(self) -> BoundingBox:

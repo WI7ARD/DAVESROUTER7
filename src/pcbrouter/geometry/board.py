@@ -62,6 +62,17 @@ class CopperItem:
     drill: Nm | None = None  # vias / plated pads
     accuracy: ShapeAccuracy = ShapeAccuracy.EXACT
     note: str | None = None
+    #: Layers where KiCad flashes this pad/via only if something connects to it
+    #: (``remove_unused_layers``). There, KiCad's connectivity sees just the drill
+    #: hole (``CN_VISITOR``: NEVER_FLASHED), except towards zone fills.
+    hole_only_layers: frozenset[str] = frozenset()
+    hole: Shape | None = None
+
+    def contact_shapes(self, layer: str, *, to_zone: bool = False) -> tuple[Shape, ...]:
+        """The copper that makes an electrical connection on ``layer``."""
+        if to_zone or self.hole is None or layer not in self.hole_only_layers:
+            return self.shapes
+        return (self.hole,)
 
 
 @dataclass(frozen=True, slots=True)

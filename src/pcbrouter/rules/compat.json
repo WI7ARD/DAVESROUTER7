@@ -176,6 +176,13 @@
       "evidence": "tests/unit/test_copper_graphics.py, tests/unit/test_rule_fidelity.py"
     },
     {
+      "feature": "pad/via remove_unused_layers",
+      "kind": "board",
+      "status": "SUPPORTED",
+      "notes": "connections on an unflashed layer must reach the drill hole (KiCad CN_VISITOR NEVER_FLASHED); route goals there are the hole; clearance keeps the full copper (conservative)",
+      "evidence": "tests/unit/test_unflashed_layers.py (live KiCad check)"
+    },
+    {
       "feature": "zone fills",
       "kind": "board",
       "status": "PARTIAL",

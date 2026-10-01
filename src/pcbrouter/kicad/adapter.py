@@ -737,8 +737,8 @@ class KiCadBoardAdapter:
             trapezoid_delta=trapezoid_delta,
             custom_anchor=anchor,
             primitives=primitives,
-            remove_unused_layers=node.has_flag("remove_unused_layers")
-            or node.first("remove_unused_layers") is not None,
+            remove_unused_layers=node.has_flag("remove_unused_layers"),
+            keep_end_layers=node.has_flag("keep_end_layers"),
         )
 
     def _optional_mm(self, atom: str | None, what: str, node: SNode) -> Nm | None:
@@ -1019,6 +1019,8 @@ class KiCadBoardAdapter:
             end_layer=layer_atoms[1] if len(layer_atoms) >= 2 else None,
             via_type=via_type,
             locked=node.has_flag("locked"),
+            remove_unused_layers=node.has_flag("remove_unused_layers"),
+            keep_end_layers=node.has_flag("keep_end_layers"),
         )
 
     # ------------------------------------------------------------ copper graphics

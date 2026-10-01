@@ -101,8 +101,12 @@ class Pad:
     #: Custom pads: anchor shape (CIRCLE/RECT) plus primitives in the pad frame.
     custom_anchor: PadShape | None = None
     primitives: tuple[PadPrimitive, ...] = ()
-    #: KiCad may remove unconnected inner-layer copper of THT pads; kept conservatively.
+    #: KiCad flashes the copper of a THT pad on a layer only when something connects
+    #: to it there (``remove_unused_layers``); ``keep_end_layers`` always flashes
+    #: F.Cu/B.Cu. Clearance keeps the copper (conservative); connections on an
+    #: unflashed layer must reach the drill hole, as in KiCad.
     remove_unused_layers: bool = False
+    keep_end_layers: bool = False
 
     @property
     def copper_layers(self) -> tuple[str, ...]:

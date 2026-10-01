@@ -160,7 +160,7 @@ class RouteValidator:
     def _touches_existing(self, net: str, layer: str, p: Point) -> bool:
         probe = circle(p, 0)
         return any(
-            item.net == net and any(touches(probe, s) for s in item.shapes)
+            item.net == net and any(touches(probe, s) for s in item.contact_shapes(layer))
             for item in self.geometry.copper_near(layer, probe.bounds)
         )
 

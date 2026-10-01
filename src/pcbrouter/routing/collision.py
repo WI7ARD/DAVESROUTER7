@@ -388,7 +388,7 @@ class CollisionEngine:
         for item in self.geometry.copper_near(layer, box):
             result.checks += 1
             if net is not None and item.net == net:
-                if any(touches(shape, s) for s in item.shapes):
+                if any(touches(shape, s) for s in item.contact_shapes(layer)):
                     result.same_net_contacts.append(item.uid)
                 continue
             self._pair(result, net, layer, shape, item_type, item)
