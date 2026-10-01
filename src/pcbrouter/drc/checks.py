@@ -379,6 +379,8 @@ def check_board_edge(ctx: CheckContext) -> None:
 def check_keepouts(ctx: CheckContext) -> None:
     geo = ctx.geo
     for k in geo.keepouts.values():
+        if k.new_copper_only:
+            continue  # e.g. mask openings: they constrain new routes, not the design
         done: set[str] = set()  # an item on several keepout layers is reported once
         for layer in sorted(k.layers):
             for item in geo.copper_near(layer, k.bounds):

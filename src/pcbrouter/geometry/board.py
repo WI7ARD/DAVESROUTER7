@@ -99,9 +99,19 @@ class KeepoutItem:
     bounds: BoundingBox
     rules: KeepoutRules
     footprint_ref: str | None = None
+    #: a net that may still put copper here (mask openings exposing only it)
+    allowed_net: str | None = None
+    #: applies to new copper only: existing copper is never reported for it
+    new_copper_only: bool = False
+    custom_label: str | None = None
+
+    def forbids(self, net: str | None) -> bool:
+        return self.allowed_net is None or net != self.allowed_net
 
     @property
     def label(self) -> str:
+        if self.custom_label:
+            return self.custom_label
         base = f"keepout '{self.name}'" if self.name else "keepout"
         return f"{base} ({self.rules.describe()})"
 

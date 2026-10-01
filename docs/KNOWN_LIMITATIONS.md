@@ -16,7 +16,7 @@ real KiCad DRC on the board before and after routing, with zones refilled.
 |---|---|---|
 | `connection_width` (board `min_connection`) | The board's minimum connection width equals the track width (Real100 K035: both 0.2 mm). Necks of 0.17–0.198 mm appear where a track meets a teardrop zone left behind by removed tracks, or where a one-cell (0.14 mm) diagonal stub joins another track. | Not modelled. K035: 7–36 errors per run. Fix planned: remove micro-stubs in the optimizer, and model `min_connection` on junctions. |
 | `starved_thermal` | A refill leaves a pad with fewer thermal spokes than the zone requires. | Not modelled (the refill model counts a single spoke as a connection, as KiCad's connectivity does). |
-| `solder_mask_bridge` | A via inside another net's mask aperture. | Not modelled (mask is outside the copper model). |
+| `solder_mask_bridge` | Board-level mask openings (gr_* on F.Mask/B.Mask) are keepouts for new copper of other nets than the one already exposed there. Pad mask apertures (`pad_to_mask_clearance`, footprint mask shapes) are not modelled. | Partly modelled. Real100 K024/K034/K074: 0 bridges after the change (were 2–5). |
 
 ## Connectivity and zones
 

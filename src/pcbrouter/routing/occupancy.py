@@ -479,7 +479,7 @@ def build_occupancy(
     keep_items: list[tuple[Shape, float]] = []
     for k in geo.keepouts.values():
         forbidden = k.rules.vias if item is ItemType.VIA else k.rules.tracks
-        if layer in k.layers and forbidden:
+        if layer in k.layers and forbidden and k.forbids(net):
             keep_items.append((k.shape, r_track + seg_margin))
     raster.mark_batch(keep_items, CellState.KEEPOUT)
 

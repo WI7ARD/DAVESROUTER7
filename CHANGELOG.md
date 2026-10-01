@@ -60,6 +60,11 @@
   open nets after refill on every run (K035 Speed 60/81, 21 open; Accuracy
   59/86, 27 open - before, 60-61/69 were claimed while KiCad saw 12-26 open).
   K037 is fully routed in KiCad's eyes (0 open nets, was 1).
+- Board-level solder-mask openings (graphics on F.Mask/B.Mask) are keepouts for
+  new tracks and vias of any net other than the one already exposed there:
+  two nets in one opening is a KiCad `solder_mask_bridge` (Real100 K024's GND
+  repair copper crossed a B.Mask opening). Existing copper is never reported.
+  KiCad 8 oracle, K024/K034/K074 both modes: all CLEAN, completion unchanged.
 - A route's own vias keep the hole-to-hole minimum between each other: the
   per-via check only saw holes already on the board, so two vias of one net
   could sit 0.247 mm apart where 0.25 mm was required, and the commit refused

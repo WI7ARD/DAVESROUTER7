@@ -183,6 +183,13 @@
       "evidence": "tests/unit/test_unflashed_layers.py (live KiCad check)"
     },
     {
+      "feature": "solder mask openings (board-level)",
+      "kind": "board",
+      "status": "PARTIAL",
+      "notes": "gr_* on F.Mask/B.Mask are keepouts for new copper of nets other than the single net already exposed there (KiCad solder_mask_bridge); pad mask apertures are not modelled",
+      "evidence": "tests/unit/test_mask_openings.py (live KiCad check); oracle K024/K034/K074 CLEAN"
+    },
+    {
       "feature": "zone fills",
       "kind": "board",
       "status": "PARTIAL",

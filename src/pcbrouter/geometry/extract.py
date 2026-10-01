@@ -36,7 +36,7 @@ from pcbrouter.domain.pad import Pad, PadShape, PadType, PrimitiveKind
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm
 from pcbrouter.domain.via import Via
-from pcbrouter.domain.zone import ZoneFillState
+from pcbrouter.domain.zone import KeepoutRules, ZoneFillState
 from pcbrouter.geometry.board import (
     BoardGeometry,
     BoardRegion,
@@ -48,6 +48,7 @@ from pcbrouter.geometry.board import (
     KeepoutItem,
     RegionStatus,
 )
+from pcbrouter.geometry.clearance import touches
 from pcbrouter.geometry.errors import InvalidGeometryError
 from pcbrouter.geometry.path import ARC_MAX_SAGITTA_NM, arc_capsules, arc_chords
 from pcbrouter.geometry.polygon import Polygon, convex_hull
@@ -337,6 +338,35 @@ def _pad_hole_only_layers(pad: Pad, layers: frozenset[str]) -> frozenset[str]:
     return frozenset(layers - ends)
 
 
+def _mask_opening_keepouts(board: Board, copper: dict[str, CopperItem]) -> dict[str, KeepoutItem]:
+    """Board-level solder-mask openings as keepouts for *new* tracks and vias on
+    that side's outer copper: copper of two nets exposed in one opening is a
+    KiCad ``solder_mask_bridge`` error (Real100 K024, K034, K074). When the
+    copper already exposed there belongs to a single net, that net may still
+    route through. Existing copper is never reported for them."""
+    out: dict[str, KeepoutItem] = {}
+    rules = KeepoutRules(tracks=True, vias=True)
+    for g in board.mask_openings:
+        layer = "F.Cu" if g.layer == "F.Mask" else "B.Cu"
+        if layer not in board.copper_layer_names:
+            continue
+        for n, shape in enumerate(graphic_shapes(g)):
+            nets = {
+                item.net
+                for item in copper.values()
+                if layer in item.layers
+                and item.bounds.intersects(shape.bounds)
+                and any(touches(shape, s) for s in item.shapes)
+            }
+            allowed = next(iter(nets)) if len(nets) == 1 else None
+            kid = f"mask:{g.id}/{n}"
+            out[kid] = KeepoutItem(
+                kid, g.id, None, frozenset((layer,)), shape, shape.bounds, rules,
+                allowed_net=allowed, new_copper_only=True, custom_label=g.label,
+            )  # fmt: skip
+    return out
+
+
 def via_items(via: Via, copper_layers: tuple[str, ...]) -> tuple[CopperItem, HoleItem | None]:
     """Geometry of one via: its copper and its drilled hole."""
     uid = f"via:{via.id}"
@@ -512,6 +542,8 @@ def build_board_geometry(board: Board) -> BoardGeometry:
             accuracy=ShapeAccuracy.worst(*(sh.accuracy for sh in shapes_g)),
             note="text bounding box (covers the glyphs)" if g.kind == "text" else None,
         )
+
+    keepouts.update(_mask_opening_keepouts(board, copper))
 
     for n, seg in enumerate(board.outline.segments):
         for k, shape in enumerate(_edge_shapes(seg)):

@@ -196,7 +196,7 @@ class CollisionEngine:
         shape = capsule(start, end, width // 2)
         self._copper(result, net, layer, shape, ItemType.TRACK)
         self._holes(result, net, [layer], shape, ItemType.TRACK)
-        self._keepouts(result, [layer], shape, tracks=True)
+        self._keepouts(result, [layer], shape, tracks=True, net=net)
         self._board_edge(result, net, shape, ItemType.TRACK, start)
         return self._finish(result, t0)
 
@@ -254,7 +254,7 @@ class CollisionEngine:
         for layer in span:
             self._copper(result, net, layer, shape, ItemType.VIA)
         self._hole_to_hole(result, circle(position, drill // 2))
-        self._keepouts(result, span, shape, vias=True)
+        self._keepouts(result, span, shape, vias=True, net=net)
         self._board_edge(result, net, shape, ItemType.VIA, position)
         return self._finish(result, t0)
 
@@ -564,6 +564,7 @@ class CollisionEngine:
         *,
         tracks: bool = False,
         vias: bool = False,
+        net: str | None = None,
     ) -> None:
         seen: set[str] = set()
         for layer in layers:
@@ -571,7 +572,7 @@ class CollisionEngine:
                 if k.uid in seen:
                     continue
                 forbidden = (tracks and k.rules.tracks) or (vias and k.rules.vias)
-                if not forbidden:
+                if not forbidden or not k.forbids(net):
                     continue
                 seen.add(k.uid)
                 result.checks += 1

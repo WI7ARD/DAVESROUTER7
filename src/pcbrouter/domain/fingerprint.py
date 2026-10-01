@@ -90,4 +90,6 @@ def board_fingerprint(board: Board) -> str:
         put("NC", nc)
     for g in board.copper_graphics:
         put("G", g.id, g.layer, g.kind, g.points, g.width, g.filled)
+    for g in board.mask_openings:
+        put("M", g.id, g.layer, g.kind, g.points, g.width, g.filled)
     return h.hexdigest()

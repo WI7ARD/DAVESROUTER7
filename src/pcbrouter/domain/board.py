@@ -178,6 +178,9 @@ class Board:
     net_classes: tuple[NetClassDef, ...] = ()
     #: Graphics and visible text on copper layers (obstacles, no net).
     copper_graphics: tuple[CopperGraphic, ...] = ()
+    #: board-level graphics on F.Mask/B.Mask: solder-mask *openings* (mask layers
+    #: are negative), which expose any copper under them
+    mask_openings: tuple[CopperGraphic, ...] = ()
 
     # ----------------------------------------------------------------- views
     @property

@@ -296,6 +296,7 @@ class KiCadBoardAdapter:
         outline: list[OutlineSegment] = []
         zones: list[Zone] = []
         graphics: list[CopperGraphic] = []
+        mask_openings: list[CopperGraphic] = []
         not_displayed: Counter[str] = Counter()
         unknown: Counter[str] = Counter()
 
@@ -328,6 +329,10 @@ class KiCadBoardAdapter:
                     g = self._guard(node, f"copper {name}", self._copper_graphic, index)
                     if g is not None:
                         graphics.append(g)
+                elif _graphic_layer(node) in ("F.Mask", "B.Mask"):
+                    g = self._guard(node, f"mask opening {name}", self._copper_graphic, index)
+                    if g is not None:
+                        mask_openings.append(replace(g, label=f"solder mask opening on {g.layer}"))
                 else:
                     not_displayed["graphic on non-edge layer"] += 1
             elif name == "gr_text" and _graphic_layer(node) in self._ctx.copper_layers:
@@ -379,6 +384,7 @@ class KiCadBoardAdapter:
             zones=tuple(zones),
             net_classes=self._net_classes(),
             copper_graphics=tuple(graphics),
+            mask_openings=tuple(mask_openings),
         )
 
     # ------------------------------------------------------------ plumbing
