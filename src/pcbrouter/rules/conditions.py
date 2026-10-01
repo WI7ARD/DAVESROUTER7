@@ -22,6 +22,15 @@ A condition that uses unsupported parts (e.g. ``A.insideArea('X')``) keeps its r
 *cannot* apply to a pair of items: ``A.NetClass == 'HV' && A.insideArea('C*')``
 is definitely false for a net outside class HV, whatever the area. Unknown parts
 are never assumed false.
+
+Some properties exist only on one kind of item. In KiCad, ``A.Name`` is
+registered only by zones (``zone.cpp``; pads have "Pad Number" / "Pin Name",
+tracks, vias and footprints none). For an item without the property KiCad's
+evaluator yields an *undefined* value, and both ``==`` and ``!=`` against it are
+false (``PCBEXPR_VAR_REF::GetValue``, ``VALUE::EqualTo`` / ``NotEqualTo``, KiCad
+source at the Real100 commit). So ``A.Name == 'outer_pour'`` is definitely false
+for a track, via or pad, and unknown only for zones (whose names the engine does
+not track).
 """
 
 from __future__ import annotations
@@ -34,6 +43,8 @@ from pcbrouter.rules.model import ItemType
 
 SUPPORTED_PROPERTIES = frozenset({"NetClass", "NetName", "Type", "Layer"})
 SUPPORTED_FUNCTIONS = frozenset({"hasNetclass"})
+#: property -> the only item types (ItemFacts.types()) that carry it in KiCad
+ITEM_ONLY_PROPERTIES: dict[str, frozenset[str]] = {"Name": frozenset({"zone"})}
 
 _TOKEN_RE = re.compile(
     r"\s*(?:(?P<op>&&|\|\||==|!=|=~|!|\(|\)|,|\.)|"
@@ -107,7 +118,27 @@ class Unknown:
     text: str
 
 
-type Node = Compare | Call | Not | BoolOp | Unknown
+@dataclass(frozen=True, slots=True)
+class ItemOnlyProp:
+    """A property only some item types carry (parser intermediate)."""
+
+    who: str
+    name: str
+    kinds: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class OnlyOn:
+    """``==`` / ``!=`` on an item-only property (partial parses only): definitely
+    false for items that lack the property (KiCad: undefined compares false),
+    unknown for items that carry it."""
+
+    who: str
+    kinds: frozenset[str]
+    text: str
+
+
+type Node = Compare | Call | Not | BoolOp | Unknown | OnlyOn
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,12 +232,21 @@ class _Parser:
         left = self.operand()
         tok = self.peek()
         comparing = tok is not None and tok[1] in ("==", "!=", "=~")
+        if isinstance(left, ItemOnlyProp) and not comparing:
+            return Unknown(f"{left.who}.{left.name}")
         if isinstance(left, (Call, Unknown)) and not comparing:
             return left
         if not comparing:
             raise ConditionError("only ==, != and =~ comparisons are supported")
         op = self.take()[1]
         right = self.operand()
+        only = [x for x in (left, right) if isinstance(x, ItemOnlyProp)]
+        if only:
+            other = right if only[0] is left else left
+            text = f"{left} {op} {right}"
+            if len(only) == 1 and op in ("==", "!=") and isinstance(other, Literal):
+                return OnlyOn(only[0].who, only[0].kinds, text)
+            return Unknown(text)
         if isinstance(left, Unknown) or isinstance(right, Unknown):
             return Unknown(f"{left} {op} {right}")
         if isinstance(left, Call) or isinstance(right, Call):
@@ -218,9 +258,10 @@ class _Parser:
                 re.compile(right.value)
             except re.error as exc:
                 raise ConditionError(f"invalid =~ pattern {right.value!r}: {exc}") from exc
+        assert not isinstance(left, ItemOnlyProp) and not isinstance(right, ItemOnlyProp)
         return Compare(left, op, right)
 
-    def operand(self) -> Prop | Literal | Call | Unknown:
+    def operand(self) -> Prop | Literal | Call | Unknown | ItemOnlyProp:
         tok = self.peek()
         if tok is None:
             raise ConditionError("unexpected end of condition")
@@ -252,6 +293,8 @@ class _Parser:
                     raise ConditionError(f"function {who}.{name}() is not supported")
                 return Call(who, name, tuple(args))
             if name not in SUPPORTED_PROPERTIES:
+                if self.partial and name in ITEM_ONLY_PROPERTIES:
+                    return ItemOnlyProp(who, name, ITEM_ONLY_PROPERTIES[name])
                 if self.partial:
                     return Unknown(f"{who}.{name}")
                 raise ConditionError(f"property {who}.{name} is not supported")
@@ -304,7 +347,7 @@ def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
         return _eval(node.left, a, b) or _eval(node.right, a, b)
     if isinstance(node, Not):
         return not _eval(node.operand, a, b)
-    if isinstance(node, Unknown):  # only partial parses contain it (use may_match)
+    if isinstance(node, (Unknown, OnlyOn)):  # only partial parses contain them
         raise ConditionError(f"cannot evaluate unsupported part {node.text}")
     if isinstance(node, Call):
         item = a if node.who == "A" else b
@@ -325,6 +368,11 @@ def _eval3(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool | None:
     """Kleene three-valued evaluation: None = unknown."""
     if isinstance(node, Unknown):
         return None
+    if isinstance(node, OnlyOn):
+        item = a if node.who == "A" else b
+        if item is None:
+            return False  # refers to B in a single-item check: no match, as in _eval
+        return None if node.kinds & set(item.types()) else False
     if isinstance(node, BoolOp):
         left, right = _eval3(node.left, a, b), _eval3(node.right, a, b)
         if node.op == "&&":

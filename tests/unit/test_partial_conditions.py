@@ -33,7 +33,9 @@ PAD = ItemFacts("/SDA", ("Default",), ItemType.PAD, "F.Cu")
         ("A.Type == 'pad' && !A.insideArea('PadsNearEdge*')", SIG, None, False),
         ("A.Type == 'pad' && !A.insideArea('PadsNearEdge*')", PAD, None, True),
         ("A.Name == 'R1' && A.Type == 'via'", SIG, SIG, False),
-        ("A.Name == 'R1'", SIG, SIG, True),
+        # only zones carry "Name" in KiCad: false for tracks, unknown for zones
+        ("A.Name == 'R1'", SIG, SIG, False),
+        ("A.Name == 'R1'", ItemFacts("GND", ("Default",), ItemType.ZONE, "F.Cu"), SIG, True),
     ],
 )
 def test_may_match(text: str, a: ItemFacts, b: ItemFacts | None, may: bool) -> None:
@@ -87,3 +89,38 @@ def test_hv_rule_bound_only_reaches_pairs_it_may_apply_to(
     resolver._cache.clear()
     hv = resolver.resolve_clearance("A", "B")
     assert hv.possibly_stricter == 400_000 and "HvUnderConformal" in hv.possibly_stricter_rules
+
+
+def test_zone_only_property_is_definitely_false_for_tracks_vias_and_pads() -> None:
+    # KiCad registers "Name" only on zones; an item without the property yields an
+    # undefined value and both == and != against it are false (pcbexpr_evaluator /
+    # libeval VALUE::EqualTo / NotEqualTo). Real100 K037: "A.Name == 'outer_pour'".
+    from pcbrouter.rules.conditions import ItemFacts, parse_partial
+    from pcbrouter.rules.model import ItemType
+
+    track = ItemFacts("/SIG", ("Default",), ItemType.TRACK, "F.Cu")
+    pad = ItemFacts("GND", ("Default",), ItemType.PAD, "F.Cu")
+    via = ItemFacts("/SIG", ("Default",), ItemType.VIA, "F.Cu")
+    zone = ItemFacts("GND", ("Default",), ItemType.ZONE, "F.Cu")
+    eq = parse_partial("A.Name == 'outer_pour'")
+    ne = parse_partial("A.Name != 'outer_pour'")
+    assert eq is not None and ne is not None
+    for a, b in ((track, pad), (via, pad), (track, via)):
+        assert not eq.may_match(a, b) and not ne.may_match(a, b)
+    assert eq.may_match(track, zone) and ne.may_match(zone, pad)  # zone names unknown
+    neg = parse_partial("!(A.Name == 'outer_pour')")  # KiCad: !(undefined == x) is true
+    assert neg is not None and neg.may_match(track, pad)
+    # other uses of the property stay unknown (never guessed)
+    rx = parse_partial("A.Name =~ 'out.*'")
+    assert rx is not None and rx.may_match(track, pad)
+
+
+def test_zone_only_rule_no_longer_constrains_track_to_pad_clearance() -> None:
+    from pcbrouter.rules.conditions import ItemFacts
+    from pcbrouter.rules.model import ItemType
+
+    cond = parse_partial("A.Name == 'outer_pour'")
+    assert cond is not None
+    t = ItemFacts("/A", ("Default",), ItemType.TRACK, "F.Cu")
+    p = ItemFacts("/B", ("Default",), ItemType.PAD, "F.Cu")
+    assert not cond.may_match(t, p)
