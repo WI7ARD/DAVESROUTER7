@@ -472,29 +472,9 @@
   ]
  },
  {
-  "repo": "davidphilipbarr/Sweep",
-  "ref": "main",
-  "board": "Sweep half-swept/half-swept.kicad_pcb",
-  "domain": "keyboard",
-  "tags": [
-   "split"
-  ]
- },
- {
   "repo": "foostan/crkbd",
   "ref": "main",
   "board": "pcbs/corne-cherry/hotswap/corne-cherry.kicad_pcb",
-  "domain": "keyboard",
-  "tags": [
-   "split"
-  ],
-  "license_path": "LICENSE_CC",
-  "license_note": "repository ships LICENSE_CC (CC BY 4.0) and LICENSE_MIT; CC BY 4.0 taken for the PCB design"
- },
- {
-  "repo": "foostan/crkbd",
-  "ref": "main",
-  "board": "pcbs/corne-chocolate/hotswap/corne-chocolate.kicad_pcb",
   "domain": "keyboard",
   "tags": [
    "split"
@@ -512,27 +492,9 @@
   ]
  },
  {
-  "repo": "kata0510/Lily58",
-  "ref": "master",
-  "board": "Lite_Rev3/Lily58_Lite_Rev3.kicad_pcb",
-  "domain": "keyboard",
-  "tags": [
-   "split"
-  ]
- },
- {
   "repo": "josefadamcik/SofleKeyboard",
   "ref": "master",
   "board": "Sofle_Pico/PCB/Sofle_Pico.kicad_pcb",
-  "domain": "keyboard",
-  "tags": [
-   "split"
-  ]
- },
- {
-  "repo": "josefadamcik/SofleKeyboard",
-  "ref": "master",
-  "board": "Sofle_v2_soldered/PCB/SofleKeyboard.kicad_pcb",
   "domain": "keyboard",
   "tags": [
    "split"
@@ -599,26 +561,10 @@
   "domain": "keyboard"
  },
  {
-  "repo": "machdyne/keks",
-  "ref": "main",
-  "board": "pcb/keks_v1/keks.kicad_pcb",
-  "domain": "fpga",
-  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
-  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
- },
- {
   "repo": "machdyne/minze",
   "ref": "main",
   "board": "pcb/minze_v1/minze.kicad_pcb",
   "domain": "mcu",
-  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
-  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
- },
- {
-  "repo": "machdyne/bonbon",
-  "ref": "main",
-  "board": "pcb/bonbon_v1/bonbon.kicad_pcb",
-  "domain": "fpga",
   "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
   "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
@@ -635,15 +581,6 @@
   "repo": "DangerousPrototypes/BusPirate5-hardware",
   "ref": "main",
   "board": "adapter-sim-iccard-1REV3C/sim-rev3c.kicad_pcb",
-  "domain": "breakout",
-  "tags": [
-   "adapter"
-  ]
- },
- {
-  "repo": "DangerousPrototypes/BusPirate5-hardware",
-  "ref": "main",
-  "board": "adapter-stemma-qwiic-grove-gravity-bog-plank-1REV1/stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pcb",
   "domain": "breakout",
   "tags": [
    "adapter"
@@ -688,19 +625,62 @@
  {
   "repo": "opulo-inc/lumenpnp",
   "ref": "main",
-  "board": "pnp/pcb/datum/datum.kicad_pcb",
-  "domain": "breakout"
- },
- {
-  "repo": "opulo-inc/lumenpnp",
-  "ref": "main",
   "board": "pnp/pcb/xy-limit/xy-limit.kicad_pcb",
   "domain": "breakout"
  },
  {
-  "repo": "opulo-inc/lumenpnp",
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
   "ref": "main",
-  "board": "pnp/pcb/blade12/blade12.kicad_pcb",
-  "domain": "led"
+  "board": "bus_pirate_pcb/5XL-REV0/5XL-REV0.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "tool"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "bus_pirate_pcb/development/7-REV1B-prototype-2/7-REV1B.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "tool"
+  ]
+ },
+ {
+  "repo": "Jana-Marie/OtterPill",
+  "ref": "main",
+  "board": "HW v1.4/OtterPill.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "usb_pd"
+  ]
+ },
+ {
+  "repo": "Jana-Marie/ligra",
+  "ref": "main",
+  "board": "ligra_back/ligra_back.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "led_driver"
+  ]
+ },
+ {
+  "repo": "wntrblm/Castor_and_Pollux",
+  "ref": "main",
+  "board": "hardware/mainboard/mainboard.kicad_pcb",
+  "domain": "mixed_signal",
+  "tags": [
+   "eurorack",
+   "analog"
+  ]
+ },
+ {
+  "repo": "hydrabus/hydrabus",
+  "ref": "master",
+  "board": "hardware/HydraBus_1_0_Rev1_5_Kicad/HydraBus.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "tool"
+  ]
  }
 ]
