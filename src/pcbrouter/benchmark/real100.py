@@ -1,8 +1,14 @@
-"""DAVESROUTER Benchmark Suite — 100 Real KiCad Boards.
+"""DAVESROUTER Benchmark Suite — 100 Real KiCad Boards (and other pinned corpora).
 
-The corpus is a reproducible manifest of 80 KiCad PCBNew QA/regression boards and
-20 official KiCad demo designs. Third-party board bytes are fetched on demand from
-a pinned KiCad source-mirror commit; DAVESROUTER does not vendor those files.
+The default corpus (Real100) is a reproducible manifest of 80 KiCad PCBNew
+QA/regression boards and 20 official KiCad demo designs. Third-party board bytes
+are fetched on demand from a pinned KiCad source-mirror commit; DAVESROUTER does
+not vendor those files.
+
+The same harness runs any manifest given with ``--manifest``: the OpenBoards
+corpus (``benchmarks/openboards/``, schema ``davesrouter-openboards/1``) pins
+open-source KiCad projects from many repositories, each board (and each sidecar
+``.kicad_pro``/``.kicad_dru``) by repository, commit and Git blob SHA-1.
 
 The runner deliberately executes each board/mode in a fresh subprocess. A parser
 crash, pathological router case, or timeout is recorded as one result and cannot
@@ -42,9 +48,14 @@ from pcbrouter.routing.working_board import WorkingBoard
 
 SCHEMA = "davesrouter-real100/1.1"
 #: manifests this harness reads (1.1 = same boards, documents the strip policy)
-SCHEMAS = frozenset({"davesrouter-real100/1", SCHEMA})
+REAL100_SCHEMAS = frozenset({"davesrouter-real100/1", SCHEMA})
+OPENBOARDS_SCHEMA = "davesrouter-openboards/1"
+SCHEMAS = REAL100_SCHEMAS | {OPENBOARDS_SCHEMA}
 USER_AGENT = "DAVESROUTER-Real100/1.1 (+benchmark corpus fetcher)"
-RAW_BASE = "https://raw.githubusercontent.com/KiCad/kicad-source-mirror"
+RAW_HOST = "https://raw.githubusercontent.com"
+RAW_BASE = f"{RAW_HOST}/KiCad/kicad-source-mirror"
+#: boards the ``smoke`` profile routes on a manifest without a curated smoke set
+SMOKE_FALLBACK_COUNT = 12
 
 
 def repo_root() -> Path:
@@ -70,6 +81,14 @@ class BoardSpec:
     difficulty: str
     tags: tuple[str, ...]
     route_policy: str
+    #: per-board source; None = the manifest's ``source_repository``/``source_ref``
+    repository: str | None = None
+    ref: str | None = None
+    #: pinned sidecars as (repository path, git blob sha1); empty = best effort
+    sidecars: tuple[tuple[str, str], ...] = ()
+    license: str | None = None
+    #: whether the original (unstripped) board was fully connected; None = unknown
+    reference_complete: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,36 +99,73 @@ class Manifest:
     source_ref: str
     source_ref_date: str
     boards: tuple[BoardSpec, ...]
+    schema: str = SCHEMA
+
+    @property
+    def is_real100(self) -> bool:
+        return self.schema in REAL100_SCHEMAS
+
+    @property
+    def slug(self) -> str:
+        """Short corpus name used in result file names (``real100``, ``openboards``)."""
+        return self.schema.split("/", 1)[0].removeprefix("davesrouter-")
+
+    def board_repository(self, spec: BoardSpec) -> str:
+        return spec.repository or self.source_repository
+
+    def board_ref(self, spec: BoardSpec) -> str:
+        return spec.ref or self.source_ref
 
 
 def load_manifest(path: Path | None = None) -> Manifest:
     p = path or default_manifest()
     data = json.loads(p.read_text(encoding="utf-8"))
-    if data.get("schema") not in SCHEMAS:
-        raise ValueError(f"unsupported Real100 manifest schema: {data.get('schema')!r}")
-    boards = tuple(
-        BoardSpec(
-            id=str(x["id"]),
-            name=str(x["name"]),
-            family=str(x["family"]),
-            source_path=str(x["source_path"]),
-            source_size_bytes=int(x["source_size_bytes"]),
-            git_blob_sha1=str(x["git_blob_sha1"]),
-            difficulty=str(x["difficulty"]),
-            tags=tuple(str(t) for t in x.get("tags", ())),
-            route_policy=str(x.get("route_policy", "route")),
-        )
-        for x in data["boards"]
-    )
-    if len(boards) != 100 or len({b.id for b in boards}) != 100:
-        raise ValueError("Real100 manifest must contain exactly 100 unique board IDs")
+    schema = data.get("schema")
+    if schema not in SCHEMAS:
+        raise ValueError(f"unsupported benchmark manifest schema: {schema!r}")
+    source_repository = str(data.get("source_repository") or "")
+    source_ref = str(data.get("source_ref") or "")
+    boards = tuple(_board_spec(x, source_repository, source_ref) for x in data["boards"])
+    ids = {b.id for b in boards}
+    if schema in REAL100_SCHEMAS:
+        if len(boards) != 100 or len(ids) != 100:
+            raise ValueError("Real100 manifest must contain exactly 100 unique board IDs")
+    elif not boards or len(ids) != len(boards):
+        raise ValueError("benchmark manifest needs at least one board and unique board IDs")
     return Manifest(
         suite_name=str(data["suite_name"]),
         suite_version=str(data["suite_version"]),
-        source_repository=str(data["source_repository"]),
-        source_ref=str(data["source_ref"]),
-        source_ref_date=str(data["source_ref_date"]),
+        source_repository=source_repository,
+        source_ref=source_ref,
+        source_ref_date=str(data.get("source_ref_date") or ""),
         boards=boards,
+        schema=str(schema),
+    )
+
+
+def _board_spec(x: dict[str, Any], source_repository: str, source_ref: str) -> BoardSpec:
+    source_path = str(x["source_path"])
+    repository = x.get("repository") or source_repository
+    ref = x.get("commit") or x.get("ref") or source_ref
+    if not repository or not ref:
+        raise ValueError(f"board {x.get('id')!r}: no repository/commit (and no manifest default)")
+    sidecars = tuple((str(sc["path"]), str(sc["git_blob_sha1"])) for sc in x.get("sidecars") or ())
+    complete = x.get("reference_complete")
+    return BoardSpec(
+        id=str(x["id"]),
+        name=str(x.get("name") or source_path.rsplit("/", 1)[-1]),
+        family=str(x.get("family", "")),
+        source_path=source_path,
+        source_size_bytes=int(x["source_size_bytes"]),
+        git_blob_sha1=str(x["git_blob_sha1"]),
+        difficulty=str(x.get("difficulty", "")),
+        tags=tuple(str(t) for t in x.get("tags", ())),
+        route_policy=str(x.get("route_policy", "route")),
+        repository=str(repository),
+        ref=str(ref),
+        sidecars=sidecars,
+        license=str(x["license"]) if x.get("license") else None,
+        reference_complete=None if complete is None else bool(complete),
     )
 
 
@@ -125,9 +181,21 @@ def _download(url: str, *, timeout: float = 120.0) -> bytes:
         return data
 
 
-def _raw_url(ref: str, source_path: str) -> str:
+def repo_slug(repository: str) -> str:
+    """``owner/name`` from ``owner/name``, ``https://github.com/owner/name(.git)``."""
+    slug = repository.strip().rstrip("/")
+    for prefix in ("https://github.com/", "http://github.com/", "github.com/"):
+        if slug.startswith(prefix):
+            slug = slug[len(prefix) :]
+    slug = slug.removesuffix(".git")
+    if slug.count("/") != 1:
+        raise ValueError(f"not a GitHub repository: {repository!r}")
+    return slug
+
+
+def _raw_url(repository: str, ref: str, source_path: str) -> str:
     quoted = urllib.parse.quote(source_path, safe="/")
-    return f"{RAW_BASE}/{ref}/{quoted}"
+    return f"{RAW_HOST}/{repo_slug(repository)}/{ref}/{quoted}"
 
 
 def _entry_dir(workdir: Path, stage: str, spec: BoardSpec) -> Path:
@@ -149,8 +217,9 @@ def fetch_board(
             result.update({"cached": True, "bytes": len(data), "git_blob_sha1": observed})
         else:
             board_dest.unlink()
+    repository, ref = manifest.board_repository(spec), manifest.board_ref(spec)
     if not board_dest.exists():
-        url = _raw_url(manifest.source_ref, spec.source_path)
+        url = _raw_url(repository, ref, spec.source_path)
         data = _download(url, timeout=300.0 if spec.source_size_bytes > 20_000_000 else 120.0)
         observed = git_blob_sha1(data)
         if observed != spec.git_blob_sha1:
@@ -163,6 +232,9 @@ def fetch_board(
         board_dest.write_bytes(data)
         result.update({"cached": False, "bytes": len(data), "git_blob_sha1": observed})
 
+    if spec.sidecars:
+        result["sidecars"] = _fetch_pinned_sidecars(spec, repository, ref, dest_dir, force)
+        return result
     # KiCad 6+ rules usually live beside the board. Fetch same-stem sidecars when present.
     sidecars: list[str] = []
     src = Path(spec.source_path)
@@ -173,7 +245,7 @@ def fetch_board(
             sidecars.append(side_dest.name)
             continue
         try:
-            side_data = _download(_raw_url(manifest.source_ref, side_source), timeout=60.0)
+            side_data = _download(_raw_url(repository, ref, side_source), timeout=60.0)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
@@ -184,11 +256,35 @@ def fetch_board(
     return result
 
 
+def _fetch_pinned_sidecars(
+    spec: BoardSpec, repository: str, ref: str, dest_dir: Path, force: bool
+) -> list[str]:
+    """Fetch exactly the manifest's sidecars, each verified against its blob SHA."""
+    names: list[str] = []
+    for side_source, expected in spec.sidecars:
+        side_dest = dest_dir / Path(side_source).name
+        if side_dest.exists() and not force:
+            if git_blob_sha1(side_dest.read_bytes()) == expected:
+                names.append(side_dest.name)
+                continue
+            side_dest.unlink()
+        side_data = _download(_raw_url(repository, ref, side_source), timeout=60.0)
+        observed = git_blob_sha1(side_data)
+        if observed != expected:
+            raise RuntimeError(
+                f"{spec.id}: sidecar {side_source} Git blob SHA mismatch: "
+                f"expected {expected}, got {observed}"
+            )
+        side_dest.write_bytes(side_data)
+        names.append(side_dest.name)
+    return names
+
+
 def fetch_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> list[dict[str, Any]]:
     workdir.mkdir(parents=True, exist_ok=True)
     out: list[dict[str, Any]] = []
     for i, spec in enumerate(manifest.boards, 1):
-        print(f"[{i:03d}/100] fetch {spec.id} {spec.name}", flush=True)
+        print(f"[{i:03d}/{len(manifest.boards)}] fetch {spec.id} {spec.name}", flush=True)
         try:
             out.append(fetch_board(spec, manifest, workdir, force=force))
         except Exception as exc:  # one unavailable board must not hide the rest
@@ -329,8 +425,12 @@ def prepare_board(spec: BoardSpec, workdir: Path, *, force: bool = False) -> dic
     data = stripped.encode("utf-8")
     dest.write_bytes(data)
     sidecars = []
-    for suffix in (".kicad_pro", ".kicad_dru"):
-        side = src_dir / src.with_suffix(suffix).name
+    if spec.sidecars:
+        side_names = [Path(p).name for p, _sha in spec.sidecars]
+    else:
+        side_names = [src.with_suffix(suffix).name for suffix in (".kicad_pro", ".kicad_dru")]
+    for name in side_names:
+        side = src_dir / name
         if side.is_file():
             shutil.copy2(side, dest_dir / side.name)
             sidecars.append(side.name)
@@ -370,7 +470,7 @@ def _write_rules_inventory(rows: list[dict[str, Any]], path: Path) -> None:
 def prepare_all(manifest: Manifest, workdir: Path, *, force: bool = False) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for i, spec in enumerate(manifest.boards, 1):
-        print(f"[{i:03d}/100] prepare {spec.id} {spec.name}", flush=True)
+        print(f"[{i:03d}/{len(manifest.boards)}] prepare {spec.id} {spec.name}", flush=True)
         try:
             out.append(prepare_board(spec, workdir, force=force))
         except Exception as exc:
@@ -430,7 +530,7 @@ def inventory_board(spec: BoardSpec, workdir: Path) -> dict[str, Any]:
 def inventory_all(manifest: Manifest, workdir: Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for i, spec in enumerate(manifest.boards, 1):
-        print(f"[{i:03d}/100] inventory {spec.id} {spec.name}", flush=True)
+        print(f"[{i:03d}/{len(manifest.boards)}] inventory {spec.id} {spec.name}", flush=True)
         try:
             out.append(inventory_board(spec, workdir))
         except Exception as exc:
@@ -560,6 +660,15 @@ def route_one_board(
     }
 
 
+def board_hash(board_path: Path, salt: str) -> str:
+    """The salted board id the experience log writes for *board_path*
+    (:func:`pcbrouter.learning.experience.board_id` of the loaded board's
+    fingerprint), so benchmark boards can be matched to experience records."""
+    from pcbrouter.learning.experience import board_id
+
+    return board_id(load_board(board_path).board.fingerprint, salt)
+
+
 SMOKE_IDS = (
     "K001",
     "K002",
@@ -585,6 +694,8 @@ def select_specs(manifest: Manifest, profile: str, ids: set[str] | None = None) 
             raise ValueError(f"unknown board IDs: {', '.join(sorted(missing))}")
         return specs
     if profile == "smoke":
+        if not manifest.is_real100:  # SMOKE_IDS name Real100 boards only
+            return specs[:SMOKE_FALLBACK_COUNT]
         wanted = set(SMOKE_IDS)
         return [s for s in specs if s.id in wanted]
     if profile == "standard":
@@ -657,7 +768,7 @@ def run_corpus(
     runs_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     # the pid keeps runs started in the same second (side-by-side A/B) apart
-    result_path = out_path or runs_dir / f"real100-{profile}-{stamp}-p{os.getpid()}.jsonl"
+    result_path = out_path or runs_dir / f"{manifest.slug}-{profile}-{stamp}-p{os.getpid()}.jsonl"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     if result_path.exists():
         raise FileExistsError(f"{result_path} exists; results are never appended to old runs")
@@ -676,7 +787,7 @@ def run_corpus(
                 base = {
                     "schema": "davesrouter-real100-result/1",
                     "suite_version": manifest.suite_version,
-                    "source_ref": manifest.source_ref,
+                    "source_ref": manifest.board_ref(spec),
                     "profile": profile,
                     "id": spec.id,
                     "name": spec.name,
@@ -913,8 +1024,12 @@ def print_manifest_summary(manifest: Manifest) -> None:
         counts[b.difficulty] = counts.get(b.difficulty, 0) + 1
     print(manifest.suite_name)
     print(f"suite version: {manifest.suite_version}")
-    print(f"boards: {len(manifest.boards)} (QA 80 + demos 20)")
-    print(f"pinned KiCad ref: {manifest.source_ref}")
+    if manifest.is_real100:
+        print(f"boards: {len(manifest.boards)} (QA 80 + demos 20)")
+        print(f"pinned KiCad ref: {manifest.source_ref}")
+    else:
+        repos = {manifest.board_repository(b) for b in manifest.boards}
+        print(f"boards: {len(manifest.boards)} from {len(repos)} repositories")
     print("difficulty: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
 
 
@@ -930,11 +1045,16 @@ def _parse_modes(value: str) -> tuple[RouteMode, ...]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="DAVESROUTER Real100 KiCad benchmark suite")
-    p.add_argument("--manifest", type=Path, default=default_manifest())
+    p.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest(),
+        help="corpus manifest (default: Real100; e.g. benchmarks/openboards/manifest.json)",
+    )
     p.add_argument("--workdir", type=Path, default=default_workdir())
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="show suite composition")
-    f = sub.add_parser("fetch", help="download the pinned 100-board corpus")
+    f = sub.add_parser("fetch", help="download the pinned board corpus")
     f.add_argument("--force", action="store_true")
     pr = sub.add_parser("prepare", help="make local unrouted benchmark copies")
     pr.add_argument("--force", action="store_true")

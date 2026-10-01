@@ -1,0 +1,578 @@
+[
+ {
+  "repo": "LibreSolar/bms-c1",
+  "ref": "main",
+  "board": "kicad/bms-c1.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "bms"
+  ]
+ },
+ {
+  "repo": "LibreSolar/mppt-2420-hc",
+  "ref": "main",
+  "board": "kicad/mppt-2420-hc.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "mppt"
+  ]
+ },
+ {
+  "repo": "LibreSolar/bms-8s50-ic",
+  "ref": "master",
+  "board": "kicad/bms-8s50-ic.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "bms"
+  ]
+ },
+ {
+  "repo": "stuartpittaway/diyBMSv4",
+  "ref": "master",
+  "board": "ControllerCircuit/ControllerCircuit.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "bms"
+  ]
+ },
+ {
+  "repo": "stuartpittaway/diyBMSv4",
+  "ref": "master",
+  "board": "ModuleV490-AllInOne/Module_16S.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "bms"
+  ]
+ },
+ {
+  "repo": "skot/bitaxe",
+  "ref": "master",
+  "board": "bitaxeUltra.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "asic",
+   "buck"
+  ]
+ },
+ {
+  "repo": "OLIMEX/ESP32-POE",
+  "ref": "master",
+  "board": "HARDWARE/ESP32-PoE-hardware-revision-M2/ESP32-PoE_Rev_M2.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "poe",
+   "mcu"
+  ]
+ },
+ {
+  "repo": "sparkfun/SparkFun_XRP_Controller",
+  "ref": "main",
+  "board": "Hardware/SparkFun_XRP_Controller.kicad_pcb",
+  "domain": "power",
+  "tags": [
+   "motor_driver"
+  ]
+ },
+ {
+  "repo": "antmicro/jetson-nano-baseboard",
+  "ref": "main",
+  "board": "jetson-nano-baseboard.kicad_pcb",
+  "domain": "sbc_carrier",
+  "tags": [
+   "high_speed"
+  ]
+ },
+ {
+  "repo": "antmicro/jetson-orin-baseboard",
+  "ref": "main",
+  "board": "jetson-orin-baseboard.kicad_pcb",
+  "domain": "sbc_carrier",
+  "tags": [
+   "high_speed"
+  ]
+ },
+ {
+  "repo": "antmicro/kria-k26-devboard",
+  "ref": "main",
+  "board": "kria-k26-devboard.kicad_pcb",
+  "domain": "sbc_carrier",
+  "tags": [
+   "high_speed"
+  ]
+ },
+ {
+  "repo": "antmicro/scalenode-cm4-baseboard",
+  "ref": "main",
+  "board": "scalenode-cm4-baseboard.kicad_pcb",
+  "domain": "sbc_carrier",
+  "tags": [
+   "high_speed"
+  ]
+ },
+ {
+  "repo": "antmicro/hdmi-mipi-bridge",
+  "ref": "main",
+  "board": "antmicro-hdmi-mipi-bridge-hw.kicad_pcb",
+  "domain": "video",
+  "tags": [
+   "high_speed"
+  ]
+ },
+ {
+  "repo": "antmicro/ov9281-camera-board",
+  "ref": "main",
+  "board": "ov9281-dual-camera-board.kicad_pcb",
+  "domain": "video",
+  "tags": [
+   "camera"
+  ]
+ },
+ {
+  "repo": "antmicro/lpddr4-test-board",
+  "ref": "main",
+  "board": "lpddr4-test-board.kicad_pcb",
+  "domain": "memory",
+  "tags": [
+   "ddr"
+  ]
+ },
+ {
+  "repo": "antmicro/rdimm-ddr5-tester",
+  "ref": "main",
+  "board": "data-center-rdimm-ddr5-tester.kicad_pcb",
+  "domain": "memory",
+  "tags": [
+   "ddr"
+  ]
+ },
+ {
+  "repo": "antmicro/sodimm-ddr5-tester",
+  "ref": "main",
+  "board": "sodimm-ddr5-tester.kicad_pcb",
+  "domain": "memory",
+  "tags": [
+   "ddr"
+  ]
+ },
+ {
+  "repo": "greatscottgadgets/cynthion-hardware",
+  "ref": "main",
+  "board": "cynthion.kicad_pcb",
+  "domain": "fpga",
+  "tags": [
+   "usb"
+  ]
+ },
+ {
+  "repo": "GlasgowEmbedded/glasgow",
+  "ref": "main",
+  "board": "hardware/boards/glasgow/revC3/glasgow.kicad_pcb",
+  "domain": "fpga",
+  "tags": [
+   "usb"
+  ]
+ },
+ {
+  "repo": "GlasgowEmbedded/glasgow",
+  "ref": "main",
+  "board": "hardware/boards/glasgow/revD1/glasgow.kicad_pcb",
+  "domain": "fpga",
+  "tags": [
+   "usb"
+  ]
+ },
+ {
+  "repo": "gregdavill/butterstick",
+  "ref": "main",
+  "board": "hardware/ButterStick_r1.0/ButterStick.kicad_pcb",
+  "domain": "fpga",
+  "tags": [
+   "bga"
+  ]
+ },
+ {
+  "repo": "tinyvision-ai-inc/pico-ice",
+  "ref": "main",
+  "board": "Board/Rev3/pico-ice.kicad_pcb",
+  "domain": "fpga"
+ },
+ {
+  "repo": "machdyne/riegel",
+  "ref": "main",
+  "board": "pcb/riegel_v4/riegel.kicad_pcb",
+  "domain": "fpga"
+ },
+ {
+  "repo": "machdyne/schoko",
+  "ref": "main",
+  "board": "pcb/schoko_v2/schoko.kicad_pcb",
+  "domain": "fpga"
+ },
+ {
+  "repo": "machdyne/noir",
+  "ref": "main",
+  "board": "pcb/noir_v1/noir.kicad_pcb",
+  "domain": "fpga"
+ },
+ {
+  "repo": "machdyne/werkzeug",
+  "ref": "main",
+  "board": "pcb/werkzeug_v3/werkzeug.kicad_pcb",
+  "domain": "mcu"
+ },
+ {
+  "repo": "machdyne/konfekt",
+  "ref": "main",
+  "board": "pcb/konfekt_v0/konfekt.kicad_pcb",
+  "domain": "fpga"
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "bus_pirate_pcb/5-REV10A/REV10a.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "tool"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "bus_pirate_pcb/6-REV2B/6-REV2b.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "tool"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-flash-sop-1REV3/flash-sop-rev3.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-rs232-dual-1REV0/rs232-dual-adapter.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "greatscottgadgets/hackrf",
+  "ref": "main",
+  "board": "hardware/hackrf-one/hackrf-one.kicad_pcb",
+  "domain": "rf",
+  "tags": [
+   "sdr"
+  ]
+ },
+ {
+  "repo": "ElectronicCats/CatSniffer",
+  "ref": "master",
+  "board": "hardware/CatSniffer.kicad_pcb",
+  "domain": "rf",
+  "tags": [
+   "sub_ghz"
+  ]
+ },
+ {
+  "repo": "esp-rs/esp-rust-board",
+  "ref": "master",
+  "board": "hardware/esp-rust-board/esp-rust-board.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "esp32"
+  ]
+ },
+ {
+  "repo": "Sleepdealr/RP2040-designguide",
+  "ref": "main",
+  "board": "PCB/RP2040-Guide.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "rp2040"
+  ]
+ },
+ {
+  "repo": "joric/nrfmicro",
+  "ref": "main",
+  "board": "hardware/nrfmicro.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "nrf52"
+  ]
+ },
+ {
+  "repo": "sparkfun/SparkFun_IoT_RedBoard-RP2350",
+  "ref": "main",
+  "board": "Hardware/SparkFun_IoT_RedBoard-RP2350.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "rp2350"
+  ]
+ },
+ {
+  "repo": "TinyTapeout/tt-demo-pcb",
+  "ref": "main",
+  "board": "tinytapeout-demo.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "asic"
+  ]
+ },
+ {
+  "repo": "badgeteam/mch2022-badge-hardware",
+  "ref": "master",
+  "board": "mch2022.kicad_pcb",
+  "domain": "badge",
+  "tags": [
+   "esp32"
+  ]
+ },
+ {
+  "repo": "emfcamp/badge-2024-hardware",
+  "ref": "main",
+  "board": "tildagon-base/tildagon-base.kicad_pcb",
+  "domain": "badge"
+ },
+ {
+  "repo": "emfcamp/badge-2024-hardware",
+  "ref": "main",
+  "board": "hexpansion/hexpansion.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "badge"
+  ]
+ },
+ {
+  "repo": "scottbez1/smartknob",
+  "ref": "master",
+  "board": "electronics/view_base/view_base.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "motor_driver"
+  ]
+ },
+ {
+  "repo": "scottbez1/smartknob",
+  "ref": "master",
+  "board": "electronics/view_screen/view_screen.kicad_pcb",
+  "domain": "breakout"
+ },
+ {
+  "repo": "scottbez1/splitflap",
+  "ref": "master",
+  "board": "electronics/sensor_smd/sensor_smd.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "sensor"
+  ]
+ },
+ {
+  "repo": "VoronDesign/Voron-Hardware",
+  "ref": "master",
+  "board": "V0_Display_RP2040/KiCad/V0_Display_RP2040.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "rp2040"
+  ]
+ },
+ {
+  "repo": "VoronDesign/Voron-Hardware",
+  "ref": "master",
+  "board": "Daylight/Daylight_on_a_stick/Daylight.kicad_pcb",
+  "domain": "led"
+ },
+ {
+  "repo": "VoronDesign/Voron-Hardware",
+  "ref": "master",
+  "board": "SKR-Mini_TFT_Thermistor_Board/KiCad/SKR-Mini_TFT_Thermistor_Board.kicad_pcb",
+  "domain": "breakout"
+ },
+ {
+  "repo": "VoronDesign/Voron-Hardware",
+  "ref": "master",
+  "board": "V0-Umbilical/Kicad/Frame_PCB/V0-UmbilicalBoard.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "connector"
+  ]
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/mobo/mobo.kicad_pcb",
+  "domain": "mcu",
+  "tags": [
+   "motor_driver"
+  ]
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/ring-light/ringLight.kicad_pcb",
+  "domain": "led"
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/ftp/ftp.kicad_pcb",
+  "domain": "breakout"
+ },
+ {
+  "repo": "hackclub/hackpad",
+  "ref": "clean",
+  "board": "extras/orpheuspad/pcb/orpheuspad_pcb.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "macropad"
+  ]
+ },
+ {
+  "repo": "davidphilipbarr/Sweep",
+  "ref": "main",
+  "board": "Sweep v2.2/sweepv2.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "davidphilipbarr/Sweep",
+  "ref": "main",
+  "board": "Sweep Bling MX/pcb/sweep-bling-mx__pcb.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split",
+   "rgb"
+  ]
+ },
+ {
+  "repo": "davidphilipbarr/Sweep",
+  "ref": "main",
+  "board": "Sweep half-swept/half-swept.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "foostan/crkbd",
+  "ref": "main",
+  "board": "pcbs/corne-cherry/hotswap/corne-cherry.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "foostan/crkbd",
+  "ref": "main",
+  "board": "pcbs/corne-chocolate/hotswap/corne-chocolate.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "kata0510/Lily58",
+  "ref": "master",
+  "board": "Pro_V2/Pro_V2.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "kata0510/Lily58",
+  "ref": "master",
+  "board": "Lite_Rev3/Lily58_Lite_Rev3.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "josefadamcik/SofleKeyboard",
+  "ref": "master",
+  "board": "Sofle_Pico/PCB/Sofle_Pico.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "josefadamcik/SofleKeyboard",
+  "ref": "master",
+  "board": "Sofle_v2_soldered/PCB/SofleKeyboard.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "GEIGEIGEIST/TOTEM",
+  "ref": "main",
+  "board": "PCB/totem_0-3/totem_0_3.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "pashutk/chocofi",
+  "ref": "main",
+  "board": "pcb/chocofi.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "diepala/cantor",
+  "ref": "main",
+  "board": "Cantor_MX/Cantor_MX.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "diepala/cantor",
+  "ref": "main",
+  "board": "Cantor_Classic/keyboard_pcb.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "beekeeb/piantor",
+  "ref": "main",
+  "board": "pcb/left/keyboard_pcb.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "duckyb/urchin",
+  "ref": "main",
+  "board": "main.kicad_pcb",
+  "domain": "keyboard",
+  "tags": [
+   "split"
+  ]
+ },
+ {
+  "repo": "gtips/reviung",
+  "ref": "master",
+  "board": "reviung46/pcb/reviung46_ver1_1/reviung46/reviung46.kicad_pcb",
+  "domain": "keyboard"
+ }
+]

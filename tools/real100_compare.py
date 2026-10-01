@@ -17,7 +17,8 @@ counted: they depend on the machine and on what else was running.
 
     python tools/real100_compare.py --baseline fixed --candidate policy_v2.json \\
         --repeat 3 [--ids K003,K022] [--modes speed,accuracy] [--guard] \\
-        [--check-validity] [--json ab.json] [--profiles]
+        [--check-validity] [--json ab.json] [--profiles] \\
+        [--manifest benchmarks/openboards/manifest.json]
 
 Baseline and candidate run side by side (same boards, same load), ``--repeat``
 times; each board gets one paired difference per repeat. ``--guard`` also runs
@@ -26,6 +27,10 @@ the acceptance gate in ``pcbrouter.benchmark.ab`` and prints ACCEPTED,
 EXPERIMENTAL or REJECTED. ``--json`` writes everything, including (with
 ``--profiles``) each board's profile so the trainer can use the results as
 board-level evidence (``tools/train_policy.py --evidence``).
+
+``--manifest`` A/Bs another pinned corpus (e.g. OpenBoards): it is passed to every
+``benchmark_real100.py`` run together with the work directory, which defaults to
+the ``work/`` folder next to that manifest (Real100's work folder otherwise).
 """
 
 from __future__ import annotations
@@ -144,11 +149,17 @@ def policy_identity(spec: str) -> dict[str, Any]:
     }
 
 
-def _launch_real100(
-    spec: str, mode: str, a: argparse.Namespace, out: Path
-) -> subprocess.Popen[str]:
-    cmd = [
-        sys.executable, str(ROOT / "tools" / "benchmark_real100.py"), "run",
+DEFAULT_WORKDIR = ROOT / "benchmarks" / "real100" / "work"
+
+
+def real100_command(spec: str, mode: str, a: argparse.Namespace, out: Path) -> list[str]:
+    """The ``benchmark_real100.py run`` command of one A/B arm and mode."""
+    cmd = [sys.executable, str(ROOT / "tools" / "benchmark_real100.py")]
+    if getattr(a, "manifest", None):
+        # top-level options go before the subcommand
+        cmd += ["--manifest", str(a.manifest), "--workdir", str(a.workdir)]
+    cmd += [
+        "run",
         "--profile", a.profile, "--modes", mode, "--no-experience", "--policy", spec,
         "--out", str(out),
     ]  # fmt: skip
@@ -156,6 +167,13 @@ def _launch_real100(
         cmd += ["--ids", a.ids]
     if a.check_validity:
         cmd.append("--check-validity")
+    return cmd
+
+
+def _launch_real100(
+    spec: str, mode: str, a: argparse.Namespace, out: Path
+) -> subprocess.Popen[str]:
+    cmd = real100_command(spec, mode, a, out)
     return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 
@@ -177,7 +195,19 @@ def _wait_path(proc: subprocess.Popen[str]) -> Path:
     return Path(last[-1].strip())
 
 
-def board_profiles(ids: set[str], workdir: Path) -> dict[str, dict[str, float]]:
+def prepared_board(bid: str, workdir: Path, names: dict[str, str] | None = None) -> Path | None:
+    """The prepared board of *bid* (``<workdir>/prepared/<id>/<name>``); the name
+    comes from the manifest when given, else the folder's only ``.kicad_pcb``."""
+    folder = workdir / "prepared" / bid
+    if names and bid in names and (folder / names[bid]).is_file():
+        return folder / names[bid]
+    boards = sorted(folder.glob("*.kicad_pcb"))
+    return boards[0] if boards else None
+
+
+def board_profiles(
+    ids: set[str], workdir: Path, manifest: Path | None = None
+) -> dict[str, dict[str, float]]:
     from pcbrouter.kicad.loader import load_board
     from pcbrouter.kicad.rule_adapter import load_project_rules
     from pcbrouter.learning.features import board_profile
@@ -185,12 +215,17 @@ def board_profiles(ids: set[str], workdir: Path) -> dict[str, dict[str, float]]:
     from pcbrouter.routing.request import RouteRequest
     from pcbrouter.routing.working_board import WorkingBoard
 
+    names: dict[str, str] | None = None
+    if manifest is not None:
+        from pcbrouter.benchmark.real100 import load_manifest
+
+        names = {b.id: b.name for b in load_manifest(manifest).boards}
     out: dict[str, dict[str, float]] = {}
     for bid in sorted(ids):
-        boards = sorted((workdir / "prepared" / bid).glob("*.kicad_pcb"))
-        if not boards:
+        board = prepared_board(bid, workdir, names)
+        if board is None:
             continue
-        wb = WorkingBoard(load_board(boards[0]).board, load_project_rules(boards[0]))
+        wb = WorkingBoard(load_board(board).board, load_project_rules(board))
         plan = make_plan(wb, BoardRouterSettings(base_request=RouteRequest("")))
         out[bid] = board_profile(wb.board, plan.tasks)
     return out
@@ -273,13 +308,14 @@ def run_ab(a: argparse.Namespace) -> int:
         "repeat": a.repeat,
         "modes": modes,
         "profile": a.profile,
+        "manifest": str(a.manifest) if a.manifest else None,
         "runs": runs,
         "boards": [p.to_json() for p in pairs],
         "guard_boards": [p.to_json() for p in gpairs],
         "gate": verdict,
     }
     if a.profiles:
-        prof = board_profiles({p.key[0] for p in pairs}, Path(a.workdir))
+        prof = board_profiles({p.key[0] for p in pairs}, Path(a.workdir), a.manifest)
         for b in report["boards"]:
             b["profile"] = prof.get(b["id"])
     target = a.json or outdir / "ab.json"
@@ -288,7 +324,7 @@ def run_ab(a: argparse.Namespace) -> int:
     return 1 if (a.fail_on_regression and verdict["status"] == "REJECTED") else 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("files", nargs="*", type=Path, help="baseline run .jsonl files")
     ap.add_argument("--candidate", nargs="+")
@@ -302,8 +338,31 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check-validity", action="store_true")
     ap.add_argument("--profiles", action="store_true", help="store board profiles in --json")
     ap.add_argument("--json", type=Path, default=None)
-    ap.add_argument("--workdir", default=str(ROOT / "benchmarks" / "real100" / "work"))
+    ap.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="A/B mode: corpus manifest passed to benchmark_real100.py (default: Real100)",
+    )
+    ap.add_argument(
+        "--workdir",
+        default=None,
+        help="benchmark work folder (default: Real100's, or work/ beside --manifest)",
+    )
+    return ap
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    ap = build_parser()
     a = ap.parse_args(argv)
+    if a.workdir is None:
+        a.workdir = str(a.manifest.parent / "work") if a.manifest else str(DEFAULT_WORKDIR)
+    return a
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = build_parser()
+    a = parse_args(argv)
     if a.baseline is not None:
         if not a.candidate or len(a.candidate) != 1:
             ap.error("A/B mode needs exactly one --candidate strategy")

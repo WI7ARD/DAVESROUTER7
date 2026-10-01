@@ -148,3 +148,31 @@ def test_side_by_side_runs_never_share_a_results_file(tmp_path: Path) -> None:
     manifest = load_manifest()
     with pytest.raises(FileExistsError):
         run_corpus(manifest, tmp_path, profile="smoke", ids={"K001"}, out_path=out)
+
+
+def test_board_hash_matches_the_experience_log_board_id() -> None:
+    from pcbrouter.benchmark.real100 import board_hash
+    from pcbrouter.kicad.rule_adapter import load_project_rules
+    from pcbrouter.learning.experience import records_from_result
+    from pcbrouter.routing.board_router import BoardRouter, BoardRouterSettings
+    from pcbrouter.routing.request import RouteRequest
+    from pcbrouter.routing.working_board import WorkingBoard
+
+    path = ROOT / "tests" / "fixtures" / "boards" / "router_basic.kicad_pcb"
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    settings = BoardRouterSettings(base_request=RouteRequest("", candidates=1), budget_s=60)
+    result = BoardRouter(wb, settings).run()
+    records = records_from_result(result, settings, salt="pepper")
+    assert records and {r["board"] for r in records} == {board_hash(path, "pepper")}
+    assert board_hash(path, "pepper") != board_hash(path, "other-salt")
+
+
+def test_real100_raw_url_is_unchanged() -> None:
+    from pcbrouter.benchmark.real100 import RAW_BASE, _raw_url
+
+    m = load_manifest()
+    for spec in m.boards[:5]:
+        assert _raw_url(m.board_repository(spec), m.board_ref(spec), spec.source_path) == (
+            f"{RAW_BASE}/{m.source_ref}/{spec.source_path}"
+        )
+    assert m.is_real100 and m.slug == "real100"
