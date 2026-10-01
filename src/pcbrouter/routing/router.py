@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -593,7 +594,8 @@ class Router:
                         result.explored = {"spec": grid.spec, "cells": outcome.explored,
                                            "layers": grid.layers}  # fmt: skip
                     return attempt
-                connection, bad = self._geometry_timed(grid, norm, outcome, result)
+                prior = [v for c in attempt.connections for v in c.vias]
+                connection, bad = self._geometry_timed(grid, norm, outcome, result, prior)
                 if not bad:
                     break
                 result.metrics.repairs += 1
@@ -657,17 +659,25 @@ class Router:
         norm: NormalisedRequest,
         outcome: SearchOutcome,
         result: RouteResult,
+        prior_vias: list[RouteVia] | None = None,
     ) -> tuple[_Connection, list[tuple[int, npt.NDArray[np.int64]]]]:
         t0 = time.perf_counter()
         try:
-            return self._geometry(grid, norm, outcome)
+            return self._geometry(grid, norm, outcome, prior_vias or [])
         finally:
             result.metrics.geometry_s += time.perf_counter() - t0
 
     def _geometry(
-        self, grid: SearchGrid, norm: NormalisedRequest, outcome: SearchOutcome
+        self,
+        grid: SearchGrid,
+        norm: NormalisedRequest,
+        outcome: SearchOutcome,
+        prior_vias: list[RouteVia] | None = None,
     ) -> tuple[_Connection, list[tuple[int, npt.NDArray[np.int64]]]]:
-        """Path → validated segments/vias. Returns cells to block when invalid."""
+        """Path → validated segments/vias. Returns cells to block when invalid.
+        ``prior_vias``: vias of this route's earlier connections (not yet on the
+        board, so the validator cannot see them): the hole-to-hole minimum also
+        holds between the route's own vias."""
         validator = self.engine.validator
         memo: dict[tuple[str, Point, Point], bool] = {}
 
@@ -703,12 +713,16 @@ class Router:
                 res = validator.validate_via(
                     norm.net, pos, cl[0], cl[-1], norm.via_diameter, norm.via_drill
                 )
-                if not res.legal:
+                own = [*(prior_vias or []), *vias]
+                if not res.legal or _drills_too_close(pos, norm.via_drill, own, self._h2h()):
                     idx = grid.index_of(pos)
                     if idx is not None:
                         bad.append((-1, np.asarray([idx], dtype=np.int64)))  # via-only
                 vias.append(RouteVia(pos, cl[0], cl[-1], norm.via_diameter, norm.via_drill))
         return _Connection(segments, vias, outcome.path, outcome.cost), bad
+
+    def _h2h(self) -> int:
+        return self.engine.resolver.resolve_hole_to_hole().value or 0
 
     def _blocking_cells(
         self, grid: SearchGrid, res: CollisionResult, a: Point, b: Point, norm: NormalisedRequest
@@ -1103,3 +1117,15 @@ class Router:
         if result.status not in (RouteStatus.SUCCESS, RouteStatus.ALREADY_CONNECTED):
             log.info("[SEARCH] %s", result.failure_report().replace("\n", " "))
         return result
+
+
+def _drills_too_close(pos: Point, drill: Nm, others: list[RouteVia], min_h2h: Nm) -> bool:
+    """A new via's drill overlaps, or is closer than the hole-to-hole minimum to,
+    the drill of another via of the same route."""
+    for v in others:
+        if v.drill is None:
+            continue
+        gap = math.hypot(pos.x - v.position.x, pos.y - v.position.y) - (drill + v.drill) / 2
+        if gap < min_h2h or gap <= 0:
+            return True
+    return False

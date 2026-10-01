@@ -60,6 +60,11 @@
   open nets after refill on every run (K035 Speed 60/81, 21 open; Accuracy
   59/86, 27 open - before, 60-61/69 were claimed while KiCad saw 12-26 open).
   K037 is fully routed in KiCad's eyes (0 open nets, was 1).
+- A route's own vias keep the hole-to-hole minimum between each other: the
+  per-via check only saw holes already on the board, so two vias of one net
+  could sit 0.247 mm apart where 0.25 mm was required, and the commit refused
+  the whole net (Real100 K022 GND/R5 in the repair pass). The search now blocks
+  such a via spot and searches again; the proposal validator checks all pairs.
 - `A.Name == '<zone>'` rules apply to zone fills: zone fills carry their zone's
   name, and as a custom rule it beats the zone's own clearance, as in KiCad 8
   (K037 'outer_pour' is refilled at the rule's 0.4 mm, not its 0.508 mm).

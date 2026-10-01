@@ -10,6 +10,7 @@ objects: inputs are nets, layer names and integer-nm geometry.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -107,6 +108,7 @@ class RouteValidator:
                 proposal.net, via.position, via.start_layer, via.end_layer, via.diameter, via.drill
             )
             self._add(out, f"Via {i}", res)
+        self._own_drills(out, proposal)
         self._continuity(out, proposal)
         self._via_count(out, proposal)
         out.elapsed_s = time.perf_counter() - t0
@@ -156,6 +158,27 @@ class RouteValidator:
         if dangling:
             out.status = _worst(out.status, ValidationStatus.VALID_WITH_WARNINGS)
             out.messages.append("warning: unconnected end(s): " + ", ".join(dangling))
+
+    def _own_drills(self, out: RouteValidationResult, proposal: RouteProposal) -> None:
+        """Hole-to-hole between the proposal's own vias (the per-via check only
+        sees holes already on the board)."""
+        req = self.resolver.resolve_hole_to_hole().value or 0
+        vias = proposal.vias
+        for i, a in enumerate(vias):
+            for j in range(i + 1, len(vias)):
+                b = vias[j]
+                if a.drill is None or b.drill is None:
+                    continue
+                gap = (
+                    math.hypot(a.position.x - b.position.x, a.position.y - b.position.y)
+                    - (a.drill + b.drill) / 2
+                )
+                if gap < req or gap <= 0:
+                    out.status = ValidationStatus.INVALID
+                    out.messages.append(
+                        f"INVALID: Via {i + 1} drill {gap / 1e6:.4f} mm from Via {j + 1}'s, "
+                        f"required {req / 1e6:.4f} mm (hole to hole)"
+                    )
 
     def _touches_existing(self, net: str, layer: str, p: Point) -> bool:
         probe = circle(p, 0)
