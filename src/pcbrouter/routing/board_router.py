@@ -1101,6 +1101,9 @@ class BoardRouter:
         from pcbrouter.routing.parallel import (
             PARALLEL_MIN_SPEEDUP,
             PARALLEL_MIN_TASKS,
+            START_BUDGET_SHARE,
+            START_MIN_S,
+            START_TIMEOUT_S,
             ParallelRouter,
             estimate_speedup,
         )
@@ -1124,8 +1127,14 @@ class BoardRouter:
                 f"(estimated {gain:.1f}x with {workers} helpers); routing on one worker"
             )
             return None
+        start_s = START_TIMEOUT_S
+        if self._deadline is not None:
+            # the job budget is a deadline: helpers that are slow to start (or never
+            # start) may take only a share of what is left, then routing goes on
+            left = self._deadline - time.perf_counter()
+            start_s = min(START_TIMEOUT_S, max(START_MIN_S, START_BUDGET_SHARE * left))
         try:
-            par = ParallelRouter(fork, workers)
+            par = ParallelRouter(fork, workers, start_timeout_s=start_s)
         except Exception as exc:  # routing continues sequentially, and says so
             log.warning("parallel.unavailable %s", exc)
             job_log.append(f"parallel routing unavailable ({exc}); routing sequentially")
@@ -1153,9 +1162,10 @@ class BoardRouter:
         flight; results are committed through the validator as they arrive, a
         conflict is re-queued once and then routed here. Returns "", "cancelled"
         or "out_of_time"."""
-        from pcbrouter.routing.parallel import LOOKAHEAD, REGION_MARGIN_NM
+        from pcbrouter.routing.parallel import LOOKAHEAD, REGION_MARGIN_NM, STOP_GRACE_S
 
         deadline = self._deadline or math.inf
+        stopped_at = 0.0
         pending = list(failed)
         retried: set[str] = set()
         inflight: dict[int, tuple[RouteTask, BoundingBox | None]] = {}
@@ -1182,6 +1192,13 @@ class BoardRouter:
             if not stop and (not control.checkpoint(deadline) or time.perf_counter() > deadline):
                 stop = "cancelled" if control.cancel_event.is_set() else "out_of_time"
                 par.cancel.set()  # in-flight searches stop at their next check
+                stopped_at = time.perf_counter()
+            if stop and inflight and time.perf_counter() - stopped_at > STOP_GRACE_S:
+                # helpers busy past the grace (e.g. inside a long grid build): their
+                # results would be discarded anyway; close() terminates them
+                still.extend(t for t, _b in inflight.values())
+                inflight.clear()
+                break
             if not stop:
                 for h in range(par.workers):
                     if h in inflight or not pending:

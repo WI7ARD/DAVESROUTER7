@@ -48,6 +48,13 @@ REGION_MARGIN_NM = 2_000_000
 LOOKAHEAD = 4
 MAX_WORKERS = 4
 START_TIMEOUT_S = 120.0
+#: helper start-up may use at most this share of the job budget that is left
+#: (helpers that cannot start must not eat the user's deadline)
+START_BUDGET_SHARE = 0.25
+START_MIN_S = 5.0
+#: after the job stops, wait at most this long for busy helpers (then they are
+#: terminated): a search stuck in a long grid build must not hold the deadline
+STOP_GRACE_S = 2.0
 #: Auto/N workers start helpers only if the plan packs into batches this wide
 #: on average (see estimate_speedup)
 PARALLEL_MIN_SPEEDUP = 1.5
@@ -111,7 +118,9 @@ class _Helper:
 class ParallelRouter:
     """Helper pool bound to one routing fork (see module docstring)."""
 
-    def __init__(self, fork: WorkingBoard, workers: int) -> None:
+    def __init__(
+        self, fork: WorkingBoard, workers: int, start_timeout_s: float = START_TIMEOUT_S
+    ) -> None:
         from pcbrouter.jobs.protocol import WorkingSnapshot
 
         self.fork = fork
@@ -132,7 +141,7 @@ class ParallelRouter:
             proc.start()
             self.helpers.append(_Helper(proc, inbox, set(ids)))
         ready = 0
-        deadline = time.monotonic() + START_TIMEOUT_S
+        deadline = time.monotonic() + start_timeout_s
         while ready < workers:
             try:
                 kind, _pid, detail = self.outbox.get(timeout=1.0)
@@ -141,7 +150,9 @@ class ParallelRouter:
                     h.process.exitcode is not None for h in self.helpers
                 ):
                     self.close()
-                    raise RuntimeError("route helpers did not start") from None
+                    raise RuntimeError(
+                        f"route helpers did not start within {start_timeout_s:.0f} s"
+                    ) from None
                 continue
             if kind == "dead":
                 self.close()
@@ -213,17 +224,23 @@ class ParallelRouter:
         self.cancel.clear()
         return [out[i] for i in range(len(requests))]
 
-    def close(self) -> None:
+    def close(self, grace_s: float = STOP_GRACE_S) -> None:
+        """Stop every helper within ``grace_s`` in total; busy ones are terminated
+        (their work is discarded anyway: the job is stopping)."""
+        self.cancel.set()
         for h in self.helpers:
             try:
                 h.inbox.put(("stop",))
             except Exception:  # queue already broken: terminate below
                 log.debug("parallel.stop_failed", exc_info=True)
+        until = time.monotonic() + grace_s
         for h in self.helpers:
-            h.process.join(timeout=5)
+            h.process.join(timeout=max(0.0, until - time.monotonic()))
+        for h in self.helpers:
             if h.process.exitcode is None:
                 h.process.terminate()
-                h.process.join(timeout=5)
+        for h in self.helpers:
+            h.process.join(timeout=1.0)
         self.helpers = []
 
 

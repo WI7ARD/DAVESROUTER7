@@ -127,3 +127,37 @@ def test_estimate_speedup_packs_independent_nets() -> None:
     tasks = [RouteTask(f"N{i}") for i in range(8)]
     assert parallel.estimate_speedup(tasks, spread, 4) == 4.0
     assert parallel.estimate_speedup(tasks, crowded, 4) == 1.0
+
+
+def test_slow_helper_start_never_blows_the_job_deadline(
+    small_minimum: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Helpers that never start used to hold the job for START_TIMEOUT_S (120 s)
+    whatever the budget: a 60 s Real100 job took 208 s and routed nothing. Start-up
+    now gets a share of the remaining budget, then routing goes on sequentially."""
+    import time
+
+    seen: list[float] = []
+
+    def never_starts(_fork: object, _workers: int, start_timeout_s: float) -> object:
+        seen.append(start_timeout_s)
+        time.sleep(start_timeout_s)
+        raise RuntimeError(f"route helpers did not start within {start_timeout_s:.0f} s")
+
+    monkeypatch.setattr(parallel, "ParallelRouter", never_starts)
+    budget = 24.0
+    t0 = time.perf_counter()
+    res = BoardRouter(working(), BoardRouterSettings(parallel_workers=2, budget_s=budget)).run()
+    wall = time.perf_counter() - t0
+    assert seen and seen[0] <= max(parallel.START_MIN_S, parallel.START_BUDGET_SHARE * budget)
+    assert wall < budget + 3.0, f"{wall:.1f} s for a {budget:.0f} s budget"
+    assert res.metrics.nets_completed > 0  # the rest of the budget still routes
+
+
+@pytest.mark.parametrize("budget", [0.5, 2.0])
+def test_sequential_routing_meets_tight_deadlines(budget: float) -> None:
+    import time
+
+    t0 = time.perf_counter()
+    BoardRouter(working(), BoardRouterSettings(budget_s=budget)).run()
+    assert time.perf_counter() - t0 < budget + 2.0
