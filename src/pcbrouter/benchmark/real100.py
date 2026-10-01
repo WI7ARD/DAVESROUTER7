@@ -578,6 +578,7 @@ def route_one_board(
     experience_dir: Path | None = None,
     policy: str | None = None,
     check_validity: bool = False,
+    save_routed: Path | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     loaded = load_board(board_path)
@@ -627,8 +628,13 @@ def route_one_board(
             "new_copper_drc_examples": [v.message[:160] for v in bad[:5]],
             "drc_s": round(time.perf_counter() - t_drc, 2),
         }
+    saved: dict[str, Any] = {}
+    if save_routed is not None:
+        saved = _save_routed(board_path, loaded.board, result, save_routed)
     return {
         **validity,
+        **saved,
+        "endgame": result.endgame,
         "policy_decision": result.policy_decision,
         "status": "ok",
         "route_status": result.status.value,
@@ -657,6 +663,38 @@ def route_one_board(
         "rule_warning_count": len(rules.warnings),
         "project_rules_found": rules.found_any,
         "conservative_rules": conservative,
+    }
+
+
+def _save_routed(board_path: Path, source: Any, result: Any, prefix: Path) -> dict[str, Any]:
+    """Export the routed board as ``<prefix>.kicad_pcb`` (the source is never
+    touched) plus ``<prefix>.generated.json``: the UUIDs of every object the
+    router added and the nets it reports finished, for the KiCad DRC oracle."""
+    import hashlib
+
+    from pcbrouter.kicad.writer import export_board
+
+    t0 = time.perf_counter()
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    out = prefix.with_name(prefix.name + ".kicad_pcb")
+    sha = hashlib.sha256(board_path.read_bytes()).hexdigest()
+    report = export_board(board_path, sha, source, result.final_board, out)
+    generated = sorted({t.id for t in result.added_tracks} | {v.id for v in result.added_vias})
+    finished = sorted(n for n, o in result.outcomes.items() if o.status.value == "SUCCESS")
+    meta = {
+        "source": str(board_path),
+        "source_sha256": sha,
+        "export_status": report.status.value,
+        "generated": generated,
+        "finished_nets": finished,
+    }
+    prefix.with_name(prefix.name + ".generated.json").write_text(
+        json.dumps(meta, indent=1) + "\n", encoding="utf-8"
+    )
+    return {
+        "routed_board": str(out) if report.ok else None,
+        "export_status": report.status.value,
+        "export_s": round(time.perf_counter() - t0, 2),
     }
 
 
@@ -795,6 +833,7 @@ def _worker_command(
     experience_dir: Path | None = None,
     policy: str | None = None,
     check_validity: bool = False,
+    save_routed: Path | None = None,
 ) -> list[str]:
     return [
         sys.executable,
@@ -812,7 +851,11 @@ def _worker_command(
         *(["--experience", str(experience_dir)] if experience_dir is not None else []),
         *(["--policy", policy] if policy else []),
         *(["--check-validity"] if check_validity else []),
+        *(["--save-routed", str(save_routed)] if save_routed is not None else []),
     ]
+
+
+EXPORT_GRACE_S = 120.0
 
 
 def run_corpus(
@@ -829,6 +872,7 @@ def run_corpus(
     policy: str | None = None,
     check_validity: bool = False,
     out_path: Path | None = None,
+    save_routed_dir: Path | None = None,
 ) -> Path:
     default_modes, default_timeout = profile_defaults(profile)
     modes = modes or default_modes
@@ -890,7 +934,11 @@ def run_corpus(
                         experience_dir,
                         policy,
                         check_validity,
+                        save_routed_dir / f"{spec.id}_{mode.value}" if save_routed_dir else None,
                     )
+                    # exporting reloads the board: extra time outside the
+                    # routing budget, so routing results stay comparable
+                    hard = timeout_s + (EXPORT_GRACE_S if save_routed_dir else 0.0)
                     t0 = time.perf_counter()
                     try:
                         proc = subprocess.run(
@@ -899,7 +947,7 @@ def run_corpus(
                             env=env,
                             text=True,
                             capture_output=True,
-                            timeout=timeout_s,
+                            timeout=hard,
                             check=False,
                         )
                         wall = time.perf_counter() - t0
@@ -952,6 +1000,78 @@ def read_results(path: Path) -> list[dict[str, Any]]:
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def oracle_rows(
+    rows: list[dict[str, Any]],
+    tool: Any,
+    variants: tuple[str, ...],
+    workdir: Path,
+) -> list[dict[str, Any]]:
+    """KiCad-DRC every routed board the results saved (``run --save-routed``).
+    A row that saved nothing is reported with the reason, never skipped."""
+    from pcbrouter.kicad.oracle import oracle_check
+
+    cache: dict[tuple[str, ...], Any] = {}
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        base = {k: r.get(k) for k in ("id", "name", "mode", "status", "route_status")}
+        base["nets"] = [
+            (r.get("metrics") or {}).get("nets_completed"),
+            (r.get("metrics") or {}).get("nets_attempted"),
+        ]
+        routed = r.get("routed_board")
+        if not routed or not Path(routed).is_file():
+            why = r.get("export_status") or r.get("status") or "no routed board saved"
+            out.append({**base, "oracle": {"status": "NOT_RUN", "reason": f"not saved: {why}"}})
+            continue
+        meta_path = Path(str(routed)[: -len(".kicad_pcb")] + ".generated.json")
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        result = oracle_check(
+            tool,
+            Path(meta["source"]),
+            Path(routed),
+            set(meta["generated"]),
+            workdir / f"{r.get('id')}_{r.get('mode')}",
+            variants=variants,
+            claimed_complete_nets=set(meta["finished_nets"]),
+            cache=cache,
+        )
+        out.append({**base, "oracle": result})
+        v = result.get("verdict_variant")
+        res = result["variants"].get(v, {}) if v else {}
+        print(
+            f"oracle {r.get('id')} {r.get('mode'):<8} {result['status']:<24} "
+            f"gen_err={res.get('new_generated_errors', '-')} "
+            f"unc={res.get('unconnected_after', '-')} "
+            f"disagree={len(res.get('completion_disagreements', []))}",
+            flush=True,
+        )
+    return out
+
+
+def run_oracle(args: argparse.Namespace) -> int:
+    from pcbrouter.kicad.oracle import find_oracle
+
+    tool = find_oracle(args.kicad_cli, args.kicad_python)
+    if tool is None:
+        print("KiCad DRC oracle unavailable: no kicad-cli with 'pcb drc' (KiCad 8+)")
+        return 3
+    print(f"KiCad {tool.version} ({tool.cli}); zone refill: {tool.refill}")
+    if args.out.exists():
+        raise FileExistsError(f"{args.out} exists; oracle results are never appended")
+    rows = [r for path in args.results for r in read_results(path)]
+    variants = tuple(v.strip() for v in args.variants.split(",") if v.strip())
+    stage = args.out.with_suffix(".work")
+    judged = oracle_rows(rows, tool, variants, stage)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", encoding="utf-8") as fh:
+        for j in judged:
+            fh.write(json.dumps(j, sort_keys=True) + "\n")
+    counts = Counter(j["oracle"]["status"] for j in judged)
+    print("oracle:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+    print(args.out)
+    return 0
 
 
 def _pct(n: int, d: int) -> str:
@@ -1154,11 +1274,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not write routing experience records (work/experience/)",
     )
+    r.add_argument(
+        "--save-routed",
+        type=Path,
+        default=None,
+        help="export every routed board into this folder (for the 'oracle' command)",
+    )
     pr2 = sub.add_parser(
         "prune",
         help="classify boards from baseline results; write routable.json beside the manifest",
     )
     pr2.add_argument("results", nargs="+", type=Path)
+    o = sub.add_parser(
+        "oracle", help="judge saved routed boards with real KiCad DRC (run --save-routed)"
+    )
+    o.add_argument("results", nargs="+", type=Path)
+    o.add_argument("--out", type=Path, required=True, help="oracle results .jsonl")
+    o.add_argument("--kicad-cli", default=None, help="kicad-cli to use (default: search)")
+    o.add_argument("--kicad-python", default=None, help="Python that imports KiCad pcbnew")
+    o.add_argument("--variants", default="refilled,as_exported")
     rep = sub.add_parser("report", help="turn a JSONL run into CSV + Markdown")
     rep.add_argument("results", type=Path)
     a = sub.add_parser("all", help="fetch, prepare, inventory, run, report")
@@ -1179,6 +1313,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--experience", type=Path, default=None)
     w.add_argument("--policy", default=None)
     w.add_argument("--check-validity", action="store_true")
+    w.add_argument("--save-routed", type=Path, default=None)
     return p
 
 
@@ -1194,6 +1329,7 @@ def main(argv: list[str] | None = None) -> int:
                 experience_dir=args.experience,
                 policy=args.policy,
                 check_validity=args.check_validity,
+                save_routed=args.save_routed,
             )
             print(json.dumps(payload, sort_keys=True))
             return 0
@@ -1245,9 +1381,12 @@ def main(argv: list[str] | None = None) -> int:
             policy=args.policy,
             check_validity=args.check_validity,
             out_path=args.out,
+            save_routed_dir=args.save_routed.resolve() if args.save_routed else None,
         )
         print(result)
         return 0
+    if args.command == "oracle":
+        return run_oracle(args)
     if args.command == "prune":
         rows = [
             json.loads(line)
