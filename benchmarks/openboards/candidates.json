@@ -80,7 +80,9 @@
   "domain": "sbc_carrier",
   "tags": [
    "high_speed"
-  ]
+  ],
+  "keep_incomplete": true,
+  "note": "8 layers, 5 signal layers: kept although 1 connection is open in the original"
  },
  {
   "repo": "antmicro/jetson-orin-baseboard",
@@ -152,7 +154,9 @@
   "domain": "memory",
   "tags": [
    "ddr"
-  ]
+  ],
+  "keep_incomplete": true,
+  "note": "12 layers, DDR5 SODIMM fan-out: kept although 2 connections are open in the original"
  },
  {
   "repo": "greatscottgadgets/cynthion-hardware",
@@ -170,7 +174,9 @@
   "domain": "fpga",
   "tags": [
    "usb"
-  ]
+  ],
+  "license_path": "LICENSE-0BSD.txt",
+  "license_note": "docs/manual/src/license.rst: design files under 0BSD or Apache-2.0 (choice)"
  },
  {
   "repo": "GlasgowEmbedded/glasgow",
@@ -179,7 +185,9 @@
   "domain": "fpga",
   "tags": [
    "usb"
-  ]
+  ],
+  "license_path": "LICENSE-0BSD.txt",
+  "license_note": "docs/manual/src/license.rst: design files under 0BSD or Apache-2.0 (choice)"
  },
  {
   "repo": "gregdavill/butterstick",
@@ -200,31 +208,41 @@
   "repo": "machdyne/riegel",
   "ref": "main",
   "board": "pcb/riegel_v4/riegel.kicad_pcb",
-  "domain": "fpga"
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
  {
   "repo": "machdyne/schoko",
   "ref": "main",
   "board": "pcb/schoko_v2/schoko.kicad_pcb",
-  "domain": "fpga"
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
  {
   "repo": "machdyne/noir",
   "ref": "main",
   "board": "pcb/noir_v1/noir.kicad_pcb",
-  "domain": "fpga"
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
  {
   "repo": "machdyne/werkzeug",
   "ref": "main",
   "board": "pcb/werkzeug_v3/werkzeug.kicad_pcb",
-  "domain": "mcu"
+  "domain": "mcu",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
  {
   "repo": "machdyne/konfekt",
   "ref": "main",
   "board": "pcb/konfekt_v0/konfekt.kicad_pcb",
-  "domain": "fpga"
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
  },
  {
   "repo": "DangerousPrototypes/BusPirate5-hardware",
@@ -287,7 +305,8 @@
   "domain": "mcu",
   "tags": [
    "esp32"
-  ]
+  ],
+  "license_path": "LICENSE-CERN-OHL"
  },
  {
   "repo": "Sleepdealr/RP2040-designguide",
@@ -468,7 +487,9 @@
   "domain": "keyboard",
   "tags": [
    "split"
-  ]
+  ],
+  "license_path": "LICENSE_CC",
+  "license_note": "repository ships LICENSE_CC (CC BY 4.0) and LICENSE_MIT; CC BY 4.0 taken for the PCB design"
  },
  {
   "repo": "foostan/crkbd",
@@ -477,7 +498,9 @@
   "domain": "keyboard",
   "tags": [
    "split"
-  ]
+  ],
+  "license_path": "LICENSE_CC",
+  "license_note": "repository ships LICENSE_CC (CC BY 4.0) and LICENSE_MIT; CC BY 4.0 taken for the PCB design"
  },
  {
   "repo": "kata0510/Lily58",
@@ -574,5 +597,110 @@
   "ref": "master",
   "board": "reviung46/pcb/reviung46_ver1_1/reviung46/reviung46.kicad_pcb",
   "domain": "keyboard"
+ },
+ {
+  "repo": "machdyne/keks",
+  "ref": "main",
+  "board": "pcb/keks_v1/keks.kicad_pcb",
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
+ },
+ {
+  "repo": "machdyne/minze",
+  "ref": "main",
+  "board": "pcb/minze_v1/minze.kicad_pcb",
+  "domain": "mcu",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
+ },
+ {
+  "repo": "machdyne/bonbon",
+  "ref": "main",
+  "board": "pcb/bonbon_v1/bonbon.kicad_pcb",
+  "domain": "fpga",
+  "license_override": "LicenseRef-LoneDynamics-BSD-1-Clause-variant",
+  "license_note": "LICENSE.md: permissive one-clause BSD-style text covering 'source, binary or physical forms' (Lone Dynamics)"
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-flash-dip-1REV3/flash-zif-rev3.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-sim-iccard-1REV3C/sim-rev3c.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-stemma-qwiic-grove-gravity-bog-plank-1REV1/stemma-qwiic-grove-gravity-bog-plank-1REV1.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-blank-plank-1REV0B/blank-plank-rev0b.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-ir-toy-3REV3/bp5-ir-toy-v3-rev3.kicad_pcb",
+  "domain": "breakout",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "DangerousPrototypes/BusPirate5-hardware",
+  "ref": "main",
+  "board": "adapter-ram-ddr5-1REV2/adapter-ram-ddr5-1REV2.kicad_pcb",
+  "domain": "memory",
+  "tags": [
+   "adapter"
+  ]
+ },
+ {
+  "repo": "emfcamp/badge-2024-hardware",
+  "ref": "main",
+  "board": "tildagon-2026/tildagon-2026-touch/tildagon-2026-touch.kicad_pcb",
+  "domain": "badge",
+  "tags": [
+   "touch"
+  ]
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/datum/datum.kicad_pcb",
+  "domain": "breakout"
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/xy-limit/xy-limit.kicad_pcb",
+  "domain": "breakout"
+ },
+ {
+  "repo": "opulo-inc/lumenpnp",
+  "ref": "main",
+  "board": "pnp/pcb/blade12/blade12.kicad_pcb",
+  "domain": "led"
  }
 ]

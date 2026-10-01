@@ -1,7 +1,8 @@
 """OpenBoards curation tool: turn ``candidates.json`` into a pinned benchmark manifest.
 
 A developer tool (like ``benchmarks/real100/pack_builder``), not part of the
-router. For every candidate ``{repo, ref, board, domain?, tags?, license_override?}``
+router. For every candidate ``{repo, ref, board, domain?, tags?, license_path?,
+license_override?, license_note?, keep_incomplete?}``
 it
 
 1. resolves ``ref`` to a full commit SHA (``git ls-remote``),
@@ -12,7 +13,9 @@ it
    candidate unless it carries ``license_override`` (+ ``license_note``),
 4. requires a ``.kicad_pro`` and a KiCad 6+ board that the project loader and
    ``load_project_rules`` accept,
-5. measures whether the ORIGINAL routing is complete (connectivity engine),
+5. measures whether the ORIGINAL routing is complete (connectivity engine); an
+   incomplete board is rejected unless the candidate sets ``keep_incomplete``
+   (it then carries ``reference_complete: false`` and a ``reference_incomplete`` tag),
 6. strips routing copper exactly like the benchmark harness and requires nets to
    route (``make_plan`` with default settings), and
 7. computes ``learning.features.board_profile`` on the stripped board.
@@ -305,21 +308,22 @@ def _evaluate(cand: dict[str, Any], cache: Path, commit: str) -> dict[str, Any]:
             )
             side_bytes[stem + suffix] = data
 
+    found = find_license(cache, repo, commit, board_path, cand.get("license_path"))
+    license_path, text = found if found is not None else (None, "")
+    copyright_line = _copyright_line(text) if text else None
     if cand.get("license_override"):
+        # the curator read the licence (README, unusual text): record why
         license_id = str(cand["license_override"])
-        license_path = None
         license_note = str(cand.get("license_note") or "licence set by curator")
-        copyright_line = None
     else:
-        found = find_license(cache, repo, commit, board_path, cand.get("license_path"))
         if found is None:
             raise CandidateRejectedError("no licence file found")
-        license_path, text = found
         spdx, license_note = classify_license(text)
         if spdx is None:
             raise CandidateRejectedError(f"unknown licence ({license_path}: {license_note})")
         license_id = spdx
-        copyright_line = _copyright_line(text)
+        if cand.get("license_note"):
+            license_note = f"{license_note}; {cand['license_note']}"
 
     if stem + ".kicad_pro" not in side_bytes:
         raise CandidateRejectedError("no .kicad_pro project file (KiCad 5 or board-only upload)")
@@ -346,6 +350,13 @@ def _evaluate(cand: dict[str, Any], cache: Path, commit: str) -> dict[str, Any]:
         raise CandidateRejectedError(f"pre-KiCad-6 board format ({version})")
     pre = WorkingBoard(loaded.board, rules).engine.connectivity.metrics()
     complete = pre["partially_connected"] == 0 and pre["unrouted"] == 0
+    if not complete and not cand.get("keep_incomplete"):
+        # prefer boards whose own routing is a known-good reference; keep an
+        # incomplete one only when the curator says it adds something rare
+        raise CandidateRejectedError(
+            f"original routing incomplete ({pre['remaining_connections']} connections "
+            f"missing on {pre['partially_connected'] + pre['unrouted']} nets)"
+        )
 
     try:
         stripped_text, removed = strip_routing_copper(board_bytes.decode("utf-8-sig"))
@@ -396,8 +407,8 @@ def _evaluate(cand: dict[str, Any], cache: Path, commit: str) -> dict[str, Any]:
 # ------------------------------------------------------------------ outputs
 MANIFEST_BOARD_KEYS = (
     "id", "name", "family", "repository", "commit", "ref", "source_path", "source_size_bytes",
-    "git_blob_sha1", "sidecars", "license", "license_file", "attribution", "difficulty",
-    "route_policy", "tags", "reference_complete", "copyright", "stats",
+    "git_blob_sha1", "sidecars", "license", "license_file", "license_note", "attribution",
+    "difficulty", "route_policy", "tags", "reference_complete", "copyright", "stats",
 )  # fmt: skip
 
 

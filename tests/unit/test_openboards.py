@@ -311,10 +311,14 @@ def _fake_repo(
 CAND = {"repo": "acme/kbd", "ref": "v1", "board": "hw/kb.kicad_pcb", "domain": "keyboard"}
 
 
-def _project(board: str = "router_basic") -> dict[str, bytes]:
+def _project(board: str = "stage3_clean") -> dict[str, bytes]:
+    """A fake repository: *board* (fully routed by default) + project + MIT licence."""
+    pro = BOARDS / f"{board}.kicad_pro"
     return {
         "hw/kb.kicad_pcb": (BOARDS / f"{board}.kicad_pcb").read_bytes(),
-        "hw/kb.kicad_pro": (BOARDS / "router_basic.kicad_pro").read_bytes(),
+        "hw/kb.kicad_pro": (
+            pro if pro.is_file() else BOARDS / "stage3_clean.kicad_pro"
+        ).read_bytes(),
         "LICENSE": MIT_TEXT.encode(),
     }
 
@@ -338,7 +342,7 @@ def test_curate_accepts_a_complete_candidate(
     assert r["license"] == "MIT" and r["license_file"] == "LICENSE"
     assert r["copyright"] == "Copyright (c) 2023 Jane Maker"
     assert r["attribution"] == f"acme/kbd @ {COMMIT_A}"
-    assert isinstance(r["reference_complete"], bool)
+    assert r["reference_complete"] is True and "reference_incomplete" not in r["tags"]
     assert r["stats"]["nets_to_route"] > 0 and r["stats"]["copper_layers"] >= 2
     assert r["tags"][:2] == ["split", "keyboard"]
     assert f"{int(r['stats']['copper_layers'])}layer" in r["tags"]
@@ -398,6 +402,17 @@ def test_curate_rejects_missing_kicad_pro(
     _fake_repo(curate, monkeypatch, files)
     r = curate.evaluate_candidate(CAND, tmp_path)
     assert r["status"] == "rejected" and ".kicad_pro" in r["reason"]
+
+
+def test_curate_rejects_incomplete_reference_unless_kept(
+    curate: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _fake_repo(curate, monkeypatch, _project("router_basic"))  # mostly unrouted original
+    r = curate.evaluate_candidate(CAND, tmp_path)
+    assert r["status"] == "rejected" and "original routing incomplete" in r["reason"]
+    r = curate.evaluate_candidate({**CAND, "keep_incomplete": True}, tmp_path)
+    assert r["status"] == "accepted" and r["reference_complete"] is False
+    assert "reference_incomplete" in r["tags"]
 
 
 def test_curate_rejects_board_with_nothing_to_route(
