@@ -705,10 +705,82 @@ def select_specs(manifest: Manifest, profile: str, ids: set[str] | None = None) 
     raise ValueError(f"unknown profile {profile!r}")
 
 
+ROUTABLE_SCHEMA = "davesrouter-routable/1"
+
+
+def routable_path(manifest_path: Path | None) -> Path:
+    """The pruned board list lives beside its manifest (``routable.json``)."""
+    return (manifest_path or default_manifest()).with_name("routable.json")
+
+
+def classify_boards(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Which boards are worth routing, from baseline results (any modes/runs).
+
+    A board is **excluded** only for reasons the router is right to stop at:
+
+    * ``nothing_to_route`` - no net has two or more unconnected pads;
+    * ``rules_refused`` - not one net routed and every failure is RULE_UNKNOWN
+      (no project rules, or a rule the conservative engine cannot assume, such
+      as a missing copper-to-edge clearance).
+
+    Everything else stays, including crashes and timeouts (those are bugs to
+    investigate, never pruned)."""
+    by: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        by.setdefault(str(r["id"]), []).append(r)
+    out: dict[str, dict[str, Any]] = {}
+    for bid, rs in sorted(by.items()):
+        ok = [r for r in rs if r.get("status") == "ok"]
+        modes = {str(r.get("mode")): r.get("route_status") for r in rs}
+        reason = None
+        if ok and len(ok) == len(rs):
+            if all(r.get("route_status") == "NOTHING_TO_ROUTE" for r in ok):
+                reason = "nothing_to_route"
+            else:
+                done = sum(int((r.get("metrics") or {}).get("nets_completed", 0)) for r in ok)
+                fails = set().union(*(set(r.get("failure_reasons") or {}) for r in ok))
+                if done == 0 and fails and fails <= {"RULE_UNKNOWN"}:
+                    rules = all(r.get("project_rules_found") for r in ok)
+                    reason = "rules_refused" + ("" if rules else " (no project rules)")
+        out[bid] = {"routable": reason is None, "reason": reason, "modes": modes}
+    return out
+
+
+def write_routable(
+    rows: list[dict[str, Any]], manifest: Manifest, manifest_path: Path | None, sources: list[str]
+) -> tuple[Path, dict[str, dict[str, Any]]]:
+    boards = classify_boards(rows)
+    known = {b.id for b in manifest.boards}
+    unknown = sorted(set(boards) - known)
+    if unknown:
+        raise ValueError(f"results name boards not in this manifest: {', '.join(unknown)}")
+    path = routable_path(manifest_path)
+    data = {
+        "schema": ROUTABLE_SCHEMA,
+        "suite_name": manifest.suite_name,
+        "sources": sources,
+        "routable": sorted(b for b, v in boards.items() if v["routable"]),
+        "excluded": {b: v["reason"] for b, v in sorted(boards.items()) if not v["routable"]},
+        "not_measured": sorted(known - set(boards)),
+    }
+    path.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    return path, boards
+
+
+def load_routable(manifest_path: Path | None) -> set[str]:
+    path = routable_path(manifest_path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found: run 'prune' on baseline results first")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("schema") != ROUTABLE_SCHEMA:
+        raise ValueError(f"{path}: unsupported schema {data.get('schema')!r}")
+    return set(data["routable"])
+
+
 def profile_defaults(profile: str) -> tuple[tuple[RouteMode, ...], float]:
     if profile == "smoke":
         return (RouteMode.SPEED,), 45.0
-    if profile == "standard":
+    if profile in ("standard", "routable"):
         return (RouteMode.SPEED, RouteMode.ACCURACY), 180.0
     if profile == "full":
         return (RouteMode.SPEED, RouteMode.ACCURACY), 900.0
@@ -1060,7 +1132,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--force", action="store_true")
     sub.add_parser("inventory", help="parse all prepared boards and write inventory CSV/JSON")
     r = sub.add_parser("run", help="run isolated routing benchmarks")
-    r.add_argument("--profile", choices=("smoke", "standard", "full"), default="smoke")
+    r.add_argument("--profile", choices=("smoke", "standard", "full", "routable"), default="smoke")
     r.add_argument("--modes", type=_parse_modes, default=None, help="speed,accuracy")
     r.add_argument("--timeout", type=float, default=None, help="hard timeout per board/mode")
     r.add_argument("--ids", default=None, help="comma-separated IDs such as K001,K081")
@@ -1082,6 +1154,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not write routing experience records (work/experience/)",
     )
+    pr2 = sub.add_parser(
+        "prune",
+        help="classify boards from baseline results; write routable.json beside the manifest",
+    )
+    pr2.add_argument("results", nargs="+", type=Path)
     rep = sub.add_parser("report", help="turn a JSONL run into CSV + Markdown")
     rep.add_argument("results", type=Path)
     a = sub.add_parser("all", help="fetch, prepare, inventory, run, report")
@@ -1130,7 +1207,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     manifest = load_manifest(args.manifest)
-    workdir: Path = args.workdir
+    # absolute: worker subprocesses resolve board paths from their own cwd
+    workdir: Path = args.workdir.resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     if args.command == "list":
         print_manifest_summary(manifest)
@@ -1149,10 +1227,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(r.get("status") == "ok" for r in rows) else 2
     if args.command == "run":
         ids = {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
+        profile = args.profile
+        if profile == "routable":  # the pruned list: boards worth routing
+            pruned = load_routable(args.manifest)
+            ids = (ids & pruned) if ids else pruned
+            profile = "standard"
         result = run_corpus(
             manifest,
             workdir,
-            profile=args.profile,
+            profile=profile,
             modes=args.modes,
             timeout_s=args.timeout,
             ids=ids,
@@ -1164,6 +1247,21 @@ def main(argv: list[str] | None = None) -> int:
             out_path=args.out,
         )
         print(result)
+        return 0
+    if args.command == "prune":
+        rows = [
+            json.loads(line)
+            for path in args.results
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        out, boards = write_routable(rows, manifest, args.manifest, [str(p) for p in args.results])
+        excluded = {b: v["reason"] for b, v in boards.items() if not v["routable"]}
+        print(f"routable: {len(boards) - len(excluded)} of {len(boards)} measured boards")
+        for reason in sorted(set(excluded.values())):
+            names = sorted(b for b, r in excluded.items() if r == reason)
+            print(f"  excluded ({reason}): {len(names)}: {', '.join(names)}")
+        print(out)
         return 0
     if args.command == "report":
         csv_path, md_path = generate_report(args.results)

@@ -176,3 +176,58 @@ def test_real100_raw_url_is_unchanged() -> None:
             f"{RAW_BASE}/{m.source_ref}/{spec.source_path}"
         )
     assert m.is_real100 and m.slug == "real100"
+
+
+def _row(bid: str, mode: str, status: str = "ok", route: str = "PARTIALLY_ROUTED",
+         done: int = 1, fails: dict | None = None, rules: bool = True) -> dict:  # fmt: skip
+    return {
+        "id": bid, "mode": mode, "status": status, "route_status": route,
+        "metrics": {"nets_completed": done, "nets_attempted": 5},
+        "failure_reasons": fails or {}, "project_rules_found": rules,
+    }  # fmt: skip
+
+
+def test_prune_excludes_only_boards_the_router_is_right_to_stop_at() -> None:
+    from pcbrouter.benchmark.real100 import classify_boards
+
+    rows = [
+        _row("A", "speed", route="NOTHING_TO_ROUTE", done=0),
+        _row("A", "accuracy", route="NOTHING_TO_ROUTE", done=0),
+        _row("B", "speed", route="FAILED", done=0, fails={"RULE_UNKNOWN": 5}, rules=False),
+        _row("C", "speed", route="FAILED", done=0, fails={"RULE_UNKNOWN": 5}),
+        _row("D", "speed", done=3, fails={"RULE_UNKNOWN": 2}),  # partly routable: keep
+        _row("E", "speed", status="timeout"),  # a crash/hang is a bug: never pruned
+        _row("F", "speed", route="FAILED", done=0, fails={"NO_PATH": 5}),  # router work
+        _row("G", "speed", route="NOTHING_TO_ROUTE", done=0),
+        _row("G", "accuracy", done=2),  # modes disagree: keep
+    ]
+    got = classify_boards(rows)
+    assert got["A"]["reason"] == "nothing_to_route"
+    assert got["B"]["reason"] == "rules_refused (no project rules)"
+    assert got["C"]["reason"] == "rules_refused"
+    assert all(got[b]["routable"] for b in "DEFG")
+
+
+def test_routable_profile_reads_the_pruned_list(tmp_path: Path) -> None:
+    import pytest
+
+    from pcbrouter.benchmark.real100 import (
+        build_parser,
+        load_routable,
+        routable_path,
+        write_routable,
+    )
+
+    manifest = load_manifest()
+    mpath = tmp_path / "manifest.json"
+    rows = [_row("K001", "speed", route="NOTHING_TO_ROUTE", done=0), _row("K003", "speed")]
+    out, _ = write_routable(rows, manifest, mpath, ["x.jsonl"])
+    assert out == routable_path(mpath) == tmp_path / "routable.json"
+    assert load_routable(mpath) == {"K003"}
+    data = json.loads(out.read_text())
+    assert data["excluded"] == {"K001": "nothing_to_route"} and len(data["not_measured"]) == 98
+    assert build_parser().parse_args(["run", "--profile", "routable"]).profile == "routable"
+    with pytest.raises(FileNotFoundError):
+        load_routable(tmp_path / "elsewhere" / "manifest.json")
+    with pytest.raises(ValueError):
+        write_routable([_row("NOPE", "speed")], manifest, mpath, [])
