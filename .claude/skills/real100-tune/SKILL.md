@@ -242,3 +242,28 @@ accept one, name it in the commit message.
   KiCad 8 DRC showed string compares are case-insensitive and `[` is literal,
   contrary to an older test of ours.
 
+- **Long runs die when the session goes idle.** The cloud container is paused
+  and reclaimed between turns: an A/B left running "overnight" sat on its first
+  Accuracy board for 72 minutes and then vanished. Keep a turn active while a
+  benchmark runs, write per-board results as they finish, and make the driver
+  resume from the missing ids (`$S/ab_oracle.sh` does both).
+- **Count connectivity the way KiCad's refill will.** Stored fills crossed by
+  new foreign copper are stale; counting them claimed K037 GND and K035
+  +5V/+24V routed while KiCad saw them split, and hid 2-16 pre-connected nets
+  the router broke (K035 PWM-Sink pours). `routing/refill.py` estimates the
+  refill conservatively; the board router re-verifies and repairs. Judge every
+  change with the oracle's *refilled* variant: our failed nets must equal
+  KiCad's open nets.
+- **When a model is too conservative, find the KiCad rule it misses.** Two false
+  pour splits came from KiCad semantics, not geometry: pad/footprint local
+  clearance is an override that beats the zone clearance (K026), and copper of
+  the net's own pad is no "neck" between fill pieces (K026 QFN). Read
+  `DRC_ENGINE::EvalRules` / the zone filler, then test against a live refill.
+- **Corpus preparation must strip everything generated from tracks.** Real100
+  boards kept 1,362 teardrop zones (7 boards) after their tracks were removed;
+  new routes joined them at odd angles and KiCad flagged connection_width necks.
+  Pack builder 1.2 strips them; re-prepare (`prepare --force`) only between
+  A/Bs, with new paired baselines.
+- **KiCad 10 boards cannot be oracle-checked here:** 51 of 82 Real100 rows use
+  formats 20250401-20260206, which KiCad 8.0.8 and 9.0.3 both refuse. Report
+  oracle coverage with every result.
