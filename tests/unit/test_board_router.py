@@ -12,12 +12,14 @@ from pcbrouter.domain.units import mm_to_internal
 from pcbrouter.kicad.loader import load_board
 from pcbrouter.kicad.rule_adapter import load_project_rules
 from pcbrouter.routing.board_router import (
+    BoardMetrics,
     BoardRouter,
     BoardRouterSettings,
     BoardRoutingControl,
     BoardStatus,
     NetOutcome,
     RouteGroup,
+    RouteTask,
     Strategy,
     TaskKind,
     diff_pairs,
@@ -102,7 +104,7 @@ def test_accept_batch_is_rule_valid_and_undoable(dense_result: tuple[WorkingBoar
 
 def test_failed_net_does_not_stop_the_job_and_ripup_recovers() -> None:
     wb = working("router_ripup.kicad_pcb")
-    s = BoardRouterSettings(priorities={"X": 10}, allow_ripup=False)
+    s = BoardRouterSettings(priorities={"X": 10}, allow_ripup=False, endgame=False)
     plan = make_plan(wb, s)
     plan.tasks = [replace(t, request=RouteRequest(t.net, candidates=1, max_vias=0))
                   if t.net == "Y" else t for t in plan.tasks]  # fmt: skip
@@ -325,3 +327,70 @@ def test_presets_route_the_dense_board_cleanly(mode: str) -> None:
     tracks, vias, removed = res.objects_for(None)
     wb.commit_objects(tracks, vias, removed, "preset", Provenance.ROUTER_GENERATED)
     assert not wb.engine.run_drc().errors
+
+
+def _y_boxed_in_plan(wb: WorkingBoard, s: BoardRouterSettings):  # type: ignore[no-untyped-def]
+    plan = make_plan(wb, s)
+    plan.tasks = [replace(t, request=RouteRequest(t.net, candidates=1, max_vias=0))
+                  if t.net == "Y" else t for t in plan.tasks]  # fmt: skip
+    return plan
+
+
+def test_endgame_finishes_the_board_by_moving_this_jobs_copper() -> None:
+    # Speed-like settings: no rip-up in the normal passes. Y (no vias allowed) is
+    # boxed in by X, which this job routed first; the endgame moves X and finishes.
+    wb = working("router_ripup.kicad_pcb")
+    s = BoardRouterSettings(priorities={"X": 10}, allow_ripup=False)
+    res = BoardRouter(wb, s).run(_y_boxed_in_plan(wb, s))
+    assert res.status is BoardStatus.FULLY_ROUTED
+    assert res.endgame is not None and res.endgame["missing"] == 1
+    assert res.endgame["finished"] == 1 and res.endgame["only_new_copper"]
+    assert any("endgame" in line for line in res.log)
+    tracks, vias, removed = res.objects_for(None)
+    wb.commit_objects(tracks, vias, removed, "endgame", Provenance.ROUTER_GENERATED)
+    assert not wb.engine.run_drc().errors  # finished copper is validator-clean
+
+
+def test_speed_endgame_never_moves_copper_that_was_on_the_board_before() -> None:
+    wb = working("router_ripup.kicad_pcb")
+    x = Router(wb.engine).route_net(RouteRequest("X", candidates=1))
+    wb.commit_proposals([x.best.proposal], "X earlier", Provenance.ROUTER_GENERATED)
+    s = BoardRouterSettings(allow_ripup=False)
+    res = BoardRouter(wb, s).run(_y_boxed_in_plan(wb, s))
+    assert res.outcomes["Y"].status is not RouteStatus.SUCCESS
+    assert not res.removed_ids and res.metrics.ripups == 0
+    assert res.endgame is not None and res.endgame["finished"] == 0
+
+
+def test_endgame_does_not_run_when_many_nets_are_missing_or_it_is_off() -> None:
+    from pcbrouter.routing import board_router as br
+
+    wb = working("router_ripup.kicad_pcb")
+    s = BoardRouterSettings(priorities={"X": 10}, allow_ripup=False, endgame=False)
+    assert BoardRouter(wb, s).run(_y_boxed_in_plan(wb, s)).endgame is None
+    router = BoardRouter(wb, replace(s, endgame=True))
+    router._all_tasks = [RouteTask(f"N{i}") for i in range(100)]
+    failed = [RouteTask(f"N{i}") for i in range(br.ENDGAME_MIN_NETS + 20)]
+    import time as _t
+
+    out, stats = router._endgame(
+        wb.fork(), failed, {}, BoardMetrics(), BoardRoutingControl(), [], _t.perf_counter() + 60
+    )
+    assert stats is None and out == failed  # 24 of 100 missing: not an endgame
+
+
+def test_a_refused_ripup_route_is_rolled_back_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = WorkingBoard.commit_proposals
+
+    def refuse_after_ripup(self, proposals, label, *a, **kw):  # type: ignore[no-untyped-def]
+        if "after rip-up" in label:
+            raise CommitError("refused for the test")
+        return real(self, proposals, label, *a, **kw)
+
+    monkeypatch.setattr(WorkingBoard, "commit_proposals", refuse_after_ripup)
+    wb = working("router_ripup.kicad_pcb")
+    s = BoardRouterSettings(priorities={"X": 10}, allow_ripup=True)
+    res = BoardRouter(wb, s).run(_y_boxed_in_plan(wb, s))  # must not raise
+    assert res.outcomes["Y"].status is not RouteStatus.SUCCESS
+    assert res.outcomes["X"].status is RouteStatus.SUCCESS  # rolled back intact
+    assert any("refused" in line for line in res.log)

@@ -20,6 +20,7 @@ search limits, wall-clock budget, pause/resume/cancel.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import re
@@ -110,6 +111,16 @@ PASS1_MIN_SLICE_S = 2.0
 #: 600 s of a 900 s budget in pass 2 (and still failed), so rip-up never ran for
 #: the three nets that only needed earlier copper moved.
 PASS2_SHARE = 0.2
+#: completion endgame: after the normal passes, when only a few nets are missing
+#: and budget is left, try to finish the board by rip-up and reroute (a finished
+#: board is what a user needs; 109 of 110 nets is unfinished work). "Few" is at
+#: most max(ENDGAME_MIN_NETS, ENDGAME_MAX_SHARE of the plan); it needs at least
+#: ENDGAME_MIN_S seconds of budget left
+ENDGAME_MIN_NETS = 4
+ENDGAME_MAX_SHARE = 0.15
+ENDGAME_MIN_S = 5.0
+#: endgame reroutes search at most this grid pitch (the Accuracy preset's 0.1 mm)
+ENDGAME_GRID_NM = 100_000
 PASS2_MIN_SLICE_S = 30.0
 
 
@@ -187,6 +198,10 @@ class BoardRouterSettings:
     budget_s: float = DEFAULT_BUDGET_S
     base_request: RouteRequest = field(default_factory=lambda: RouteRequest("", candidates=1))
     optimize: bool = False
+    #: completion endgame (see ENDGAME_*): finish a nearly routed board by rip-up
+    #: and reroute within the remaining budget. With allow_ripup off (Speed) it may
+    #: only move copper this job created
+    endgame: bool = True
     priorities: dict[str, int] = field(default_factory=dict)
     groups: tuple[RouteGroup, ...] = ()
     #: learning level 2: picks a per-net search variant ("arm"); None = the
@@ -355,6 +370,8 @@ class BoardRoutingResult:
     #: learning: which policy routed this job and why (see learning.selector);
     #: None when no policy was configured (the fixed router)
     policy_decision: dict[str, Any] | None = None
+    #: completion endgame statistics (None when it did not run)
+    endgame: dict[str, Any] | None = None
 
     def summary(self) -> str:
         m = self.metrics
@@ -633,6 +650,9 @@ class BoardRouter:
         #: routable (non-plane) layers and routing demand: the policy's board context
         self._routable_layers: int | None = None
         self._demand: float | None = None
+        #: endgame rip-up: only copper this job created may move
+        self._only_new_copper = False
+        self._in_endgame = False
         self._emit: Callable[..., None] = lambda **_kw: None
 
     def run(
@@ -774,6 +794,11 @@ class BoardRouter:
         finally:
             if par is not None:
                 par.close()
+        endgame = None
+        if not cancelled and not out_of_time:
+            failed, endgame = self._endgame(
+                fork, failed, outcomes, metrics, control, job_log, deadline
+            )
         emit_partial(force=True)  # latest snapshot always matches the result below
         if s.optimize and not cancelled and not out_of_time:
             from pcbrouter.routing.optimize import OptimizeGoal, optimize_nets
@@ -853,6 +878,7 @@ class BoardRouter:
             removed_nets,
             copper_dependencies(base_board, added_tracks, added_vias, removed_nets),
             decision,
+            endgame,
         )
         log.info("board_router.done %s metrics=%s", result.summary(), metrics.to_dict())
         emit(state="done")
@@ -1211,14 +1237,82 @@ class BoardRouter:
         return stop
 
     # ------------------------------------------------------------ rip-up
+    def _endgame(
+        self,
+        fork: WorkingBoard,
+        failed: list[RouteTask],
+        outcomes: dict[str, NetOutcome],
+        metrics: BoardMetrics,
+        control: BoardRoutingControl,
+        job_log: list[str],
+        deadline: float,
+    ) -> tuple[list[RouteTask], dict[str, Any] | None]:
+        """Finish a nearly routed board: rip-up and reroute for the few missing
+        nets, within the remaining budget. Every change still goes through the
+        exact validator, and a rip-up that does not raise completion (or would
+        disconnect another net) is rolled back."""
+        s = self.settings
+        n_plan = max(1, len(self._all_tasks))
+        limit = max(ENDGAME_MIN_NETS, math.ceil(ENDGAME_MAX_SHARE * n_plan))
+        left = deadline - time.perf_counter()
+        if not s.endgame or not failed or len(failed) > limit or left < ENDGAME_MIN_S:
+            return failed, None
+        t0 = time.perf_counter()
+        before = len(failed)
+        ripups0 = metrics.ripups
+        job_log.append(
+            f"endgame: {before} net(s) missing, {left:.0f} s left; trying rip-up and reroute"
+        )
+        self._emit(state="ripup", phase="RIPUP_REROUTE", total_nets=n_plan)
+        self._only_new_copper = not s.allow_ripup
+        self._in_endgame = True
+        try:
+            # rounds while they make progress: a net finished in one round changes
+            # the board, so a rip-up that failed before may succeed now (the
+            # per-net rip-up cap bounds the rounds)
+            remaining = failed
+            while remaining:
+                n = len(remaining)
+                remaining = self._ripup_pass(
+                    fork, remaining, outcomes, metrics, control, job_log, deadline
+                )
+                if len(remaining) == n or deadline - time.perf_counter() < ENDGAME_MIN_S:
+                    break
+        finally:
+            self._only_new_copper = False
+            self._in_endgame = False
+        finished = before - len(remaining)
+        job_log.append(f"endgame: finished {finished} of {before} net(s)")
+        return remaining, {
+            "missing": before,
+            "finished": finished,
+            "ripups": metrics.ripups - ripups0,
+            "seconds": round(time.perf_counter() - t0, 2),
+            "only_new_copper": not s.allow_ripup,
+        }
+
+    def _ripup_request(self, task: RouteTask) -> RouteRequest:
+        """Rip-up reroutes use the pass-3 request; in the completion endgame also a
+        fine, admissible search (the Accuracy preset's): finishing the board is
+        worth the extra seconds, and Speed's coarse greedy search often cannot put
+        the displaced routes back. Bounded by the job deadline like every request."""
+        req = self._request(task, 3)
+        if self._in_endgame:
+            req = replace(
+                req,
+                grid_resolution=min(req.grid_resolution, ENDGAME_GRID_NM),
+                heuristic_weight=1.0,
+            )
+        return req
+
     def _rippable(self, fork: WorkingBoard) -> list[str]:
         # copper the user accepted (or applied from an optimisation) is
         # user-approved: only ripped with the explicit setting
         ok = {Provenance.ROUTER_GENERATED}
-        if self.settings.ripup_user_accepted:
+        if self.settings.ripup_user_accepted and not self._only_new_copper:
             ok |= {Provenance.USER_ACCEPTED, Provenance.OPTIMIZER}
         idx = fork.board.index
-        keep = self._base_ids if self.settings.preserve_existing else set()
+        keep = self._base_ids if self.settings.preserve_existing or self._only_new_copper else set()
         out = []
         for obj_id, prov in fork.provenance.items():
             obj = idx.tracks_by_id.get(obj_id) or idx.vias_by_id.get(obj_id)
@@ -1291,13 +1385,18 @@ class BoardRouter:
         except CommitError:
             return False
         res = route_net_refined(
-            self.router_factory(fork.engine), self._request(task, 3), control.cancel_event
+            self.router_factory(fork.engine), self._ripup_request(task), control.cancel_event
         )
         metrics.absorb(res.metrics)
         if res.best is None or res.status is not RouteStatus.SUCCESS:
             self._rollback(fork, snapshot_len)
             return False
-        fork.commit_proposals([res.best.proposal], f"board route {task.net} (after rip-up)")
+        try:
+            fork.commit_proposals([res.best.proposal], f"board route {task.net} (after rip-up)")
+        except CommitError as exc:  # refused by the exact validator: undo, never crash
+            self._rollback(fork, snapshot_len)
+            job_log.append(f"rip-up for {task.net}: route refused ({exc}); rolled back")
+            return False
         # 2) put back every removed route that still fits; reroute the others
         kept_back: list[str] = []
         by_net: dict[str | None, list[str]] = {}
@@ -1318,11 +1417,13 @@ class BoardRouter:
             metrics.reroutes += 1
             other = next((t for t in self._all_tasks if t.net == net), RouteTask(str(net)))
             sub = route_net_refined(
-                self.router_factory(fork.engine), self._request(other, 3), control.cancel_event
+                self.router_factory(fork.engine), self._ripup_request(other), control.cancel_event
             )
             metrics.absorb(sub.metrics)
             if sub.best is not None:
-                fork.commit_proposals([sub.best.proposal], f"reroute {net}")
+                # refused: the net stays disconnected and the check below rolls back
+                with contextlib.suppress(CommitError):
+                    fork.commit_proposals([sub.best.proposal], f"reroute {net}")
         after_done = self._connected_count(fork, outcomes)
         geo1 = fork.engine.geometry
         broken = sorted(

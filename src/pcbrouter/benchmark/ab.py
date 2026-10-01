@@ -5,8 +5,15 @@ side), ``repeat`` times. Each (board, mode) then has one paired difference per
 repeat, which cancels most of the board-to-board and machine-load variation
 that makes single runs misleading on time-budgeted boards.
 
+Completion of the board comes first: a finished board is what a user needs.
+
 Classification of one (board, mode):
 
+* ``regressed`` — the board was fully routed more often in the baseline than in
+  the candidate (losing full completion is a regression even at -1 net), or
+  as below;
+* ``improved`` — fully routed more often in the candidate, never less in any
+  repeat; or as below;
 * ``unchanged`` — every paired delta is 0;
 * ``improved`` / ``regressed`` — the mean delta is positive / negative, and
   either every repeat agrees in sign or the mean is more than two standard
@@ -15,8 +22,8 @@ Classification of one (board, mode):
 
 Acceptance gate (all must hold for ``ACCEPTED``):
 
-1. aggregate improvement — more nets in total, by at least 1 % of the
-   baseline, and more boards improved than regressed;
+1. aggregate improvement — more boards fully routed, or as many and at least
+   1 % more nets; and more boards improved than regressed;
 2. no regressed board or guard board (reported separately);
 3. no loss of validity — no more DRC errors on new copper than the baseline;
 4. no more crashes / worker timeouts than the baseline;
@@ -49,6 +56,11 @@ def nets_tried(r: dict[str, Any]) -> int:
     return int((r.get("metrics") or {}).get("nets_attempted", 0))
 
 
+def fully_routed(r: dict[str, Any]) -> bool:
+    tried = nets_tried(r)
+    return r.get("status") == "ok" and tried > 0 and nets_done(r) == tried
+
+
 @dataclass
 class Pair:
     """One (board, mode) across repeats."""
@@ -66,6 +78,15 @@ class Pair:
     base_drc: int = 0  # DRC errors on router-added copper
     cand_drc: int = 0
     decisions: list[str] = field(default_factory=list)
+    base_full: list[bool] = field(default_factory=list)
+    cand_full: list[bool] = field(default_factory=list)
+
+    @property
+    def full_delta(self) -> float:
+        """Change in the share of repeats that finished the board."""
+        if not self.base_full or not self.cand_full:
+            return 0.0
+        return statistics.mean(self.cand_full) - statistics.mean(self.base_full)
 
     @property
     def deltas(self) -> list[int]:
@@ -84,6 +105,11 @@ class Pair:
     @property
     def verdict(self) -> str:
         d = self.deltas
+        fd = self.full_delta
+        if fd < 0:
+            return "regressed"  # lost full completion: never traded for nets elsewhere
+        if fd > 0 and all(c >= b for b, c in zip(self.base_full, self.cand_full, strict=False)):
+            return "improved"
         if not d or all(x == 0 for x in d):
             return "unchanged"
         m, se = self.delta_mean, self.delta_se
@@ -104,6 +130,8 @@ class Pair:
             "delta_mean": round(self.delta_mean, 3),
             "delta_se": round(self.delta_se, 3),
             "verdict": self.verdict,
+            "base_fully_routed": self.base_full,
+            "cand_fully_routed": self.cand_full,
             "runs": len(self.deltas),
             "vias_delta_mean": _mean_delta(self.base_vias, self.cand_vias),
             "wall_delta_mean_s": _mean_delta(self.base_wall, self.cand_wall),
@@ -133,6 +161,8 @@ def pair_runs(
             p.attempted = max(p.attempted, nets_tried(b), nets_tried(c))
             p.base.append(nets_done(b))
             p.cand.append(nets_done(c))
+            p.base_full.append(fully_routed(b))
+            p.cand_full.append(fully_routed(c))
             p.base_vias.append(int((b.get("metrics") or {}).get("new_vias") or 0))
             p.cand_vias.append(int((c.get("metrics") or {}).get("new_vias") or 0))
             p.base_wall.append(float(b.get("wall_s") or 0.0))
@@ -162,8 +192,12 @@ def aggregate(pairs: Sequence[Pair]) -> dict[str, Any]:
     by = Counter(p.verdict for p in pairs)
     base_total = sum(statistics.mean(p.base) for p in pairs if p.base)
     cand_total = sum(statistics.mean(p.cand) for p in pairs if p.cand)
+    base_full = sum(statistics.mean(p.base_full) for p in pairs if p.base_full)
+    cand_full = sum(statistics.mean(p.cand_full) for p in pairs if p.cand_full)
     return {
         "boards": len(pairs),
+        "base_fully_routed": round(base_full, 2),
+        "cand_fully_routed": round(cand_full, 2),
         "improved": by["improved"],
         "unchanged": by["unchanged"],
         "regressed": by["regressed"],
@@ -197,7 +231,13 @@ def gate(pairs: Sequence[Pair], guard: Sequence[Pair] = (), repeats: int = 1) ->
     gagg = aggregate(guard) if guard else None
     base = agg["base_nets_mean"] or 1.0
     checks = {
-        "1_aggregate_improves": agg["net_delta"] >= 0.01 * base
+        "1_aggregate_improves": (
+            agg["cand_fully_routed"] > agg["base_fully_routed"]
+            or (
+                agg["cand_fully_routed"] == agg["base_fully_routed"]
+                and agg["net_delta"] >= 0.01 * base
+            )
+        )
         and agg["improved"] > agg["regressed"],
         "2_no_regressed_board": agg["regressed"] == 0,
         "2_no_regressed_guard_board": gagg is None or gagg["regressed"] == 0,
@@ -242,8 +282,12 @@ def format_pairs(pairs: Sequence[Pair], title: str) -> list[str]:
     for p in pairs:
         if p.verdict == "unchanged":
             continue
+        full = ""
+        if any(p.base_full) or any(p.cand_full):
+            nb, nc = len(p.base_full), len(p.cand_full)
+            full = f" full {sum(p.base_full)}/{nb}->{sum(p.cand_full)}/{nc}"
         lines.append(
-            f"  {p.verdict:<9} {p.key[0]:<14} {p.key[1]:<8} base {p.base} cand {p.cand} "
+            f"  {p.verdict:<9} {p.key[0]:<14} {p.key[1]:<8} base {p.base} cand {p.cand}{full} "
             f"of {p.attempted}  mean {p.delta_mean:+.2f}"
             + (f" ±{p.delta_se:.2f}" if len(p.deltas) >= 2 else "")
             + (f"  [{', '.join(sorted(set(p.decisions)))}]" if p.decisions else "")

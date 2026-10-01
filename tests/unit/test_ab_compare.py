@@ -72,3 +72,40 @@ def test_guard_rows_parse_run_benchmarks_results() -> None:
     m = rows[("medium_4layer", "speed")]
     assert m["status"] == "ok" and m["metrics"]["nets_completed"] == 40
     assert rows[("dense_2layer", "speed")]["status"] != "ok"
+
+
+def _full_runs(table: dict[str, list[tuple[int, int]]]) -> list[dict]:
+    """{board: [(done, attempted) per repeat]}."""
+    n = len(next(iter(table.values())))
+    out = []
+    for i in range(n):
+        run = {}
+        for b, v in table.items():
+            done, tried = v[i]
+            run[(b, "speed")] = {
+                "status": "ok",
+                "metrics": {"nets_completed": done, "nets_attempted": tried, "new_vias": 0},
+                "wall_s": 1.0,
+            }
+        out.append(run)
+    return out
+
+
+def test_losing_full_completion_is_a_regression_even_at_minus_one_net() -> None:
+    base = _full_runs({"A": [(10, 10), (10, 10)], "B": [(50, 90), (50, 90)]})
+    cand = _full_runs({"A": [(9, 10), (10, 10)], "B": [(70, 90), (71, 90)]})
+    pairs = {p.key[0]: p for p in ab.pair_runs(base, cand)}
+    assert pairs["A"].verdict == "regressed" and pairs["B"].verdict == "improved"
+    assert ab.gate(list(pairs.values()), repeats=2)["status"] == "REJECTED"
+
+
+def test_finishing_a_board_counts_as_improvement_and_leads_the_gate() -> None:
+    base = _full_runs({"A": [(43, 44), (43, 44)], "B": [(20, 20), (20, 20)]})
+    cand = _full_runs({"A": [(44, 44), (44, 44)], "B": [(20, 20), (20, 20)]})
+    pairs = ab.pair_runs(base, cand)
+    g = ab.gate(pairs, repeats=2)
+    assert {p.key[0]: p.verdict for p in pairs} == {"A": "improved", "B": "unchanged"}
+    agg = g["aggregate"]
+    assert (agg["base_fully_routed"], agg["cand_fully_routed"]) == (1, 2)
+    # one more finished board passes rule 1 although +1 net is far below 1 %
+    assert g["checks"]["1_aggregate_improves"] and g["status"] == "ACCEPTED"
