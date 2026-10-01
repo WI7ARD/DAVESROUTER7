@@ -220,3 +220,9 @@ accept one, name it in the commit message.
   the whole board gave 33/45 in 51 s; lifting the endgame limit gave 32/45. The
   blocker in every endgame attempt was the global rip-up failing to put the
   displaced routes back ("would disconnect ..."): improve rip-up, not retries.
+- **A minimum-conflict path does not rescue single-level rip-up** (tried,
+  reverted). Routing the stuck net with the lifted copper passable at 10x cost
+  left medium_4layer Speed at 41/44 and K097 Speed at 31/45: the crossings are
+  unavoidable and the 1-8 displaced nets then find no path on a full board.
+  Dense boards need cascading / negotiated rip-up (PathFinder-style), a
+  project in its own right.
