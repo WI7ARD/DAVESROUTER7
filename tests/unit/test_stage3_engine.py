@@ -82,7 +82,9 @@ def test_condition_regex_match_and_lowercase_type() -> None:
     cond = parse_condition("A.Type == 'track' && A.NetName =~ 'BUS.*'")
     assert cond.matches(bus) and not cond.matches(sig)
     assert parse_condition("A.Type == 'via'").matches(via)
-    assert not parse_condition("A.Type == 'Track'").matches(bus)  # KiCad is case-sensitive
+    # KiCad compares strings case-insensitively (libeval VALUE::EqualTo uses
+    # IsSameAs(b, false)); confirmed by KiCad 8.0.8 DRC in test_rule_fidelity.py
+    assert parse_condition("A.Type == 'Track'").matches(bus)
     with pytest.raises(ConditionError):
         parse_condition("A.NetName =~ '([broken'")
     with pytest.raises(ConditionError):

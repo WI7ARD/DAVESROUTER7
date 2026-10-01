@@ -3,8 +3,11 @@
 Supported (everything else is reported as *unsupported*, never guessed):
 
 * properties ``A.NetClass``, ``A.NetName``, ``A.Type``, ``A.Layer`` (and ``B.*``)
-  compared with ``==`` / ``!=`` against string literals; ``*`` and ``?`` wildcards
-  behave like KiCad's wildcard compare;
+  compared with ``==`` / ``!=``. As in KiCad (libeval ``VALUE::EqualTo``), strings
+  compare **case-insensitively**, and the right operand is a wildcard pattern
+  only when it is a literal containing ``*`` or ``?`` (``[`` is literal, so bus
+  nets such as ``/D[0]`` match themselves; ``'/S*' == A.NetName`` is a plain
+  compare). Verified against KiCad 8.0.8 DRC (tests/unit/test_rule_fidelity.py);
 * ``A.NetName =~ 'BUS.*'``: regex *search* (substring) match, as in KiCad;
   an invalid pattern is reported as unsupported, never guessed;
 * ``A.hasNetclass('X')`` (KiCad 9);
@@ -336,8 +339,42 @@ def _values(node: Prop | Literal, a: ItemFacts, b: ItemFacts | None) -> tuple[st
 
 
 def _match(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
-    # KiCad compares strings with wildcards (either side may carry the pattern).
+    # Layer names: wildcard either way (KiCad matches layer patterns separately).
     return any(fnmatchcase(lv, rv) or fnmatchcase(rv, lv) for lv in left for rv in right)
+
+
+def wild_compare(pattern: str, text: str, case_sensitive: bool = False) -> bool:
+    """KiCad's ``WildCompareString(pattern, text, case_sensitive)`` (also what
+    ``wxString::Matches`` does, case-sensitively): ``*`` and ``?`` are the only
+    wildcards (``[`` is an ordinary character)."""
+    wild, s = (pattern, text) if case_sensitive else (pattern.upper(), text.upper())
+    w = i = 0
+    star_w = star_i = -1
+    while i < len(s):
+        if w < len(wild) and wild[w] == "*":
+            star_w, star_i = w, i
+            w += 1
+        elif w < len(wild) and (wild[w] == "?" or wild[w] == s[i]):
+            w += 1
+            i += 1
+        elif star_w >= 0:
+            w = star_w + 1
+            star_i += 1
+            i = star_i
+        else:
+            return False
+    while w < len(wild) and wild[w] == "*":
+        w += 1
+    return w == len(wild)
+
+
+def _string_equal(left: tuple[str, ...], right: tuple[str, ...], right_pattern: bool) -> bool:
+    """KiCad ``VALUE::EqualTo`` for strings: the right operand is a wildcard pattern
+    only when it is a literal containing ``*`` or ``?``; otherwise the strings
+    compare case-insensitively (``IsSameAs(b, false)``)."""
+    if right_pattern:
+        return any(wild_compare(rv, lv) for lv in left for rv in right)
+    return any(lv.upper() == rv.upper() for lv in left for rv in right)
 
 
 def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
@@ -353,14 +390,20 @@ def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
         item = a if node.who == "A" else b
         if item is None:
             return False
+        # NETCLASS::ContainsNetclassWithName: constituent name .Matches(arg)
         classes = item.net_classes or ("Default",)
-        return any(fnmatchcase(c, arg) for c in classes for arg in node.args)
+        return any(wild_compare(arg, c, case_sensitive=True) for c in classes for arg in node.args)
     left, right = _values(node.left, a, b), _values(node.right, a, b)
     if left is None or right is None:
         return False  # refers to B in a single-item check: KiCad treats it as no match
     if node.op == "=~":
         return any(re.search(pat, val) is not None for val in left for pat in right)
-    same = _match(left, right)
+    layer = any(isinstance(x, Prop) and x.name == "Layer" for x in (node.left, node.right))
+    if layer:
+        same = _match(left, right)
+    else:
+        pattern = isinstance(node.right, Literal) and any(c in node.right.value for c in "*?")
+        same = _string_equal(left, right, pattern)
     return same if node.op == "==" else not same
 
 
