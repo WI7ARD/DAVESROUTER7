@@ -113,3 +113,22 @@ def test_router_keeps_clearance_from_copper_text(tmp_path: Path) -> None:
         if "graphic" in (v.object_a or "") or "graphic" in (v.object_b or "")
     ]
     assert graphic_errors == []
+
+
+def test_text_variables_are_expanded_before_sizing_the_box(tmp_path: Path) -> None:
+    """A conservative 16-character pad for '${COMMENT4}' grew Real100 K022's
+    'P${COMMENT4}-${REVISION}' label over the board edge and seven pads."""
+    body = """
+  (title_block (title "T") (rev "00") (comment 4 "A05"))
+  (gr_text "P${COMMENT4}-${REVISION}" (at 10 10) (layer "F.Cu") (uuid "t1")
+    (effects (font (size 1 1) (thickness 0.2)) (justify left)))
+  (gr_text "${NOT_DEFINED}" (at 10 15) (layer "F.Cu") (uuid "t2")
+    (effects (font (size 1 1) (thickness 0.2)) (justify left)))
+"""
+    graphics = load_board(_board(tmp_path, body)).board.copper_graphics
+    known = next(g for g in graphics if "A05" in g.label)
+    width = max(p.x for p in known.points) - min(p.x for p in known.points)
+    assert width < 10 * 1_000_000  # "PA05-00": 7 characters, not 24 + padding
+    unknown = next(g for g in graphics if g is not known)
+    uwidth = max(p.x for p in unknown.points) - min(p.x for p in unknown.points)
+    assert uwidth >= 16 * 1_000_000  # an unknown variable is sized generously

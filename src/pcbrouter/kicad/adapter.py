@@ -17,6 +17,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -1066,12 +1067,51 @@ class KiCadBoardAdapter:
             conservative=kind == "curve",
         )
 
+    def _expand_text_vars(self, text: str, layer: str, fields: dict[str, str]) -> str:
+        """KiCad text-variable expansion for sizing copper text: title-block
+        fields, file/project name, layer and footprint fields are substituted;
+        a variable still unknown here (a project text variable) is counted as at
+        least 16 characters so the box stays conservative."""
+        if "${" not in text:
+            return text
+        root = self._root
+        tb = root.first("title_block")
+        names: dict[str, str] = {"LAYER": layer}
+        if self._path is not None:
+            names["FILENAME"] = self._path.name
+            names["PROJECTNAME"] = self._path.stem
+        if tb is not None:
+            for key, var in (("title", "TITLE"), ("rev", "REVISION"), ("company", "COMPANY"),
+                             ("date", "ISSUE_DATE")):  # fmt: skip
+                value = tb.value(key)
+                if value is not None:
+                    names[var] = value
+            for c in tb.nodes("comment"):
+                num, value = c.atom(0), c.atom(1)
+                if num is not None and value is not None:
+                    names[f"COMMENT{num}"] = value
+        names["CURRENT_DATE"] = "0000-00-00"
+        names.update({k.upper(): v for k, v in fields.items()})
+
+        def sub(m: re.Match[str]) -> str:
+            name = m.group(1)
+            value = names.get(name.upper())
+            return value if value is not None else "X" * max(len(m.group(0)), 16)
+
+        return re.sub(r"\$\{([^}]*)\}", sub, text)
+
     def _copper_text(
-        self, node: SNode, index: int, fp: Footprint | None = None, ref: str | None = None
+        self,
+        node: SNode,
+        index: int,
+        fp: Footprint | None = None,
+        ref: str | None = None,
+        fp_fields: dict[str, str] | None = None,
     ) -> CopperGraphic | None:
         """Visible text on a copper layer as a conservative rectangle: KiCad's
         stroke-font outline always lies inside it (no glyph is wider than 1.25 x
         the font width; descenders and line spacing are covered)."""
+        fp_fields = fp_fields or {}
         effects = node.first("effects")
         if node.has_flag("hide") or (effects is not None and effects.has_flag("hide")):
             return None
@@ -1084,8 +1124,9 @@ class KiCadBoardAdapter:
         w = _mm(size.atom(1), "text width") if size is not None and size.atom(1) else h
         thick_s = font.value("thickness") if font is not None else None
         thick = _mm(thick_s, "text thickness") if thick_s else max(h, w) // 5
+        text = self._expand_text_vars(text, layer, fp_fields)
         lines = text.replace("\\n", "\n").split("\n")
-        chars = max((len(line) for line in lines), default=0) + (16 if "${" in text else 0)
+        chars = max((len(line) for line in lines), default=0)
         if chars == 0:
             return None
         big = max(h, w)
@@ -1149,7 +1190,9 @@ class KiCadBoardAdapter:
                     label = f"copper {item.kind} of {comp.reference} on {item.layer}"
                     out.append(replace(item, footprint_ref=comp.reference, label=label))
                 elif g.name in ("fp_text", "property"):
-                    text = self._copper_text(g, index, fp, comp.reference)
+                    fields = {"REFERENCE": comp.reference, "VALUE": comp.value or ""}
+                    fields.update(comp.properties)
+                    text = self._copper_text(g, index, fp, comp.reference, fields)
                     if text is not None:
                         out.append(text)
             except _ItemError as exc:
