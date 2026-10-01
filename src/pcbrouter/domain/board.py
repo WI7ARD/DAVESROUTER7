@@ -21,6 +21,7 @@ from pathlib import Path
 from pcbrouter.domain.component import Component
 from pcbrouter.domain.footprint import Footprint
 from pcbrouter.domain.geometry import BoundingBox, Point, arc_points, union_all
+from pcbrouter.domain.graphic import CopperGraphic
 from pcbrouter.domain.layer import Layer, copper_stack_position
 from pcbrouter.domain.net import Net, NetStatistics
 from pcbrouter.domain.pad import Pad
@@ -175,6 +176,8 @@ class Board:
     #: Net classes stated in the board file itself (KiCad 5). KiCad 6+ classes live
     #: in the project file and are merged by :mod:`pcbrouter.rules`.
     net_classes: tuple[NetClassDef, ...] = ()
+    #: Graphics and visible text on copper layers (obstacles, no net).
+    copper_graphics: tuple[CopperGraphic, ...] = ()
 
     # ----------------------------------------------------------------- views
     @property

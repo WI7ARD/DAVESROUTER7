@@ -127,6 +127,7 @@ def item_type_of(kind: ItemKind) -> ItemType:
         ItemKind.TRACK: ItemType.TRACK,
         ItemKind.VIA: ItemType.VIA,
         ItemKind.ZONE_FILL: ItemType.ZONE,
+        ItemKind.GRAPHIC: ItemType.GRAPHIC,
     }[kind]
 
 

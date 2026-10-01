@@ -58,6 +58,8 @@ def _pair_kind(a: CopperItem, b: CopperItem) -> ViolationKind:
     kinds = {a.kind, b.kind}
     if ItemKind.ZONE_FILL in kinds:
         return ViolationKind.ZONE_CLEARANCE
+    if ItemKind.GRAPHIC in kinds:
+        return ViolationKind.GRAPHIC_CLEARANCE
     if kinds == {ItemKind.TRACK}:
         return ViolationKind.TRACK_TRACK_CLEARANCE
     if kinds == {ItemKind.TRACK, ItemKind.PAD}:

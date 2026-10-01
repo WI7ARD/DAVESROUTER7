@@ -28,6 +28,7 @@ class ViolationKind(Enum):
     VIA_COPPER_CLEARANCE = "via-to-copper clearance"
     PAD_PAD_CLEARANCE = "pad-to-pad clearance"
     ZONE_CLEARANCE = "zone-to-copper clearance"
+    GRAPHIC_CLEARANCE = "copper-to-graphic clearance"
     MIN_TRACK_WIDTH = "minimum track width"
     MAX_TRACK_WIDTH = "maximum track width"
     MIN_VIA_DIAMETER = "minimum via diameter"

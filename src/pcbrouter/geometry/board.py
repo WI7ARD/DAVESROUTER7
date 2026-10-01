@@ -32,10 +32,15 @@ class ItemKind(Enum):
     TRACK = "track"
     VIA = "via"
     ZONE_FILL = "zone_fill"
+    #: Graphic shape or visible text on a copper layer: an obstacle with no net.
+    GRAPHIC = "graphic"
 
     @property
     def label(self) -> str:
-        return {"pad": "pad", "track": "track", "via": "via", "zone_fill": "zone fill"}[self.value]
+        return {
+            "pad": "pad", "track": "track", "via": "via", "zone_fill": "zone fill",
+            "graphic": "copper graphic",
+        }[self.value]  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)

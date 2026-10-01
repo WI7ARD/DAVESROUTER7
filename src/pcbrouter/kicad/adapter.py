@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import itertools
 import logging
+import math
 from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -41,6 +42,7 @@ from pcbrouter.domain.geometry import (
     arc_points,
     rotate_point,
 )
+from pcbrouter.domain.graphic import CopperGraphic
 from pcbrouter.domain.layer import (
     BACK_COPPER,
     EDGE_CUTS,
@@ -55,7 +57,7 @@ from pcbrouter.domain.net import Net
 from pcbrouter.domain.pad import Pad, PadPrimitive, PadShape, PadType, PrimitiveKind
 from pcbrouter.domain.rules import DesignRules, NetClassDef
 from pcbrouter.domain.track import Track
-from pcbrouter.domain.units import Nm, UnitConversionError, parse_mm
+from pcbrouter.domain.units import NM_PER_MM, Nm, UnitConversionError, parse_mm
 from pcbrouter.domain.via import Via, ViaType
 from pcbrouter.domain.zone import FilledPolygon, KeepoutRules, Zone, ZoneFillState
 from pcbrouter.kicad.errors import MalformedBoardError, UnsupportedKiCadVersion
@@ -292,6 +294,7 @@ class KiCadBoardAdapter:
         vias: list[Via] = []
         outline: list[OutlineSegment] = []
         zones: list[Zone] = []
+        graphics: list[CopperGraphic] = []
         not_displayed: Counter[str] = Counter()
         unknown: Counter[str] = Counter()
 
@@ -303,6 +306,7 @@ class KiCadBoardAdapter:
                     components.append(comp)
                     outline.extend(self._footprint_edge_cuts(node, comp.footprint))
                     zones.extend(self._footprint_zones(node, comp.reference))
+                    graphics.extend(self._footprint_copper_graphics(node, comp))
             elif name in ("segment", "arc"):
                 track = self._guard(node, f"{name} track", self._track, index)
                 if track is not None:
@@ -319,8 +323,16 @@ class KiCadBoardAdapter:
                 if _graphic_layer(node) == EDGE_CUTS:
                     segs = self._guard(node, f"board outline {name}", self._outline_segments)
                     outline.extend(segs or ())
+                elif _graphic_layer(node) in self._ctx.copper_layers:
+                    g = self._guard(node, f"copper {name}", self._copper_graphic, index)
+                    if g is not None:
+                        graphics.append(g)
                 else:
                     not_displayed["graphic on non-edge layer"] += 1
+            elif name == "gr_text" and _graphic_layer(node) in self._ctx.copper_layers:
+                g = self._guard(node, "copper text", self._copper_text, index)
+                if g is not None:
+                    graphics.append(g)
             elif name in _NOT_DISPLAYED_TOP_LEVEL:
                 not_displayed[name] += 1
             elif name in _IGNORED_TOP_LEVEL:
@@ -365,6 +377,7 @@ class KiCadBoardAdapter:
             rules=self._rules(),
             zones=tuple(zones),
             net_classes=self._net_classes(),
+            copper_graphics=tuple(graphics),
         )
 
     # ------------------------------------------------------------ plumbing
@@ -1006,6 +1019,142 @@ class KiCadBoardAdapter:
             via_type=via_type,
             locked=node.has_flag("locked"),
         )
+
+    # ------------------------------------------------------------ copper graphics
+    @staticmethod
+    def _stroke_width(node: SNode) -> Nm:
+        width = _mm(node.value("width"), "width") if node.value("width") else 0
+        stroke = node.first("stroke")
+        if stroke is not None and stroke.value("width"):
+            width = _mm(stroke.value("width"), "stroke width")
+        return max(0, width)
+
+    def _copper_graphic(
+        self, node: SNode, index: int, fp: Footprint | None = None
+    ) -> CopperGraphic:
+        """A gr_*/fp_* shape on a copper layer (board coordinates)."""
+        layer = _graphic_layer(node) or ""
+        kind = node.name[3:]
+
+        def tf(p: Point) -> Point:
+            return p if fp is None else self._fp_abs(p, fp.position, fp.rotation_deg)
+
+        fill = node.first("fill")
+        filled = fill is not None and (fill.atom() or "") in ("solid", "yes", "true")
+        if kind == "arc":
+            pts = tuple(tf(p) for p in _arc_triplet(node))
+        elif kind == "circle":
+            center = _point(node.first("center") or node.first("start"), "center")
+            pts = (tf(center), tf(_point(node.first("end"), "end")))
+        elif kind == "line":
+            pts = tuple(tf(p) for p in _graphic_points(node))
+        else:  # rect / poly / curve: the outline (rect/poly closed)
+            raw = _graphic_points(node)
+            if kind in ("rect", "poly") and len(raw) > 1 and raw[0] == raw[-1]:
+                raw = raw[:-1]
+            pts = tuple(tf(p) for p in raw)
+        uid = node.value("uuid") or node.value("tstamp") or f"{index}"
+        owner = f" of {fp.id}" if fp is not None else ""
+        return CopperGraphic(
+            id=f"{'fp' if fp else 'gr'}:{uid}",
+            layer=layer,
+            kind=kind,
+            points=pts,
+            width=self._stroke_width(node),
+            filled=filled,
+            label=f"copper {kind}{owner} on {layer}",
+            conservative=kind == "curve",
+        )
+
+    def _copper_text(
+        self, node: SNode, index: int, fp: Footprint | None = None, ref: str | None = None
+    ) -> CopperGraphic | None:
+        """Visible text on a copper layer as a conservative rectangle: KiCad's
+        stroke-font outline always lies inside it (no glyph is wider than 1.25 x
+        the font width; descenders and line spacing are covered)."""
+        effects = node.first("effects")
+        if node.has_flag("hide") or (effects is not None and effects.has_flag("hide")):
+            return None
+        atoms = node.atoms()
+        text = atoms[-1] if atoms else ""
+        layer = _graphic_layer(node) or ""
+        font = effects.first("font") if effects is not None else None
+        size = font.first("size") if font is not None else None
+        h = _mm(size.atom(0), "text height") if size is not None and size.atom(0) else NM_PER_MM
+        w = _mm(size.atom(1), "text width") if size is not None and size.atom(1) else h
+        thick_s = font.value("thickness") if font is not None else None
+        thick = _mm(thick_s, "text thickness") if thick_s else max(h, w) // 5
+        lines = text.replace("\\n", "\n").split("\n")
+        chars = max((len(line) for line in lines), default=0) + (16 if "${" in text else 0)
+        if chars == 0:
+            return None
+        big = max(h, w)
+        width = round(chars * big * 1.25) + thick
+        height = round(big * 1.5 + (len(lines) - 1) * big * 1.7) + thick
+        jnode = effects.first("justify") if effects is not None else None
+        just = set(jnode.atoms()) if jnode is not None else set()
+        left, right = "left" in just, "right" in just
+        if "mirror" in just:  # mirrored text runs the other way from its anchor
+            left, right = right, left
+        if left:
+            x0, x1 = 0, width
+        elif right:
+            x0, x1 = -width, 0
+        else:
+            x0, x1 = -width // 2, width - width // 2
+        if "top" in just:
+            y0, y1 = 0, height
+        elif "bottom" in just:
+            y0, y1 = -height, 0
+        else:
+            y0, y1 = -height // 2, height - height // 2
+        at = node.first("at")
+        anchor = _point(at, "text position") if at is not None else Point(0, 0)
+        angle_atom = at.atom(2) if at is not None else None
+        angle = float(angle_atom) if angle_atom else 0.0
+        if fp is not None:
+            # footprint text angles are stored inconsistently across KiCad versions:
+            # use a box that covers the text at any rotation
+            anchor = self._fp_abs(anchor, fp.position, fp.rotation_deg)
+            r = math.ceil(math.hypot(max(abs(x0), abs(x1)), max(abs(y0), abs(y1))))
+            corners = [Point(-r, -r), Point(r, -r), Point(r, r), Point(-r, r)]
+            pts = tuple(anchor + c for c in corners)
+        else:
+            corners = [Point(x0, y0), Point(x1, y0), Point(x1, y1), Point(x0, y1)]
+            pts = tuple(rotate_point(anchor + c, angle, anchor) for c in corners)
+        uid = node.value("uuid") or node.value("tstamp") or f"{index}"
+        owner = f" of {ref}" if ref else ""
+        return CopperGraphic(
+            id=f"{'fptext' if fp else 'text'}:{uid}",
+            layer=layer,
+            kind="text",
+            points=pts,
+            width=0,
+            filled=True,
+            label=f"text '{text[:24]}'{owner} on {layer}",
+            footprint_ref=ref,
+            conservative=True,
+        )
+
+    def _footprint_copper_graphics(self, node: SNode, comp: Component) -> list[CopperGraphic]:
+        """fp_* shapes and visible fp_text / property text on copper layers."""
+        out: list[CopperGraphic] = []
+        fp = comp.footprint
+        for index, g in enumerate(node.nodes()):
+            if _graphic_layer(g) not in self._ctx.copper_layers:
+                continue
+            try:
+                if g.name in _FP_GRAPHICS:
+                    item = self._copper_graphic(g, index, fp)
+                    label = f"copper {item.kind} of {comp.reference} on {item.layer}"
+                    out.append(replace(item, footprint_ref=comp.reference, label=label))
+                elif g.name in ("fp_text", "property"):
+                    text = self._copper_text(g, index, fp, comp.reference)
+                    if text is not None:
+                        out.append(text)
+            except _ItemError as exc:
+                self._ctx.warn(f"copper graphic of {comp.reference} skipped: {exc}", g)
+        return out
 
     # ------------------------------------------------------------ outline
     def _outline_segments(self, node: SNode) -> Iterable[OutlineSegment]:

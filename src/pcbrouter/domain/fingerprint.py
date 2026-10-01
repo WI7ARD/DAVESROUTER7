@@ -88,4 +88,6 @@ def board_fingerprint(board: Board) -> str:
             put("F", f.layer, f.points)
     for nc in board.net_classes:
         put("NC", nc)
+    for g in board.copper_graphics:
+        put("G", g.id, g.layer, g.kind, g.points, g.width, g.filled)
     return h.hexdigest()

@@ -30,6 +30,7 @@ from itertools import pairwise
 from pcbrouter.domain.board import Board, OutlineSegment, OutlineShape
 from pcbrouter.domain.footprint import Footprint
 from pcbrouter.domain.geometry import BoundingBox, Point
+from pcbrouter.domain.graphic import CopperGraphic
 from pcbrouter.domain.pad import Pad, PadShape, PadType, PrimitiveKind
 from pcbrouter.domain.track import Track
 from pcbrouter.domain.units import Nm
@@ -252,6 +253,40 @@ def build_region(board: Board) -> BoardRegion:
     )
 
 
+# ---------------------------------------------------------------- copper graphics
+def graphic_shapes(g: CopperGraphic) -> list[Shape]:
+    """Shapes covering a copper graphic: exact for lines, arcs and filled
+    polygons; conservative (never smaller than KiCad's copper) for text boxes,
+    Bezier curves (convex hull of the control points) and stroked circles."""
+    half = g.width // 2 + g.width % 2
+    pts = list(g.points)
+    cons = ShapeAccuracy.CONSERVATIVE
+    try:
+        if g.kind == "line":
+            return [capsule(pts[0], pts[1], half)]
+        if g.kind == "arc":
+            return arc_capsules(pts[0], pts[1], pts[2], half)
+        if g.kind == "circle":
+            center, r = pts[0], round(pts[0].distance_to(pts[1]))
+            if g.filled:
+                return [circle(center, r + half)]
+            ring = OutlineSegment(OutlineShape.CIRCLE, center, pts[1])
+            sag = ARC_MAX_SAGITTA_NM + 1
+            return [capsule(a, b, half + sag, cons) for a, b in pairwise(_fine_points(ring))]
+        if g.kind == "curve":
+            return [polygon(convex_hull(pts), half, cons)]
+        if g.filled or g.kind == "text":
+            acc = cons if g.conservative else ShapeAccuracy.EXACT
+            return [polygon(pts, half, acc)]
+        loop = [*pts, pts[0]]
+        return [capsule(a, b, half) for a, b in pairwise(loop)]
+    except (InvalidGeometryError, IndexError):
+        if len(pts) < 2:
+            return []
+        # degenerate outline (e.g. collinear): its stroked edges still cover it
+        return [capsule(a, b, max(half, 1), cons) for a, b in pairwise([*pts, pts[0]])]
+
+
 # ---------------------------------------------------------------- build
 def _bounds_of(shapes: list[Shape] | tuple[Shape, ...]) -> BoundingBox:
     box = shapes[0].bounds
@@ -436,6 +471,28 @@ def build_board_geometry(board: Board) -> BoardGeometry:
                 local_clearance=zone.local_clearance,
                 note="zone fill as stored in the file (may be stale if not refilled)",
             )
+
+    for g in board.copper_graphics:
+        if g.layer not in copper_layers:
+            continue
+        shapes_g = graphic_shapes(g)
+        if not shapes_g:
+            notes.append(f"{g.label}: degenerate graphic skipped")
+            continue
+        uid = f"graphic:{g.id}"
+        copper[uid] = CopperItem(
+            uid=uid,
+            kind=ItemKind.GRAPHIC,
+            source_id=g.id,
+            net=None,
+            layers=frozenset((g.layer,)),
+            shapes=tuple(shapes_g),
+            bounds=_bounds_of(shapes_g),
+            label=g.label,
+            footprint_ref=g.footprint_ref,
+            accuracy=ShapeAccuracy.worst(*(sh.accuracy for sh in shapes_g)),
+            note="text bounding box (covers the glyphs)" if g.kind == "text" else None,
+        )
 
     for n, seg in enumerate(board.outline.segments):
         for k, shape in enumerate(_edge_shapes(seg)):
