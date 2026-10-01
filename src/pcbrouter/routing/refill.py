@@ -137,17 +137,27 @@ class RefillModel:
             _, clr = self._clearance(fill, other, layer)
             for s in other.shapes:
                 _clear_near(mask, xc, yc, s.core, s.radius + clr + half_diag)
+        own_items = [
+            i for i in geo.copper_near(layer, box)
+            if i.net == fill.net and i.uid != fill.uid and i.kind is not ItemKind.ZONE_FILL
+        ]  # fmt: skip
+        # Copper of the net's own pads/tracks/vias is metal whatever the zone's
+        # min-width opening removes: fill pieces touching the same item join
+        # through it. So it is no "neck" to cut, and thin fill beside it is
+        # judged without it (a solidly connected pad bridging two pieces was
+        # dropped: Real100 K026 IC1 GND pads, connected in KiCad's refill).
+        own = np.zeros_like(mask)
+        for item in own_items:
+            for s in item.contact_shapes(layer, to_zone=True):
+                _mark_near(own, xc, yc, s.core, s.radius)
+        free = mask & ~own
         k = math.ceil((min_th / 2) / cell) + 1
         core_cells = _erode_disk(mask, k)
-        labels = _label4(core_cells)
-        labels = _spread(labels, mask, k + 1)
-        labels = _attach_thin(labels, mask)
+        labels = _label4(core_cells & ~own)
+        labels = _spread(labels, free, k + 1)
+        labels = _attach_thin(labels, free)
         groups: dict[int, set[str]] = {}
-        for item in geo.copper_near(layer, box):
-            if item.net != fill.net or item.uid == fill.uid:
-                continue
-            if item.kind is ItemKind.ZONE_FILL:
-                continue
+        for item in own_items:
             for lab in _labels_touching(labels, xc, yc, item, layer, cell):
                 groups.setdefault(lab, set()).add(item.uid)
         return RefillResult(
@@ -206,6 +216,23 @@ def _clear_near(
     xs, ys = np.meshgrid(xc[c0:c1], yc[r0:r1])
     d = distance_field(core, xs, ys, b)
     mask[r0:r1, c0:c1] &= d > reach
+
+
+def _mark_near(
+    out: BoolGrid,
+    xc: npt.NDArray[np.float64],
+    yc: npt.NDArray[np.float64],
+    core: Core,
+    reach: float,
+) -> None:
+    """Set cells whose centre lies within ``reach`` of ``core``."""
+    b = core.bounds.expanded(math.ceil(reach) + 1)
+    c0, c1 = np.searchsorted(xc, b.min_x, "left"), np.searchsorted(xc, b.max_x, "right")
+    r0, r1 = np.searchsorted(yc, b.min_y, "left"), np.searchsorted(yc, b.max_y, "right")
+    if c0 >= c1 or r0 >= r1:
+        return
+    xs, ys = np.meshgrid(xc[c0:c1], yc[r0:r1])
+    out[r0:r1, c0:c1] |= distance_field(core, xs, ys, b) <= reach
 
 
 def _label4(mask: BoolGrid) -> IntGrid:

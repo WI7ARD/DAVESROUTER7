@@ -280,3 +280,49 @@ def test_override_golden_matches_live_kicad(
     tmp_path: Path, pad_clearance: str, kicad: bool
 ) -> None:
     assert gen.kicad_flags(_TOOL, _override_board(tmp_path, pad_clearance)) is kicad
+
+
+def _bridge_board(tmp_path: Path) -> Path:
+    """Two pour pieces joined only through a 0.3 mm strip that a solidly
+    connected GND pad covers; a far SIG stub makes the stored fill stale
+    without cutting it."""
+    bridge_pad = """
+  (footprint "T:B" (layer "F.Cu") (uuid "00000000-0000-4000-8000-000000000109") (at 12 10)
+    (property "Reference" "B1") (property "Value" "B")
+    (pad "1" smd rect (at 0 0) (size 2.4 0.3) (layers "F.Cu" "F.Paste" "F.Mask")
+      (net 1 "GND") (uuid "00000000-0000-4000-8000-000000000209")))"""
+    fill = """
+  (zone (net 1) (net_name "GND") (layer "F.Cu") (uuid "00000000-0000-4000-8000-000000000301")
+    (name "POUR") (hatch edge 0.5) (connect_pads yes (clearance 0.5))
+    (min_thickness 0.25) (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (polygon (pts (xy 2 2) (xy 28 2) (xy 28 18) (xy 2 18)))
+    (filled_polygon (layer "F.Cu") (pts (xy 2 2) (xy 10 2) (xy 10 9.85) (xy 14 9.85)
+      (xy 14 2) (xy 28 2) (xy 28 18) (xy 14 18) (xy 14 10.15) (xy 10 10.15) (xy 10 18)
+      (xy 2 18))))"""
+    stub = (
+        _sig_pad(1, 0.8)
+        + _sig_pad(2, 2.6)
+        + (
+            '\n  (segment (start 15 0.8) (end 15 2.6) (width 0.25) (layer "F.Cu") (net 2) '
+            '(uuid "00000000-0000-4000-8000-000000000401"))'
+        )
+    )
+    return _board(tmp_path, _pad(1, 5) + _pad(2, 25) + bridge_pad + fill + stub)
+
+
+def test_pad_copper_bridging_fill_pieces_is_no_neck(tmp_path: Path) -> None:
+    path = _bridge_board(tmp_path)
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    geo = wb.engine.geometry
+    fill = next(i for i in geo.copper.values() if i.kind.value == "zone_fill")
+    assert geo.refill.result(geo, fill) is not None  # stale (the stub)
+    assert net_connectivity(geo, "GND").is_fully_connected
+
+
+@pytest.mark.skipif(_TOOL is None or _TOOL.python is None, reason="KiCad 8+ with pcbnew needed")
+def test_bridge_golden_matches_live_kicad(tmp_path: Path) -> None:
+    assert _TOOL is not None
+    run = oracle.run_drc(_TOOL, _bridge_board(tmp_path), "refilled")
+    assert run.ok, run.message
+    assert not any("GND" in v.nets() for v in run.unconnected)
