@@ -166,15 +166,29 @@ class ContextIndex:
             )
             if reg is not None:
                 self._zones.append(reg)
+        self._zone_by_id = {z.id: z for z in board.zones}
         self._cache: dict[tuple[str, BoundingBox], ObjectContext | None] = {}
 
     def get(self, item: CopperItem) -> ObjectContext | None:
         key = (item.uid, item.bounds)
         if key in self._cache:
             return self._cache[key]
-        ctx = None if item.kind is ItemKind.ZONE_FILL else self._build(item)
+        ctx = self._zone(item) if item.kind is ItemKind.ZONE_FILL else self._build(item)
         self._cache[key] = ctx
         return ctx
+
+    def _zone(self, item: CopperItem) -> ObjectContext | None:
+        """A zone fill: its zone's name and footprint (location facts unknown)."""
+        zone = self._zone_by_id.get(item.source_id)
+        if zone is None:
+            return None
+        fp = None
+        if zone.footprint_ref is not None:
+            fp = (zone.footprint_ref, self._libs.get(zone.footprint_ref, ""))
+        return ObjectContext(
+            footprint=fp, layers=tuple(sorted(item.layers)), zone_name=zone.name or "",
+            located=False,
+        )  # fmt: skip
 
     def _build(self, item: CopperItem) -> ObjectContext:
         fp = None

@@ -19,7 +19,7 @@ from pcbrouter.domain.geometry import BoundingBox
 from pcbrouter.domain.units import Nm
 from pcbrouter.drc import DRCResult, run_geometry_check
 from pcbrouter.geometry import GEOMETRY_ENGINE_VERSION
-from pcbrouter.geometry.board import BoardGeometry
+from pcbrouter.geometry.board import BoardGeometry, CopperItem
 from pcbrouter.geometry.extract import build_board_geometry
 from pcbrouter.kicad.rule_adapter import ProjectRuleData
 from pcbrouter.routing.congestion import CongestionMap, build_congestion
@@ -79,7 +79,34 @@ class BoardEngine:
 
     @property
     def geometry(self) -> BoardGeometry:
-        return self._locked("geometry", lambda: build_board_geometry(self.board))
+        def _build() -> BoardGeometry:
+            geo = build_board_geometry(self.board)
+            self.bind_refill(geo)
+            return geo
+
+        return self._locked("geometry", _build)
+
+    def bind_refill(self, geo: BoardGeometry) -> None:
+        """Connectivity on ``geo`` judges stale zone fills with these rules."""
+        from pcbrouter.routing.refill import attach_refill
+
+        key = (self.ruleset.digest, repr(self.overrides.to_dict()), self.config.conservative)
+        attach_refill(geo, self._zone_clearance, key)
+
+    def _zone_clearance(self, fill: CopperItem, other: CopperItem, layer: str) -> Nm:
+        """Clearance a refill keeps between ``fill``'s zone and ``other`` (the
+        stricter of the resolved value and any possibly-applying rule)."""
+        from pcbrouter.routing.collision import item_type_of
+
+        resolver = self.resolver
+        ctx = resolver.ruleset.uses_context
+        geo = self.geometry
+        r = resolver.resolve_clearance(
+            fill.net, other.net, ItemType.ZONE, item_type_of(other.kind), layer,
+            local_a=fill.local_clearance, local_b=other.local_clearance,
+            ctx_a=geo.context(fill) if ctx else None, ctx_b=geo.context(other) if ctx else None,
+        )  # fmt: skip
+        return max(r.value or 0, r.possibly_stricter or 0)
 
     @property
     def ruleset(self) -> RuleSet:

@@ -54,8 +54,8 @@
       "feature": "A.Name",
       "kind": "property",
       "status": "PARTIAL",
-      "notes": "zone-only property: false for tracks/vias/pads (exact); zone names not tracked",
-      "evidence": "tests/unit/test_partial_conditions.py"
+      "notes": "zone-only property: exact for zone fills (they carry their zone's name; '==' / '!=' with KiCad string semantics), false for tracks/vias/pads; as a custom rule it beats the zone's local clearance (KiCad 8 refill of Real100 K037)",
+      "evidence": "tests/unit/test_zone_refill.py (live KiCad check)"
     },
     {
       "feature": "A.hasNetclass()",
@@ -186,7 +186,8 @@
       "feature": "zone fills",
       "kind": "board",
       "status": "PARTIAL",
-      "notes": "foreign fills are treated as refillable (KiCad workflow: refill after routing); a refill can split a pour or starve thermals (oracle: completion disagreements, starved_thermal)"
+      "notes": "foreign fills are refillable (KiCad workflow: refill after routing). A stored fill that foreign copper now crosses is stale: connectivity counts only what a refill keeps (stored fill minus that copper and its clearance, necks below min_thickness cut, spokes to one piece; growth not counted). The job re-verifies and repairs nets that later copper disconnected, including nets connected before the job (counted as attempted). Not modelled: starved thermals, min_connection width.",
+      "evidence": "tests/unit/test_zone_refill.py; oracle K035/K037 (failed nets = KiCad open nets after refill)"
     },
     {
       "feature": "board file formats",

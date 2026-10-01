@@ -7,6 +7,8 @@ track-into-pad, overlapping traces and zone fills; a via joins every layer it sp
 Two tracks crossing on different layers without a via are *not* connected.
 As in KiCad, a pad or via with ``remove_unused_layers`` connects on an unflashed
 layer only through its drill hole (zone fills still see its full copper).
+A zone fill that new foreign copper crosses is stale: it connects only what a
+refill would keep connected (:mod:`pcbrouter.routing.refill`).
 
 A net is "fully connected" when all of its pads end up in one group. "Having
 tracks" is never taken to mean "routed".
@@ -21,6 +23,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from pcbrouter.domain.geometry import Point
 from pcbrouter.domain.units import Nm
@@ -170,11 +173,21 @@ def _net_connectivity(geo: BoardGeometry, net: str, uids: list[str]) -> NetConne
     uf = _UnionFind(uids)
     edges: list[tuple[str, str, str]] = []
     member = set(uids)
+    # stale fills (foreign copper crosses them): what survives a refill
+    stale: dict[str, Any] = {}
+    if geo.refill is not None:
+        for item in items:
+            if item.kind is ItemKind.ZONE_FILL:
+                res = geo.refill.result(geo, item)
+                if res is not None:
+                    stale[item.uid] = res
     for item in items:
+        if item.uid in stale:
+            continue
         for layer in sorted(item.layers):
             probe = item.bounds.expanded(GEOMETRY_TOLERANCE_NM)
             for other in geo.copper_near(layer, probe):
-                if other.uid <= item.uid or other.uid not in member:
+                if other.uid <= item.uid or other.uid not in member or other.uid in stale:
                     continue
                 if uf.find(item.uid) == uf.find(other.uid):
                     continue
@@ -184,6 +197,16 @@ def _net_connectivity(geo: BoardGeometry, net: str, uids: list[str]) -> NetConne
                 if any(touches(a, b) for a in mine for b in theirs):
                     uf.union(item.uid, other.uid)
                     edges.append((item.uid, other.uid, layer))
+    for fill_uid, res in sorted(stale.items()):
+        layer = next(iter(geo.copper[fill_uid].layers))
+        # the stale polygon itself joins no group: its stored extent is not what
+        # KiCad will fill, so it must never serve as a route start or goal
+        for group in res.groups:
+            joined = sorted(u for u in group if u in member)
+            for u in joined[1:]:
+                if uf.find(joined[0]) != uf.find(u):
+                    uf.union(joined[0], u)
+                    edges.append((joined[0], u, layer))
     pads = sorted(i.uid for i in items if i.kind is ItemKind.PAD)
     comps: dict[str, list[str]] = {}
     for uid in uids:

@@ -928,6 +928,19 @@ class KiCadBoardAdapter:
         clearance = None
         if connect is not None and connect.value("clearance") is not None:
             clearance = self._optional_mm(connect.value("clearance"), "zone clearance", connect)
+        pad_connection = "thermal"
+        if connect is not None and connect.atoms():
+            pad_connection = connect.atoms()[0]
+        fill_node = node.first("fill")
+        thermal_gap = thermal_width = None
+        if fill_node is not None:
+            thermal_gap = self._optional_mm(
+                fill_node.value("thermal_gap"), "thermal gap", fill_node
+            )
+            thermal_width = self._optional_mm(
+                fill_node.value("thermal_bridge_width"), "thermal bridge width", fill_node
+            )
+        min_thickness = self._optional_mm(node.value("min_thickness"), "zone min thickness", node)
         priority_text = node.value("priority")
         zone_name = node.value("name")
         zone_id = self._ctx.unique_id(_item_id(node), f"zone:{footprint_ref or ''}{index}")
@@ -945,6 +958,10 @@ class KiCadBoardAdapter:
             footprint_ref=footprint_ref,
             locked=node.has_flag("locked") or node.value("locked") == "yes",
             extra_outlines=tuple(outlines[1:]),
+            min_thickness=min_thickness,
+            thermal_gap=thermal_gap,
+            thermal_bridge_width=thermal_width,
+            pad_connection=pad_connection,
         )
 
     # ------------------------------------------------------------ net classes (KiCad 5)

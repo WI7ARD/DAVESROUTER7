@@ -196,6 +196,9 @@ class BoardGeometry:
     #: rule context per object (geometry/context.py), built on first use and
     #: shared by copies (footprints and zones do not change while routing)
     contexts: Any = field(default=None, repr=False, compare=False)
+    #: zone-refill model (routing/refill.py) when rules are known; shared by
+    #: copies, results cached by content. ``None``: stored fills taken as is.
+    refill: Any = field(default=None, repr=False, compare=False)
 
     def context(self, item: CopperItem) -> Any:
         """The :class:`~pcbrouter.rules.conditions.ObjectContext` of ``item``."""

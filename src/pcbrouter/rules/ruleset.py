@@ -241,7 +241,8 @@ def build_ruleset(board: Board, project: ProjectRuleData | None = None) -> RuleS
         project_rules=project.design_rules,
         net_names=frozenset(n.name for n in board.nets if n.name),
         uses_context=any(
-            spec.condition and any(f in spec.condition for f in CONTEXT_FEATURES)
+            # ".Name": the zone-only Name property (zone fills carry their name)
+            spec.condition and any(f in spec.condition for f in (*CONTEXT_FEATURES, ".Name"))
             for spec in project.custom_rules
         ),
     )

@@ -84,6 +84,12 @@ class Zone:
     locked: bool = False
     #: Extra outline loops (KiCad allows several polygons per zone).
     extra_outlines: tuple[tuple[Point, ...], ...] = ()
+    #: Fill parameters KiCad's zone filler uses (None = not in the file).
+    min_thickness: Nm | None = None
+    thermal_gap: Nm | None = None
+    thermal_bridge_width: Nm | None = None
+    #: ``connect_pads`` mode: "thermal" (default), "yes" (solid), "no", "thru_hole_only"
+    pad_connection: str = "thermal"
 
     @property
     def is_keepout(self) -> bool:

@@ -44,6 +44,25 @@
   pad's ring as connected; KiCad reported it unconnected (Real100 K035, K074).
   Route goals on those layers are now the hole. `(remove_unused_layers no)`
   (KiCad 9 syntax) was read as *yes*.
+- Stale zone fills: a stored pour that new foreign copper crosses no longer
+  counts as connecting everything it touched. Connectivity estimates what a
+  KiCad refill keeps (`routing/refill.py`: the stored fill minus that copper
+  and its clearance, necks thinner than `min_thickness` cut, thermal spokes
+  attached only to one piece; growth a refill might add is not counted), so
+  the router connects split pours with tracks instead of claiming them (Real100
+  K037 GND, K035 +5V/+24V: KiCad reported them split after refill).
+- After the routing passes the job re-verifies every net it finished and every
+  net that was connected before it: nets that later copper disconnected (a
+  crossed pour) are routed again; without time left they are reported failed,
+  never silently broken. Nets connected before the job count as attempted only
+  when the job disconnected them. KiCad 8 oracle, K035/K037/K074 both modes:
+  completion disagreements 1-2 -> 0 per board; our failed nets now equal KiCad's
+  open nets after refill on every run (K035 Speed 60/81, 21 open; Accuracy
+  59/86, 27 open - before, 60-61/69 were claimed while KiCad saw 12-26 open).
+  K037 is fully routed in KiCad's eyes (0 open nets, was 1).
+- `A.Name == '<zone>'` rules apply to zone fills: zone fills carry their zone's
+  name, and as a custom rule it beats the zone's own clearance, as in KiCad 8
+  (K037 'outer_pour' is refilled at the rule's 0.4 mm, not its 0.508 mm).
 - New rule constructs: `A.Net`, `isPlated()`, `existsOnLayer()`,
   `inDiffPair()`, `Pad_Type`, `Pad_Shape`; a fact a call site cannot know makes
   a rule *possibly* apply (stricter value kept), never guessed.

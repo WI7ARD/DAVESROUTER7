@@ -109,6 +109,11 @@ class ObjectContext:
     areas_maybe: frozenset[str] = frozenset()
     enclosed: frozenset[str] = frozenset()  # names and uuids of zones enclosing it
     enclosed_maybe: frozenset[str] = frozenset()
+    #: KiCad ``Name`` of a zone ("" = unnamed); None for every other item
+    zone_name: str | None = None
+    #: False: the location facts above were not computed (zone fills) - location
+    #: functions are then unknown, not false
+    located: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +213,10 @@ class OnlyOn:
     who: str
     kinds: frozenset[str]
     text: str
+    name: str = ""
+    op: str = "=="
+    literal: str = ""
+    literal_right: bool = True
 
 
 type Node = Compare | Call | Not | BoolOp | Unknown | OnlyOn
@@ -321,6 +330,8 @@ class _Parser:
             )
         comparing = tok is not None and tok[1] in ("==", "!=")
         if isinstance(left, ItemOnlyProp) and not comparing:
+            if not self.partial:
+                raise ConditionError(f"property {left.who}.{left.name} is only compared")
             return Unknown(f"{left.who}.{left.name}")
         if isinstance(left, (Call, Unknown)) and not comparing:
             return left
@@ -333,7 +344,12 @@ class _Parser:
             other = right if only[0] is left else left
             text = f"{left} {op} {right}"
             if len(only) == 1 and op in ("==", "!=") and isinstance(other, Literal):
-                return OnlyOn(only[0].who, only[0].kinds, text)
+                return OnlyOn(
+                    only[0].who, only[0].kinds, text, only[0].name, op, other.value,
+                    other is right,
+                )  # fmt: skip
+            if not self.partial:
+                raise ConditionError(f"{text}: only '== literal' is supported")
             return Unknown(text)
         if isinstance(left, Unknown) or isinstance(right, Unknown):
             return Unknown(f"{left} {op} {right}")
@@ -381,7 +397,7 @@ class _Parser:
                 return Call(who, name, tuple(args))
             name = _ALIASES.get(name, name)
             if name not in SUPPORTED_PROPERTIES:
-                if self.partial and name in ITEM_ONLY_PROPERTIES:
+                if name in ITEM_ONLY_PROPERTIES:  # exact ==/!= only; else unknown
                     return ItemOnlyProp(who, name, ITEM_ONLY_PROPERTIES[name])
                 if self.partial:
                     return Unknown(f"{who}.{name}")
@@ -510,8 +526,8 @@ def _location3(node: Call, item: ItemFacts) -> bool | None:
         if ctx is None:
             return False if item.item_type in (ItemType.TRACK, ItemType.VIA) else None
         return ctx.footprint is not None and _fp_matches(sel, ctx.footprint)
-    if ctx is None:
-        return None  # the routed item: its location is not fixed
+    if ctx is None or not ctx.located:
+        return None  # the routed item (location not fixed), or facts not computed
     if node.name in _COURTYARD_FUNCS:
         if sel in ("A", "B"):
             return False  # the other item of the pair would have to be a footprint
@@ -637,7 +653,14 @@ def _eval3(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool | None:
         item = a if node.who == "A" else b
         if item is None:
             return False  # refers to B in a single-item check: no match, as in _eval
-        return None if node.kinds & set(item.types()) else False
+        if not node.kinds & set(item.types()):
+            return False
+        ctx = item.context
+        if node.name == "Name" and ctx is not None and ctx.zone_name is not None:
+            pattern = node.literal_right and any(c in node.literal for c in "*?")
+            same = _string_equal((ctx.zone_name,), (node.literal,), pattern)
+            return same if node.op == "==" else not same
+        return None
     if isinstance(node, BoolOp):
         left, right = _eval3(node.left, a, b), _eval3(node.right, a, b)
         if node.op == "&&":

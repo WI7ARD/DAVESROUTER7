@@ -145,6 +145,7 @@ class WorkingBoard:
                     engine.__dict__["ruleset"], engine.__dict__["resolver"] = self._rules
                 if self._geometry is not None:
                     engine.__dict__["geometry"] = self._geometry
+                    engine.bind_refill(self._geometry)
                 else:
                     # build lazily inside the engine, then adopt it as ours
                     self._geometry = engine.geometry

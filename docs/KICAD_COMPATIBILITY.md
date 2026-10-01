@@ -21,7 +21,7 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | `A.Layer` | **SUPPORTED** | layer-name wildcards | tests/unit/test_stage3_engine.py |
 | `A.Net` | **SUPPORTED** | net code identity; only A.Net vs B.Net (a numeric literal is refused); unknown for generic holes | tests/unit/test_rule_fidelity.py |
 | `A.Pad_Type / A.Pad_Shape` | **SUPPORTED** | pad-only (undefined, so false, elsewhere); existing pads carry their KiCad type/shape names | tests/unit/test_rule_fidelity.py |
-| `A.Name` | **PARTIAL** | zone-only property: false for tracks/vias/pads (exact); zone names not tracked | tests/unit/test_partial_conditions.py |
+| `A.Name` | **PARTIAL** | zone-only property: exact for zone fills (they carry their zone's name; '==' / '!=' with KiCad string semantics), false for tracks/vias/pads; as a custom rule it beats the zone's local clearance (KiCad 8 refill of Real100 K037) | tests/unit/test_zone_refill.py (live KiCad check) |
 
 ## Functions
 
@@ -63,5 +63,5 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 |---|---|---|---|
 | `copper text and graphics` | **SUPPORTED** | gr_*/fp_* and visible text on copper are no-net obstacles; text is a conservative box | tests/unit/test_copper_graphics.py, tests/unit/test_rule_fidelity.py |
 | `pad/via remove_unused_layers` | **SUPPORTED** | connections on an unflashed layer must reach the drill hole (KiCad CN_VISITOR NEVER_FLASHED); route goals there are the hole; clearance keeps the full copper (conservative) | tests/unit/test_unflashed_layers.py (live KiCad check) |
-| `zone fills` | **PARTIAL** | foreign fills are treated as refillable (KiCad workflow: refill after routing); a refill can split a pour or starve thermals (oracle: completion disagreements, starved_thermal) |  |
+| `zone fills` | **PARTIAL** | foreign fills are refillable (KiCad workflow: refill after routing). A stored fill that foreign copper now crosses is stale: connectivity counts only what a refill keeps (stored fill minus that copper and its clearance, necks below min_thickness cut, spokes to one piece; growth not counted). The job re-verifies and repairs nets that later copper disconnected, including nets connected before the job (counted as attempted). Not modelled: starved thermals, min_connection width. | tests/unit/test_zone_refill.py; oracle K035/K037 (failed nets = KiCad open nets after refill) |
 | `board file formats` | **PARTIAL** | load: KiCad 5-10; export: 20211014-20261231 (KiCad 6-10); KiCad 5.99 dev formats are refused with a precise message |  |

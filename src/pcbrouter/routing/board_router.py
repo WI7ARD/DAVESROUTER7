@@ -673,6 +673,14 @@ class BoardRouter:
         #: max_ripups_per_net is a job limit, not a per-pass one
         self._ripup_tries = {}
         plan = plan or make_plan(fork, s)
+        planned = set(plan.nets)
+        #: nets connected before the job (outside it): later copper may split a
+        #: pour they rely on, and the job then owes them a repair
+        self._initially_complete = sorted(
+            n for n, c in fork.engine.connectivity.nets.items()
+            if c.status is NetStatus.FULLY_CONNECTED and n not in planned
+            and not fork.is_locked("", n)
+        )  # fmt: skip
         self._all_tasks = list(plan.tasks)
         self._policy, decision = self._select_policy(fork, plan)
         metrics = BoardMetrics(nets_attempted=len(plan.tasks))
@@ -794,6 +802,13 @@ class BoardRouter:
         finally:
             if par is not None:
                 par.close()
+        if not cancelled:
+            # also when out of time: detection is cheap, and a net this job
+            # disconnected must be reported even if there is no time to repair it
+            failed = self._repair_broken(
+                fork, plan, failed, s.max_passes, outcomes, metrics, control, job_log,
+                deadline, route=not out_of_time,
+            )  # fmt: skip
         endgame = None
         if not cancelled and not out_of_time:
             failed, endgame = self._endgame(
@@ -931,6 +946,66 @@ class BoardRouter:
             total = req.total_time_limit_s
             req = replace(req, total_time_limit_s=left if total is None else min(total, left))
         return req
+
+    #: re-verification rounds for nets a later route disconnected
+    REPAIR_ROUNDS = 2
+
+    def _repair_broken(
+        self,
+        fork: WorkingBoard,
+        plan: BoardRoutingPlan,
+        failed: list[RouteTask],
+        pass_no: int,
+        outcomes: dict[str, NetOutcome],
+        metrics: BoardMetrics,
+        control: BoardRoutingControl,
+        job_log: list[str],
+        deadline: float,
+        route: bool = True,
+    ) -> list[RouteTask]:
+        """Nets routed earlier can be disconnected by later copper: a foreign track
+        crossing the pour that joined them splits it once the zone is refilled
+        (routing/refill.py). Route their missing links again; what still fails
+        joins ``failed`` for the endgame. Nets connected before the job that it
+        disconnected join the job (counted as attempted: never silently broken)."""
+        failed = list(failed)
+        for _ in range(self.REPAIR_ROUNDS):
+            geo = fork.engine.geometry
+            open_ = (NetStatus.UNROUTED, NetStatus.PARTIALLY_CONNECTED)
+            broken = [
+                t for t in plan.tasks
+                if outcomes[t.net].status is RouteStatus.SUCCESS
+                and net_connectivity(geo, t.net).status in open_
+            ]  # fmt: skip
+            for net in self._initially_complete:
+                if net in outcomes or net_connectivity(geo, net).status not in open_:
+                    continue
+                # connected before the job, disconnected by it: now the job's to fix
+                task = RouteTask(net)
+                plan.tasks.append(task)
+                self._all_tasks.append(task)
+                outcomes[net] = NetOutcome(net, RouteStatus.SUCCESS)
+                metrics.nets_attempted += 1
+                broken.append(task)
+            if not broken:
+                break
+            job_log.append(
+                "re-verify: later copper disconnected "
+                + ", ".join(t.net for t in broken)
+                + " (a crossed pour splits on refill); routing the missing links"
+            )
+            for task in broken:
+                if not route or not control.checkpoint(deadline) or time.perf_counter() > deadline:
+                    o = outcomes[task.net]
+                    o.status = RouteStatus.PARTIAL
+                    o.message = "disconnected by later copper (pour split on refill); no time left"
+                    failed.append(task)
+                    continue
+                if not self._route_task(fork, task, pass_no, outcomes, metrics, control, job_log):
+                    failed.append(task)
+            if not route:
+                break
+        return failed
 
     def _route_task(
         self,
