@@ -93,20 +93,33 @@ class BoardEngine:
         key = (self.ruleset.digest, repr(self.overrides.to_dict()), self.config.conservative)
         attach_refill(geo, self._zone_clearance, key)
 
-    def _zone_clearance(self, fill: CopperItem, other: CopperItem, layer: str) -> Nm:
-        """Clearance a refill keeps between ``fill``'s zone and ``other`` (the
-        stricter of the resolved value and any possibly-applying rule)."""
+    def _zone_clearance(self, fill: CopperItem, other: CopperItem, layer: str) -> tuple[Nm, Nm]:
+        """Clearance a refill keeps between ``fill``'s zone and ``other``, with
+        KiCad 8's precedence (``DRC_ENGINE::EvalRules``): a pad/footprint local
+        clearance is an override and wins (floored at the board minimum); else a
+        custom rule wins outright; else the net-class value maxed with the zone's
+        own clearance (not an override). Returns (certain value, value including
+        rules that may apply): the first judges whether a stored fill is stale
+        (a correct fill must never look stale), the second what a refill cuts."""
+        from pcbrouter.geometry.board import ItemKind
         from pcbrouter.routing.collision import item_type_of
+        from pcbrouter.rules.model import RuleSourceKind
 
         resolver = self.resolver
+        board_min = resolver.ruleset.board.min_clearance or 0
+        if other.kind is ItemKind.PAD and other.local_clearance:
+            value = max(other.local_clearance, board_min)
+            return value, value
         ctx = resolver.ruleset.uses_context
         geo = self.geometry
         r = resolver.resolve_clearance(
             fill.net, other.net, ItemType.ZONE, item_type_of(other.kind), layer,
-            local_a=fill.local_clearance, local_b=other.local_clearance,
             ctx_a=geo.context(fill) if ctx else None, ctx_b=geo.context(other) if ctx else None,
         )  # fmt: skip
-        return max(r.value or 0, r.possibly_stricter or 0)
+        exact = r.value or 0
+        if r.source.kind is not RuleSourceKind.CUSTOM_RULE:
+            exact = max(exact, fill.local_clearance or 0)
+        return exact, max(exact, r.possibly_stricter or 0)
 
     @property
     def ruleset(self) -> RuleSet:

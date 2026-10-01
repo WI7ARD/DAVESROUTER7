@@ -53,7 +53,8 @@ MAX_CELLS = 6_000_000
 #: KiCad's default zone minimum width when the file has none
 DEFAULT_MIN_THICKNESS_NM = 250_000
 
-ClearanceFn = Callable[[CopperItem, CopperItem, str], Nm]
+#: (fill, other item, layer) -> (certain clearance, clearance incl. rules that may apply)
+ClearanceFn = Callable[[CopperItem, CopperItem, str], tuple[Nm, Nm]]
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,7 @@ class RefillModel:
             key = (fill.uid, other.uid, other.bounds)
             hit = self._disturb.get(key)
             if hit is None:
-                clr = self._clearance(fill, other, layer)
+                clr, _ = self._clearance(fill, other, layer)
                 reach = max(0, clr - DISTURB_TOL_NM)
                 hit = other.bounds.expanded(reach).intersects(fill.bounds) and any(
                     touches(s, shape, reach) for s in other.shapes
@@ -133,7 +134,7 @@ class RefillModel:
         mask = _erode(inside, 1)  # cells fully inside the stored polygon
         half_diag = cell * math.sqrt(0.5)
         for other in disturbing:
-            clr = self._clearance(fill, other, layer)
+            _, clr = self._clearance(fill, other, layer)
             for s in other.shapes:
                 _clear_near(mask, xc, yc, s.core, s.radius + clr + half_diag)
         k = math.ceil((min_th / 2) / cell) + 1

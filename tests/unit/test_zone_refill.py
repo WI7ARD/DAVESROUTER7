@@ -139,7 +139,7 @@ def test_zone_name_rule_matches_kicad(tmp_path: Path, dru: str | None, kicad: bo
     geo = wb.engine.geometry
     fill = next(i for i in geo.copper.values() if i.kind.value == "zone_fill")
     track = next(i for i in geo.copper.values() if i.kind.value == "track")
-    required = wb.engine._zone_clearance(fill, track, "F.Cu")
+    required, _ = wb.engine._zone_clearance(fill, track, "F.Cu")
     assert (required > 450_000) is kicad
 
 
@@ -237,3 +237,46 @@ def test_router_repairs_a_net_it_disconnected_outside_the_job(tmp_path: Path) ->
     tracks, vias, removed = res.objects_for(None)
     wb.commit_objects(tracks, vias, removed, "route", Provenance.ROUTER_GENERATED)
     assert net_connectivity(wb.engine.geometry, "GND").is_fully_connected
+
+
+def _override_board(tmp_path: Path, pad_clearance: str) -> Path:
+    """A SIG pad 0.3 mm from the stored fill; zone clearance 0.5 mm. A pad (or
+    footprint) local clearance is a KiCad *override*: it beats the zone's."""
+    sig = f"""
+  (footprint "T:S" (layer "F.Cu") (uuid "00000000-0000-4000-8000-000000000501") (at 15.5 10)
+    (property "Reference" "S1") (property "Value" "S")
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Paste" "F.Mask") {pad_clearance}
+      (net 2 "SIG") (uuid "00000000-0000-4000-8000-000000000601")))"""
+    return _board(tmp_path, _pad(1, 5) + _zone(fill="2 2 14.7 18") + sig)
+
+
+# (id, pad clearance, KiCad 8.0.8 flags pad-vs-fill clearance)
+OVERRIDES = [
+    ("zone_clearance", "", True),
+    ("pad_override_beats_zone", "(clearance 0.2)", False),
+]
+
+
+@pytest.mark.parametrize(
+    ("pad_clearance", "kicad"), [c[1:] for c in OVERRIDES], ids=[c[0] for c in OVERRIDES]
+)
+def test_pad_override_judges_stale_fills_like_kicad(
+    tmp_path: Path, pad_clearance: str, kicad: bool
+) -> None:
+    """A fill correct under KiCad's precedence is not stale (Real100 K026: QFN
+    footprint clearance 0.1999 mm, zone 0.254 mm, KiCad refills at 0.2 mm)."""
+    path = _override_board(tmp_path, pad_clearance)
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    geo = wb.engine.geometry
+    fill = next(i for i in geo.copper.values() if i.kind.value == "zone_fill")
+    assert (geo.refill.result(geo, fill) is not None) is kicad
+
+
+@pytest.mark.skipif(_TOOL is None, reason="KiCad 8+ kicad-cli not installed")
+@pytest.mark.parametrize(
+    ("pad_clearance", "kicad"), [c[1:] for c in OVERRIDES], ids=[c[0] for c in OVERRIDES]
+)
+def test_override_golden_matches_live_kicad(
+    tmp_path: Path, pad_clearance: str, kicad: bool
+) -> None:
+    assert gen.kicad_flags(_TOOL, _override_board(tmp_path, pad_clearance)) is kicad
