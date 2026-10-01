@@ -1,0 +1,60 @@
+# KiCad compatibility matrix
+
+Generated from `src/pcbrouter/rules/compat.json` by `tools/compat_matrix.py`;
+`tests/unit/test_compat_matrix.py` keeps it consistent with the rule engine.
+Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (oracle).
+
+| State | Meaning |
+|---|---|
+| SUPPORTED | parsed, evaluated exactly as KiCad does, respected by routing; verified against KiCad DRC |
+| PARTIAL | evaluated where the needed facts exist; elsewhere treated as possibly applying (routing keeps the stricter value, never guesses) |
+| UNSUPPORTED | not evaluated; a critical rule refuses or bounds affected nets, a non-critical one is reported |
+| UNKNOWN | behaviour not yet established |
+
+## Propertys
+
+| Feature | Status | Notes | Evidence |
+|---|---|---|---|
+| `A.NetName` | **SUPPORTED** | case-insensitive; wildcard only in a right-hand literal; '[' literal | tests/unit/test_rule_fidelity.py |
+| `A.NetClass` | **SUPPORTED** | case-insensitive string compare; Net_Class alias | tests/unit/test_rule_fidelity.py |
+| `A.Type` | **SUPPORTED** | case-insensitive ('Track' == 'track') | tests/unit/test_rule_fidelity.py |
+| `A.Layer` | **SUPPORTED** | layer-name wildcards | tests/unit/test_stage3_engine.py |
+| `A.Net` | **SUPPORTED** | net code identity; only A.Net vs B.Net (a numeric literal is refused); unknown for generic holes | tests/unit/test_rule_fidelity.py |
+| `A.Pad_Type / A.Pad_Shape` | **PARTIAL** | undefined (false) on non-pads, exact; pad attributes are not yet passed to clearance queries, so on pads the rule bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.Name` | **PARTIAL** | zone-only property: false for tracks/vias/pads (exact); zone names not tracked | tests/unit/test_partial_conditions.py |
+
+## Functions
+
+| Feature | Status | Notes | Evidence |
+|---|---|---|---|
+| `A.hasNetclass()` | **SUPPORTED** | wxString::Matches semantics (case-sensitive, * and ?) | tests/unit/test_rule_fidelity.py |
+| `A.isPlated()` | **PARTIAL** | vias true, tracks false (exact); pad and generic-hole plating not passed to queries: bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.existsOnLayer()` | **PARTIAL** | exact for tracks and copper graphics; pads/vias/zones: layer set not passed, bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.inDiffPair()` | **SUPPORTED** | MatchDpSuffix port: P/N or +/- suffix, partner net must exist, base before trailing '_' also matches | tests/unit/test_rule_fidelity.py |
+| `A.insideCourtyard() / insideBackCourtyard() / intersectsCourtyard()` | **UNSUPPORTED** | three-valued: decided false when other parts of the condition rule it out, else the rule bounds/refuses |  |
+| `A.memberOfFootprint()` | **UNSUPPORTED** | as above |  |
+| `A.insideArea() / intersectsArea() / enclosedByArea()` | **UNSUPPORTED** | as above |  |
+| `A.fromTo()` | **UNSUPPORTED** | as above |  |
+
+## Constraints
+
+| Feature | Status | Notes | Evidence |
+|---|---|---|---|
+| `clearance` | **SUPPORTED** |  | oracle (Real100 subset, KiCad 8.0.8) |
+| `track_width` | **SUPPORTED** |  |  |
+| `via_diameter / hole_size / annular_width` | **SUPPORTED** |  |  |
+| `hole_clearance / hole_to_hole` | **SUPPORTED** |  |  |
+| `edge_clearance` | **SUPPORTED** |  |  |
+| `disallow` | **SUPPORTED** |  |  |
+| `diff_pair_gap / diff_pair_uncoupled` | **UNSUPPORTED** | currently classed non-critical: pair nets are routed independently. KiCad can flag gap/uncoupled-length errors. Must become enforced or a precise refusal (open defect). |  |
+| `length / skew` | **UNSUPPORTED** | reported, not enforced |  |
+| `connection_width (min_connection)` | **UNSUPPORTED** | KiCad flags copper necks below the minimum connection width (K035): not modelled |  |
+| `silk_clearance / courtyard_clearance / text_*` | **UNSUPPORTED** | non-copper; not affected by routing |  |
+
+## Board features
+
+| Feature | Status | Notes | Evidence |
+|---|---|---|---|
+| `copper text and graphics` | **SUPPORTED** | gr_*/fp_* and visible text on copper are no-net obstacles; text is a conservative box | tests/unit/test_copper_graphics.py, tests/unit/test_rule_fidelity.py |
+| `zone fills` | **PARTIAL** | foreign fills are treated as refillable (KiCad workflow: refill after routing); a refill can split a pour or starve thermals (oracle: completion disagreements, starved_thermal) |  |
+| `board file formats` | **PARTIAL** | load: KiCad 5-10; export: 20211014-20261231 (KiCad 6-10); KiCad 5.99 dev formats are refused with a precise message |  |

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pcbrouter.domain.units import Nm, internal_to_mm
-from pcbrouter.rules.conditions import ItemFacts
+from pcbrouter.rules.conditions import ItemFacts, diff_pair_bases
 from pcbrouter.rules.model import (
     UNBOUNDED,
     ItemType,
@@ -81,7 +81,14 @@ class RuleResolver:
     def facts(
         self, net: str | None, item_type: ItemType = ItemType.TRACK, layer: str | None = None
     ) -> ItemFacts:
-        return ItemFacts(net, self.resolve_net_class(net).classes, item_type, layer)
+        names = self.ruleset.net_names
+        return ItemFacts(
+            net,
+            self.resolve_net_class(net).classes,
+            item_type,
+            layer,
+            diff_pair=diff_pair_bases(net, names) if names else None,
+        )
 
     def _custom(
         self, kind: str, a: ItemFacts, b: ItemFacts | None = None, layer: str | None = None
@@ -90,8 +97,9 @@ class RuleResolver:
             if not rule.applies_to_layer(layer):
                 continue
             cond = rule.condition
-            matched = cond is None or cond.matches(a, b) or (b is not None and cond.matches(b, a))
-            if matched:
+            # an uncertain rule (a fact unknown here) is skipped as a match and
+            # bounds the value instead (_with_unsupported): never guessed
+            if cond is None or cond.evaluate(a, b) is True:
                 c = rule.constraint(kind)
                 assert c is not None
                 return CustomMatch(rule, c.min, c.opt, c.max)
@@ -130,11 +138,24 @@ class RuleResolver:
         a: ItemFacts | None = None,
         b: ItemFacts | None = None,
     ) -> ResolvedValue:
-        """Attach a possibly-stricter bound from unsupported critical rules. A rule
-        whose condition is definitely false for (a, b) is skipped: its supported
-        parts already rule it out (three-valued evaluation, unknown = maybe)."""
+        """Attach a possibly-stricter bound from unsupported critical rules, and
+        from supported rules whose condition is *unknown* for (a, b) (a fact this
+        call site does not know). A rule whose condition is definitely false for
+        (a, b) is skipped: its supported parts already rule it out (three-valued
+        evaluation, unknown = maybe)."""
         bound: Nm | None = None
         names: list[str] = []
+        if a is not None:
+            for kind in kinds:
+                for compiled in self.ruleset.rules_with(kind):
+                    if compiled.condition is None or compiled.condition.evaluate(a, b) is not None:
+                        continue
+                    c = compiled.constraint(kind)
+                    lo = c.min if c is not None else None
+                    if lo is None or (value.value is not None and lo <= value.value):
+                        continue
+                    bound = lo if bound is None else max(bound, lo)
+                    names.append(compiled.name)
         for rule in self.ruleset.unsupported:
             if not rule.critical:
                 continue
@@ -250,8 +271,8 @@ class RuleResolver:
                 routing_min.source,
                 notes=("no preferred width stated; minimum used",),
             )
-        routing_min = self._with_unsupported(routing_min, "track_width")
-        fab_min = self._with_unsupported(fab_min, "track_width")
+        routing_min = self._with_unsupported(routing_min, "track_width", a=facts)
+        fab_min = self._with_unsupported(fab_min, "track_width", a=facts)
         # Unsupported maxima: widths above them are RULE_UNKNOWN.
         lowest_max: Nm | None = None
         max_names: list[str] = []
@@ -260,6 +281,17 @@ class RuleResolver:
             if rule.critical and hi is not None and (maximum.value is None or hi < maximum.value):
                 lowest_max = hi if lowest_max is None else min(lowest_max, hi)
                 max_names.append(rule.name)
+        for compiled in self.ruleset.rules_with("track_width"):
+            c = compiled.constraint("track_width")
+            hi = c.max if c is not None else None
+            if (
+                hi is not None
+                and compiled.condition is not None
+                and compiled.condition.evaluate(facts) is None
+                and (maximum.value is None or hi < maximum.value)
+            ):
+                lowest_max = hi if lowest_max is None else min(lowest_max, hi)
+                max_names.append(compiled.name)
         if lowest_max is not None:
             maximum = ResolvedValue(
                 maximum.value, maximum.source, lowest_max, tuple(max_names), maximum.notes
@@ -339,7 +371,8 @@ class RuleResolver:
         self, net: str | None, item_type: ItemType = ItemType.TRACK, layer: str | None = None
     ) -> ResolvedValue:
         a = self.facts(net, item_type, layer)
-        hole = ItemFacts(None, (), ItemType.HOLE, layer)
+        # a generic hole: its net and plating are unknown at this call site
+        hole = ItemFacts(None, (), ItemType.HOLE, layer, net_known=False)
         custom = self._custom("hole_clearance", a, hole, layer)
         value = (
             ResolvedValue(custom.min, self._custom_source(custom.rule))
@@ -415,12 +448,12 @@ class RuleResolver:
         )
         rules = ViaRules(
             diameter=diameter,
-            min_diameter=self._with_unsupported(min_dia, "via_diameter"),
-            fab_min_diameter=self._with_unsupported(fab_min_dia, "via_diameter"),
+            min_diameter=self._with_unsupported(min_dia, "via_diameter", a=facts),
+            fab_min_diameter=self._with_unsupported(fab_min_dia, "via_diameter", a=facts),
             drill=drill,
-            min_drill=self._with_unsupported(min_drill, "hole_size"),
-            fab_min_drill=self._with_unsupported(fab_min_drill, "hole_size"),
-            min_annular_width=self._with_unsupported(annular, "annular_width"),
+            min_drill=self._with_unsupported(min_drill, "hole_size", a=facts),
+            fab_min_drill=self._with_unsupported(fab_min_drill, "hole_size", a=facts),
+            min_annular_width=self._with_unsupported(annular, "annular_width", a=facts),
             microvia_diameter=self._floor(
                 classes.value_for_net(net, "microvia_diameter"),
                 self._board_min("min_microvia_diameter"),
@@ -471,16 +504,18 @@ class RuleResolver:
         )
         facts = self.facts(net, item_type, layer)
         hits: list[str] = []
+        maybe: list[str] = []
         for rule in self.ruleset.rules_with("disallow"):
             c = rule.constraint("disallow")
             assert c is not None
-            if item not in c.items:
+            if item not in c.items or not rule.applies_to_layer(layer):
                 continue
-            if rule.applies_to_layer(layer) and (
-                rule.condition is None or rule.condition.matches(facts)
-            ):
+            applies = True if rule.condition is None else rule.condition.evaluate(facts)
+            if applies is True:
                 hits.append(rule.name)
-        unknown_rules = tuple(
+            elif applies is None:
+                maybe.append(rule.name)
+        unknown_rules = tuple(maybe) + tuple(
             u.name for u in self.ruleset.unsupported if u.critical and item in u.disallow_items
         )
         return DisallowResult(bool(hits), tuple(hits), unknown_rules)

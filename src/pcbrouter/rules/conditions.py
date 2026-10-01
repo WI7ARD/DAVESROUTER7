@@ -44,8 +44,16 @@ from fnmatch import fnmatchcase
 
 from pcbrouter.rules.model import ItemType
 
-SUPPORTED_PROPERTIES = frozenset({"NetClass", "NetName", "Type", "Layer"})
-SUPPORTED_FUNCTIONS = frozenset({"hasNetclass"})
+SUPPORTED_PROPERTIES = frozenset(
+    {"NetClass", "NetName", "Type", "Layer", "Net", "Pad_Type", "Pad_Shape"}
+)
+SUPPORTED_FUNCTIONS = frozenset({"hasNetclass", "isPlated", "existsOnLayer", "inDiffPair"})
+#: number of string arguments each supported function takes
+_ARITY = {"hasNetclass": 1, "isPlated": 0, "existsOnLayer": 1, "inDiffPair": 1}
+#: properties KiCad registers under a second spelling ("Net_Class" -> "Net Class")
+_ALIASES = {"Net_Class": "NetClass"}
+#: properties only pads carry (KiCad: undefined, so every comparison false, elsewhere)
+_PAD_ONLY = frozenset({"Pad_Type", "Pad_Shape"})
 #: property -> the only item types (ItemFacts.types()) that carry it in KiCad
 ITEM_ONLY_PROPERTIES: dict[str, frozenset[str]] = {"Name": frozenset({"zone"})}
 
@@ -68,6 +76,21 @@ class ItemFacts:
     net_classes: tuple[str, ...]
     item_type: ItemType
     layer: str | None = None
+    #: False when this call site does not know the item's net (a generic hole):
+    #: net properties then evaluate to *unknown*, never to "no net".
+    net_known: bool = True
+    #: Plated hole? Asked of pads and holes only (vias are always plated); None
+    #: = unknown.
+    plated: bool | None = None
+    #: Every layer the item exists on; None = unknown (tracks and copper
+    #: graphics default to ``layer``).
+    layers: tuple[str, ...] | None = None
+    #: KiCad "Pad Type" / "Pad Shape" names (pads only); None = unknown.
+    pad_type: str | None = None
+    pad_shape: str | None = None
+    #: Diff-pair base names of the net (see :func:`diff_pair_bases`); ``()`` = not
+    #: in a pair, None = unknown (board net list not available).
+    diff_pair: tuple[str, ...] | None = None
 
     def types(self) -> tuple[str, ...]:
         # KiCad spells item types lowercase in conditions (e.g. A.Type == 'track').
@@ -151,14 +174,25 @@ class Condition:
     uses_b: bool
 
     def matches(self, a: ItemFacts, b: ItemFacts | None = None) -> bool:
-        return _eval(self.root, a, b)
+        """Definitely true for (a, b) in this order."""
+        return _eval3(self.root, a, b) is True
+
+    def evaluate(self, a: ItemFacts, b: ItemFacts | None = None) -> bool | None:
+        """Does the rule apply to the pair? KiCad tests both orders. ``None`` =
+        unknown (an unsupported part, or a fact this call site does not know):
+        the caller must treat the rule as possibly applying, never guess."""
+        first = _eval3(self.root, a, b)
+        if first is True or b is None:
+            return first
+        second = _eval3(self.root, b, a)
+        if second is True:
+            return True
+        return False if (first is False and second is False) else None
 
     def may_match(self, a: ItemFacts, b: ItemFacts | None = None) -> bool:
         """False only when the condition is definitely false for (a, b) in either
         order (KiCad tests both); unknown parts count as possibly true."""
-        return _eval3(self.root, a, b) is not False or (
-            b is not None and _eval3(self.root, b, a) is not False
-        )
+        return self.evaluate(a, b) is not False
 
 
 # ------------------------------------------------------------------ parser
@@ -254,6 +288,10 @@ class _Parser:
             return Unknown(f"{left} {op} {right}")
         if isinstance(left, Call) or isinstance(right, Call):
             raise ConditionError("function calls cannot be compared")
+        nets = [x for x in (left, right) if isinstance(x, Prop) and x.name == "Net"]
+        if nets and len(nets) != 2:
+            # KiCad's Net is the numeric net code: only A.Net vs B.Net is meaningful here
+            raise ConditionError("A.Net can only be compared with B.Net")
         if op == "=~":
             if not isinstance(right, Literal):
                 raise ConditionError("=~ needs a string-literal pattern")
@@ -294,7 +332,10 @@ class _Parser:
                     if self.partial:
                         return Unknown(f"{who}.{name}()")
                     raise ConditionError(f"function {who}.{name}() is not supported")
+                if len(args) != _ARITY[name] or any(a == "" for a in args):
+                    raise ConditionError(f"{who}.{name}() takes {_ARITY[name]} string argument(s)")
                 return Call(who, name, tuple(args))
+            name = _ALIASES.get(name, name)
             if name not in SUPPORTED_PROPERTIES:
                 if self.partial and name in ITEM_ONLY_PROPERTIES:
                     return ItemOnlyProp(who, name, ITEM_ONLY_PROPERTIES[name])
@@ -323,19 +364,95 @@ def parse_partial(text: str) -> Condition | None:
 
 
 # ------------------------------------------------------------------ evaluation
-def _values(node: Prop | Literal, a: ItemFacts, b: ItemFacts | None) -> tuple[str, ...] | None:
+class _Undefined:
+    """KiCad's undefined value (a property the item does not carry): ``==`` and
+    ``!=`` against it are both false (libeval ``VALUE::EqualTo`` / ``NotEqualTo``)."""
+
+
+UNDEFINED = _Undefined()
+type _Value = tuple[str, ...] | _Undefined | None  # None = unknown here
+
+
+def diff_pair_bases(net: str | None, net_names: frozenset[str]) -> tuple[str, ...]:
+    """Base names ``A.inDiffPair(name)`` matches for *net* (KiCad
+    ``inDiffPairFunc`` + ``DRC_ENGINE::MatchDpSuffix``): the net ends in ``P``/``N``
+    or ``+``/``-`` (optionally followed by digits/underscores), its partner net
+    exists on the board, and the base (or, if the base ends in ``_``, the part
+    before that last ``_``) is what the argument is matched against."""
+    if not net:
+        return ()
+    count, comp = 0, ""
+    for ch in reversed(net):
+        count += 1
+        if ch.isdigit() or ch == "_":
+            continue
+        comp = {"+": "-", "-": "+", "N": "P", "P": "N"}.get(ch, "")
+        break
+    if not comp:
+        return ()
+    base = net[: len(net) - count]
+    if base + comp + net[len(net) - count + 1 :] not in net_names:
+        return ()
+    return (base, base[: base.rfind("_")]) if base.endswith("_") else (base,)
+
+
+def _value3(node: Prop | Literal, a: ItemFacts, b: ItemFacts | None) -> _Value:
     if isinstance(node, Literal):
         return (node.value,)
     item = a if node.who == "A" else b
     if item is None:
+        return UNDEFINED  # refers to B in a single-item check: KiCad treats it as no match
+    name = node.name
+    if name in _PAD_ONLY:
+        if item.item_type is not ItemType.PAD:
+            return UNDEFINED
+        value = item.pad_type if name == "Pad_Type" else item.pad_shape
+        return None if value is None else (value,)
+    if name in ("NetClass", "NetName", "Net") and not item.net_known:
         return None
-    if node.name == "NetClass":
+    if name == "NetClass":
         return item.net_classes or ("Default",)
-    if node.name == "NetName":
+    if name in ("NetName", "Net"):
         return (item.net_name or "",)
-    if node.name == "Type":
+    if name == "Type":
         return item.types()
     return (item.layer or "",)
+
+
+def _item_layers(item: ItemFacts) -> tuple[str, ...] | None:
+    if item.layers is not None:
+        return item.layers
+    if item.item_type in (ItemType.TRACK, ItemType.GRAPHIC) and item.layer:
+        return (item.layer,)
+    return None
+
+
+def _call3(node: Call, a: ItemFacts, b: ItemFacts | None) -> bool | None:
+    item = a if node.who == "A" else b
+    if item is None:
+        return False
+    if node.name == "isPlated":  # isPlatedFunc: PTH pad or via
+        if item.item_type is ItemType.VIA:
+            return True
+        if item.item_type in (ItemType.PAD, ItemType.HOLE):
+            return item.plated
+        return False
+    if node.name == "existsOnLayer":  # any layer whose name .Matches(arg) is in the set
+        layers = _item_layers(item)
+        if layers is None:
+            return None
+        return any(wild_compare(node.args[0], lyr, case_sensitive=True) for lyr in layers)
+    if not item.net_known:
+        return None
+    if node.name == "inDiffPair":
+        if item.item_type is ItemType.GRAPHIC:
+            return False  # not a connected item: no net, no pair
+        if item.diff_pair is None:
+            return None
+        return any(wild_compare(node.args[0], base, case_sensitive=True) for base in item.diff_pair)
+    # hasNetclass: NETCLASS::ContainsNetclassWithName, constituent name .Matches(arg)
+    classes = item.net_classes or ("Default",)
+    return any(wild_compare(arg, c, case_sensitive=True) for c in classes for arg in node.args)
 
 
 def _match(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
@@ -377,29 +494,18 @@ def _string_equal(left: tuple[str, ...], right: tuple[str, ...], right_pattern: 
     return any(lv.upper() == rv.upper() for lv in left for rv in right)
 
 
-def _eval(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool:
-    if isinstance(node, BoolOp):
-        if node.op == "&&":
-            return _eval(node.left, a, b) and _eval(node.right, a, b)
-        return _eval(node.left, a, b) or _eval(node.right, a, b)
-    if isinstance(node, Not):
-        return not _eval(node.operand, a, b)
-    if isinstance(node, (Unknown, OnlyOn)):  # only partial parses contain them
-        raise ConditionError(f"cannot evaluate unsupported part {node.text}")
-    if isinstance(node, Call):
-        item = a if node.who == "A" else b
-        if item is None:
-            return False
-        # NETCLASS::ContainsNetclassWithName: constituent name .Matches(arg)
-        classes = item.net_classes or ("Default",)
-        return any(wild_compare(arg, c, case_sensitive=True) for c in classes for arg in node.args)
-    left, right = _values(node.left, a, b), _values(node.right, a, b)
+def _compare3(node: Compare, a: ItemFacts, b: ItemFacts | None) -> bool | None:
+    left, right = _value3(node.left, a, b), _value3(node.right, a, b)
+    if isinstance(left, _Undefined) or isinstance(right, _Undefined):
+        return False
     if left is None or right is None:
-        return False  # refers to B in a single-item check: KiCad treats it as no match
+        return None
     if node.op == "=~":
         return any(re.search(pat, val) is not None for val in left for pat in right)
-    layer = any(isinstance(x, Prop) and x.name == "Layer" for x in (node.left, node.right))
-    if layer:
+    names = {x.name for x in (node.left, node.right) if isinstance(x, Prop)}
+    if "Net" in names:
+        same = bool(set(left) & set(right))  # net codes: exact identity
+    elif "Layer" in names:
         same = _match(left, right)
     else:
         pattern = isinstance(node.right, Literal) and any(c in node.right.value for c in "*?")
@@ -428,4 +534,6 @@ def _eval3(node: Node, a: ItemFacts, b: ItemFacts | None) -> bool | None:
     if isinstance(node, Not):
         inner = _eval3(node.operand, a, b)
         return None if inner is None else not inner
-    return _eval(node, a, b)
+    if isinstance(node, Call):
+        return _call3(node, a, b)
+    return _compare3(node, a, b)

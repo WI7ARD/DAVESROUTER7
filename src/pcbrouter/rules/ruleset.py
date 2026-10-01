@@ -66,6 +66,9 @@ class RuleSet:
     #: Per-file values, to report exactly which file stated a board minimum.
     board_file_rules: DesignRules = field(default_factory=DesignRules)
     project_rules: DesignRules = field(default_factory=DesignRules)
+    #: Every net name on the board (diff-pair partners for ``inDiffPair()``);
+    #: empty = unknown.
+    net_names: frozenset[str] = frozenset()
 
     def board_value_source(self, attr: str) -> str:
         if getattr(self.project_rules, attr) is not None:
@@ -220,4 +223,5 @@ def build_ruleset(board: Board, project: ProjectRuleData | None = None) -> RuleS
         warnings=list(project.warnings),
         board_file_rules=board.rules,
         project_rules=project.design_rules,
+        net_names=frozenset(n.name for n in board.nets if n.name),
     )

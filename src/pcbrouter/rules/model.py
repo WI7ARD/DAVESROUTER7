@@ -117,6 +117,8 @@ class ItemType(Enum):
     PAD = "Pad"
     ZONE = "Zone"
     HOLE = "Hole"
+    #: Graphic shapes and text on copper (KiCad: no net; obstacles only).
+    GRAPHIC = "Graphic"
 
 
 #: Constraint kinds this engine evaluates.

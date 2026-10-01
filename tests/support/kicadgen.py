@@ -21,7 +21,8 @@ Y = 10.0
 
 @dataclass(frozen=True)
 class Item:
-    """The second copper item: ``track`` | ``via`` | ``smd`` | ``pth`` | ``npth``."""
+    """The second copper item: ``track`` | ``via`` | ``smd`` | ``pth`` | ``npth`` |
+    ``text`` (board text on a copper layer)."""
 
     kind: str = "track"
     layer: str = "F.Cu"
@@ -144,6 +145,11 @@ def board(
             f'\t(via (at 15 {yb:.4f}) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") '
             f'(net {b}) (uuid "{_uuid(3)}"))'
         )
+    elif item.kind == "text":  # 1 mm text: glyph tops sit about 0.5 mm above the anchor
+        lines.append(
+            f'\t(gr_text "TXT" (at 15 {edge + 0.5:.4f}) (layer "{item.layer}") '
+            f'(uuid "{_uuid(3)}") (effects (font (size 1 1) (thickness 0.15))))'
+        )
     else:
         lines.append(_pad(item.kind, 10, 15.0, round(edge + 0.5, 4), (b, net_b)))
     lines.append(")")
@@ -171,8 +177,24 @@ def ours_flags(path: Path) -> bool:
     from pcbrouter.routing.working_board import WorkingBoard
 
     wb = WorkingBoard(load_board(path).board, load_project_rules(path))
-    clearance = ("clearance", "hole")
+    clearance = ("clearance", "hole", "short")
     return any(any(word in v.kind.value for word in clearance) for v in wb.engine.run_drc().errors)
+
+
+def ours_verdict(path: Path) -> str:
+    """``flag`` (a clearance error), ``bound`` (the fidelity rule may apply: a
+    fact is unknown here, so routing keeps the stricter value) or ``clear``."""
+    from pcbrouter.kicad.loader import load_board
+    from pcbrouter.kicad.rule_adapter import load_project_rules
+    from pcbrouter.routing.working_board import WorkingBoard
+
+    if ours_flags(path):
+        return "flag"
+    wb = WorkingBoard(load_board(path).board, load_project_rules(path))
+    warnings = wb.engine.run_drc().warnings
+    if any(v.rule_source == "fidelity" for v in warnings):
+        return "bound"
+    return "clear"
 
 
 def kicad_flags(tool: object, path: Path) -> bool:
