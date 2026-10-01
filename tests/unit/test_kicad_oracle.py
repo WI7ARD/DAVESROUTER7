@@ -113,6 +113,30 @@ def test_stage_board_copies_project_sidecars_and_never_writes_beside_the_source(
     assert sorted(p.name for p in src.iterdir()) == ["b.kicad_dru", "b.kicad_pcb", "b.kicad_pro"]
 
 
+def test_routed_board_is_judged_with_the_source_project_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # an export has no .kicad_pro beside it; judged alone, KiCad would apply its
+    # built-in defaults (0.5 mm via, 0.3 mm hole, 0.5 mm edge) and blame the router
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "b.kicad_pcb").write_text("(kicad_pcb (version 20221018))")
+    (src / "b.kicad_pro").write_text('{"rules": "source"}')
+    routed = tmp_path / "out" / "b_routed.kicad_pcb"
+    routed.parent.mkdir()
+    routed.write_text("(kicad_pcb (version 20221018))")
+    seen: list[str] = []
+
+    def fake_drc(tool: OracleTool, board: Path, variant: str, timeout_s: float = 0) -> DrcRun:
+        seen.append(board.with_suffix(".kicad_pro").read_text())
+        return parse_report(_report([]), variant)
+
+    monkeypatch.setattr(oracle, "run_drc", fake_drc)
+    tool = OracleTool(Path("kicad-cli"), "8.0.8", "python", "python3")
+    res = oracle.oracle_check(tool, src / "b.kicad_pcb", routed, set(), tmp_path / "w")
+    assert res["status"] == "CLEAN" and seen and set(seen) == {'{"rules": "source"}'}
+
+
 # ------------------------------------------------- real KiCad (skipped without it)
 _TOOL = oracle.find_oracle()
 needs_kicad = pytest.mark.skipif(_TOOL is None, reason="KiCad 8+ kicad-cli not installed")
@@ -141,9 +165,7 @@ def test_routed_board_is_clean_in_real_kicad_drc(tmp_path: Path) -> None:
     out = tmp_path / "routed.kicad_pcb"
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
     assert export_board(src, sha, loaded.board, res.final_board, out).ok
-    for side in (".kicad_pro", ".kicad_dru"):
-        if src.with_suffix(side).is_file():
-            out.with_suffix(side).write_bytes(src.with_suffix(side).read_bytes())
+    # no sidecars beside the export: the oracle must use the source's project
     generated = {t.id for t in res.added_tracks} | {v.id for v in res.added_vias}
     done = {n for n, o in res.outcomes.items() if o.status.value == "SUCCESS"}
     result = oracle.oracle_check(

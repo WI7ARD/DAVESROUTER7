@@ -272,15 +272,17 @@ def parse_report(data: dict[str, Any], variant: str) -> DrcRun:
 
 
 # ------------------------------------------------------------------ running
-def stage_board(board: Path, dest_dir: Path, stem: str) -> Path:
+def stage_board(board: Path, dest_dir: Path, stem: str, project_of: Path | None = None) -> Path:
     """Copy *board* and its project sidecars to *dest_dir* as ``stem.*`` so that
     KiCad reads the same project rules, and nothing ever writes beside the
-    source file."""
+    source file. *project_of* names the board whose ``.kicad_pro`` /
+    ``.kicad_dru`` to use (a routed export shares its source's project; without
+    them KiCad would judge it by its built-in defaults)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = dest_dir / f"{stem}.kicad_pcb"
     shutil.copy2(board, out)
     for suffix in SIDECAR_SUFFIXES:
-        side = board.with_suffix(suffix)
+        side = (project_of or board).with_suffix(suffix)
         if side.is_file():
             shutil.copy2(side, dest_dir / f"{stem}{suffix}")
     return out
@@ -406,7 +408,7 @@ def oracle_check(
     verdict is the ``refilled`` variant when it ran, else ``as_exported`` (stale
     fills: flagged)."""
     pre = stage_board(pre_board, workdir, "pre")
-    post = stage_board(post_board, workdir, "post")
+    post = stage_board(post_board, workdir, "post", project_of=pre_board)
     out: dict[str, Any] = {
         "schema": ORACLE_SCHEMA,
         **tool.metadata(),
