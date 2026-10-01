@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**OpenBoards benchmark corpus** (`benchmarks/openboards/`)
+- 60 real open-source KiCad 6–10 boards from 46 GitHub repositories (keyboards,
+  MCU and FPGA boards, power, SBC carriers, memory testers, RF), pinned by
+  commit and Git blob SHA-1, with verified `.kicad_pro`/`.kicad_dru` sidecars.
+  58 have a complete original routing (100 % is known to be achievable).
+  Licences are recorded per board; non-commercial and unlicensed designs are
+  excluded. Only the manifest is in git; boards download into `work/`.
+- The Real100 harness and `tools/real100_compare.py` take `--manifest`.
+  `board_hash()` maps a prepared board to its experience-log id.
+
 **Routing completion**
 - Custom-rule conditions on a property only zones have (`A.Name == 'x'`) no
   longer constrain tracks, vias and pads. KiCad yields an undefined value for a

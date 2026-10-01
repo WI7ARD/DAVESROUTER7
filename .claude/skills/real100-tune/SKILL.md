@@ -213,3 +213,10 @@ accept one, name it in the commit message.
 - **Every commit inside rip-up must catch `CommitError`.** A validator-refused
   reroute inside `_try_ripup` crashed the whole job (K022 Speed). Roll back,
   log, continue.
+- **Speed's gap to Accuracy is structural, not a missing retry** (K097, a USB
+  hub: Speed 31/45 in 25 s, Accuracy 41/45 in 151 s). Retrying failed nets with
+  a finer grid cannot help once they are sealed in (NO_PATH after a few hundred
+  nodes). Fine grid for hard nets only made it worse (29/45); a 0.1 mm grid for
+  the whole board gave 33/45 in 51 s; lifting the endgame limit gave 32/45. The
+  blocker in every endgame attempt was the global rip-up failing to put the
+  displaced routes back ("would disconnect ..."): improve rip-up, not retries.
