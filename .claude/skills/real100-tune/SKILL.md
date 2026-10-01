@@ -226,3 +226,19 @@ accept one, name it in the commit message.
   unavoidable and the 1-8 displaced nets then find no path on a full board.
   Dense boards need cascading / negotiated rip-up (PathFinder-style), a
   project in its own right.
+- **Absolute numbers do not survive a container restart.** After one restart the
+  same commit routed K081 Speed 18/95 and K092 39/117 (paired, same load) where
+  earlier sessions measured ~52 and 55: the host changed, and time-budgeted
+  boards follow CPU speed. Compare only paired runs made in one session; record
+  the CPU model with every baseline.
+- **Run the KiCad DRC oracle on routed output** (`run --save-routed DIR`, then
+  `oracle RESULTS... --out O.jsonl`, add `--kicad-cli kicad9-cli --kicad-python
+  kicad9-python` for KiCad 9). The first oracle run found router copper crossing
+  copper-layer text (K067), and an oracle bug: a routed export staged without
+  its .kicad_pro is judged by KiCad's built-in defaults (0.5 mm via, 0.3 mm hole,
+  0.5 mm edge) - always stage the source project with it.
+- **Check a semantics claim against KiCad itself.** tests/support/kicadgen.py
+  builds two-item boards whose only possible violation is the rule under test;
+  KiCad 8 DRC showed string compares are case-insensitive and `[` is literal,
+  contrary to an older test of ours.
+

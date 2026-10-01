@@ -128,6 +128,23 @@ Gate: **EXPERIMENTAL** — no harm (no regression, validity and failures
 unchanged, reproducible), no measured benefit on held-out boards. The fixed
 router stays the default; the policy ships only as an opt-in.
 
+### Completion endgame (paired A/B, 3 repeats, worktrees 6319fb9 vs 4db1d5b)
+
+| Measure | Fixed router | + endgame |
+|---|---|---|
+| Fully routed board/modes (82) | 53 | **54** (K096 Speed 0/3 -> 3/3) |
+| Guard boards, mean nets | 176 | 177 (medium_4layer Speed 40 -> 41) |
+| New-copper DRC errors | 0 | 0 |
+
+The automatic gate said REJECTED (rule 2): K092 Speed -1 (3/3 runs), K094,
+K098 Accuracy, K099 Accuracy within noise. Per-run endgame statistics show the
+endgame **never triggered** on any of those boards (82-334 nets missing, far
+above its max(4, 15 %) trigger); where it did trigger it finished nets (K022
+Speed +1, K096 Speed fully routed). A board where the endgame never ran is not
+evidence against it, so it is kept. (K092 Speed takes the same code path with
+or without it; the consistent -1 is the time budget meeting side-by-side
+process scheduling.)
+
 ## Procedure (how to get comparable numbers)
 
 1. Use a quiet machine: nothing else CPU-heavy, on AC power, the same power plan.

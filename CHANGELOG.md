@@ -20,9 +20,31 @@
   before).
 - Rip-up no longer crashes a job when the rerouted net is refused by the
   validator; the rip-up is rolled back and logged.
-- Completion endgame (being evaluated): when only a few nets are missing and
-  budget is left, rip-up-and-reroute rounds try to finish the board. In Speed it
-  only moves copper the job created.
+- Completion endgame: when only a few nets are missing (at most max(4, 15 %))
+  and budget is left, rip-up-and-reroute rounds try to finish the board. In Speed
+  it only moves copper the job created. Kept on within-run evidence: it finished
+  K096 Speed (3/3 runs) and one more net on K022 / medium_4layer Speed; the
+  whole-board A/B "regressions" (K092, K094, K098, K099) were all on boards
+  where it never triggered (82-334 nets missing), so they are timing noise, not
+  endgame effects. Each run now records `endgame` statistics.
+
+**KiCad legality fidelity**
+- KiCad DRC oracle (`benchmark_real100.py run --save-routed`, then `oracle`):
+  real KiCad 8/9 DRC on the board before and after routing, diffed so that
+  pre-existing problems are never blamed on the router; zones are refilled by
+  KiCad first. See `docs/KICAD_COMPATIBILITY.md`.
+- Custom-rule strings compare as KiCad does: case-insensitively, with `*`/`?`
+  wildcards only in a right-hand literal and `[` literal (bus nets such as
+  `/D[0]`). Before, a stricter rule could silently not apply.
+- Graphics and visible text on copper layers are obstacles (KiCad flagged
+  tracks crossing copper text on Real100 K067).
+- New rule constructs: `A.Net`, `isPlated()`, `existsOnLayer()`,
+  `inDiffPair()`, `Pad_Type`, `Pad_Shape`; a fact a call site cannot know makes
+  a rule *possibly* apply (stricter value kept), never guessed.
+- Nets of a differential pair under an explicit diff-pair rule KiCad would flag
+  (gap maximum, uncoupled-length maximum, gap minimum above the clearance) are
+  refused with `UNSUPPORTED_RULE`, naming the rule: coupled routing is not
+  implemented, so independent routing could not be promised legal.
 
 **Learned search policy v3 evaluated: EXPERIMENTAL** — on held-out and guard
 boards the selector fell back to the fixed router every time (no regression, no
