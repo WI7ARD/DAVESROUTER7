@@ -615,6 +615,7 @@ class GeometryController(QObject):
         req = engine.resolver.resolve_clearance(
             item.net, None, item_type_of(item.kind), ItemType.TRACK,
             layer or next(iter(sorted(item.layers))), item.local_clearance, None, item.label,
+            ctx_a=engine.geometry.context(item) if engine.resolver.ruleset.uses_context else None,
         )  # fmt: skip
         if req.value is None:
             self.overlays.clear("envelope")

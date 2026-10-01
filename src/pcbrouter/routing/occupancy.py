@@ -500,6 +500,7 @@ def build_occupancy(
     # against foreign clearance bands (escape sources stay passable) while
     # harder states (holes, keepouts, edge) marked above still win.
     unknown_pairs = 0
+    uses_context = resolver.ruleset.uses_context
     own_shapes: list[Shape] = []
     foreign_items: list[tuple[Shape, float]] = []
     for obj in geo.copper_near(layer, spec.bounds):
@@ -511,6 +512,7 @@ def build_occupancy(
         req = resolver.resolve_clearance(
             net, obj.net, item, item_type_of(obj.kind), layer,
             None, obj.local_clearance, None, obj.label,
+            ctx_b=geo.context(obj) if uses_context else None,
         )  # fmt: skip
         if req.value is None:
             unknown_pairs += 1

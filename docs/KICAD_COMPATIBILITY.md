@@ -20,7 +20,7 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | `A.Type` | **SUPPORTED** | case-insensitive ('Track' == 'track') | tests/unit/test_rule_fidelity.py |
 | `A.Layer` | **SUPPORTED** | layer-name wildcards | tests/unit/test_stage3_engine.py |
 | `A.Net` | **SUPPORTED** | net code identity; only A.Net vs B.Net (a numeric literal is refused); unknown for generic holes | tests/unit/test_rule_fidelity.py |
-| `A.Pad_Type / A.Pad_Shape` | **PARTIAL** | undefined (false) on non-pads, exact; pad attributes are not yet passed to clearance queries, so on pads the rule bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.Pad_Type / A.Pad_Shape` | **SUPPORTED** | pad-only (undefined, so false, elsewhere); existing pads carry their KiCad type/shape names | tests/unit/test_rule_fidelity.py |
 | `A.Name` | **PARTIAL** | zone-only property: false for tracks/vias/pads (exact); zone names not tracked | tests/unit/test_partial_conditions.py |
 
 ## Functions
@@ -28,12 +28,12 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | Feature | Status | Notes | Evidence |
 |---|---|---|---|
 | `A.hasNetclass()` | **SUPPORTED** | wxString::Matches semantics (case-sensitive, * and ?) | tests/unit/test_rule_fidelity.py |
-| `A.isPlated()` | **PARTIAL** | vias true, tracks false (exact); pad and generic-hole plating not passed to queries: bounds conservatively | tests/unit/test_rule_fidelity.py |
-| `A.existsOnLayer()` | **PARTIAL** | exact for tracks and copper graphics; pads/vias/zones: layer set not passed, bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.isPlated()` | **PARTIAL** | vias true, PTH pads true, other pads and tracks false (exact); a generic hole in hole-clearance queries has unknown plating and bounds conservatively | tests/unit/test_rule_fidelity.py |
+| `A.existsOnLayer()` | **SUPPORTED** | layer set of tracks, graphics and existing pads; layer-name wildcards | tests/unit/test_rule_fidelity.py |
 | `A.inDiffPair()` | **SUPPORTED** | MatchDpSuffix port: P/N or +/- suffix, partner net must exist, base before trailing '_' also matches | tests/unit/test_rule_fidelity.py |
-| `A.insideCourtyard() / insideBackCourtyard() / intersectsCourtyard()` | **UNSUPPORTED** | three-valued: decided false when other parts of the condition rule it out, else the rule bounds/refuses |  |
-| `A.memberOfFootprint()` | **UNSUPPORTED** | as above |  |
-| `A.insideArea() / intersectsArea() / enclosedByArea()` | **UNSUPPORTED** | as above |  |
+| `A.insideCourtyard() / intersectsCourtyard() / insideFrontCourtyard() / intersectsFrontCourtyard() / insideBackCourtyard() / intersectsBackCourtyard()` | **PARTIAL** | KiCad: insideX = intersectsX (deprecated alias); exact for existing objects (pads, tracks, vias: copper touching the footprint's courtyard, boundary +-10 um unknown); the item being routed has no fixed position, so a rule needing its location bounds conservatively - relaxations still apply through the existing object of the pair | tests/unit/test_rule_fidelity.py |
+| `A.memberOfFootprint()` | **SUPPORTED** | parent footprint by reference or lib-id selector; tracks and vias are never members | tests/unit/test_rule_fidelity.py |
+| `A.insideArea() / intersectsArea() / intersectsKeepout() / enclosedByArea()` | **PARTIAL** | named zones (any kind) on a common layer, matched by name or uuid; exact for existing objects (boundary +-10 um unknown); the routed item's location is unknown and bounds conservatively | tests/unit/test_rule_fidelity.py |
 | `A.fromTo()` | **UNSUPPORTED** | as above |  |
 
 ## Syntax

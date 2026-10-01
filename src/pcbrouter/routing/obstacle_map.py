@@ -47,6 +47,7 @@ def inflated_obstacles(
         req = resolver.resolve_clearance(
             net, item.net, ItemType.TRACK, item_type_of(item.kind), layer,
             None, item.local_clearance, None, item.label,
+            ctx_b=geo.context(item) if resolver.ruleset.uses_context else None,
         )  # fmt: skip
         grow = half + (req.value or 0)
         out.append(

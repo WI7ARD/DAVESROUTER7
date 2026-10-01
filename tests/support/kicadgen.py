@@ -68,7 +68,15 @@ def _pro(classes: dict[str, list[str]]) -> str:
     )
 
 
-def _pad(kind: str, n: int, x: float, y: float, net: tuple[int, str]) -> str:
+def _pad(
+    kind: str,
+    n: int,
+    x: float,
+    y: float,
+    net: tuple[int, str],
+    ref: str | None = None,
+    courtyard: str | None = None,
+) -> str:
     size = 1.0
     if kind == "smd":
         body = f'smd rect (at 0 0) (size {size} {size}) (layers "F.Cu" "F.Paste" "F.Mask")'
@@ -82,10 +90,29 @@ def _pad(kind: str, n: int, x: float, y: float, net: tuple[int, str]) -> str:
             '(layers "*.Cu" "*.Mask")'
         )
     net_part = "" if kind == "npth" else f' (net {net[0]} "{net[1]}")'
+    cy = ""
+    if courtyard:  # "F.CrtYd" / "B.CrtYd": a 2 x 2 mm courtyard around the pad
+        cy = (
+            f"\t\t(fp_rect (start -1 -1) (end 1 1) (stroke (width 0.05) (type default)) "
+            f'(fill none) (layer "{courtyard}") (uuid "{_uuid(n + 2)}"))\n'
+        )
     return (
         f'\t(footprint "Test:P" (layer "F.Cu") (uuid "{_uuid(n)}") (at {x} {y})\n'
-        f'\t\t(property "Reference" "P{n}") (property "Value" "P")\n'
-        f'\t\t(pad "1" {body}{net_part} (uuid "{_uuid(n + 1)}"))\n\t)\n'
+        f'\t\t(property "Reference" "{ref or f"P{n}"}") (property "Value" "P")\n'
+        f'\t\t(pad "1" {body}{net_part} (uuid "{_uuid(n + 1)}"))\n{cy}\t)\n'
+    )
+
+
+def _area(name: str, box: tuple[float, float, float, float], layer: str = "F.Cu") -> str:
+    """A named rule area (no restrictions) on ``layer``."""
+    x0, y0, x1, y1 = box
+    return (
+        f'\t(zone (net 0) (net_name "") (layer "{layer}") (uuid "{_uuid(90)}") (name "{name}")\n'
+        "\t\t(hatch edge 0.5) (connect_pads (clearance 0)) (min_thickness 0.25)\n"
+        "\t\t(keepout (tracks allowed) (vias allowed) (pads allowed) (copperpour allowed) "
+        "(footprints allowed))\n"
+        "\t\t(fill (thermal_gap 0.5) (thermal_bridge_width 0.5))\n"
+        f"\t\t(polygon (pts (xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})))\n\t)\n"
     )
 
 
@@ -100,6 +127,9 @@ def board(
     dru: str | None = None,
     classes: dict[str, list[str]] | None = None,
     extra_nets: tuple[str, ...] = (),
+    ref: str | None = None,
+    courtyard: str | None = None,
+    area: tuple[str, tuple[float, float, float, float]] | None = None,
 ) -> Path:
     """Write ``name.kicad_pcb`` / ``.kicad_pro`` (/ ``.kicad_dru``) and return the board."""
     item = item or Item()
@@ -151,7 +181,9 @@ def board(
             f'(uuid "{_uuid(3)}") (effects (font (size 1 1) (thickness 0.15))))'
         )
     else:
-        lines.append(_pad(item.kind, 10, 15.0, round(edge + 0.5, 4), (b, net_b)))
+        lines.append(_pad(item.kind, 10, 15.0, round(edge + 0.5, 4), (b, net_b), ref, courtyard))
+    if area is not None:
+        lines.append(_area(*area))
     lines.append(")")
     path = folder / f"{name}.kicad_pcb"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

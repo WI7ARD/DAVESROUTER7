@@ -23,6 +23,7 @@ from pcbrouter.domain.layer import BACK_COPPER, FRONT_COPPER
 from pcbrouter.domain.rules import DesignRules
 from pcbrouter.kicad.rule_adapter import CustomRuleSpec, ProjectRuleData
 from pcbrouter.rules.conditions import (
+    CONTEXT_FEATURES,
     Condition,
     ConditionError,
     KiCadSyntaxError,
@@ -75,6 +76,9 @@ class RuleSet:
     #: Every net name on the board (diff-pair partners for ``inDiffPair()``);
     #: empty = unknown.
     net_names: frozenset[str] = frozenset()
+    #: some rule condition depends on per-object context (location functions,
+    #: pad properties): clearance queries then carry each object's context
+    uses_context: bool = False
 
     def board_value_source(self, attr: str) -> str:
         if getattr(self.project_rules, attr) is not None:
@@ -236,4 +240,8 @@ def build_ruleset(board: Board, project: ProjectRuleData | None = None) -> RuleS
         board_file_rules=board.rules,
         project_rules=project.design_rules,
         net_names=frozenset(n.name for n in board.nets if n.name),
+        uses_context=any(
+            spec.condition and any(f in spec.condition for f in CONTEXT_FEATURES)
+            for spec in project.custom_rules
+        ),
     )

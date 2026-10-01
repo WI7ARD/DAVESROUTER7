@@ -46,8 +46,8 @@
     {
       "feature": "A.Pad_Type / A.Pad_Shape",
       "kind": "property",
-      "status": "PARTIAL",
-      "notes": "undefined (false) on non-pads, exact; pad attributes are not yet passed to clearance queries, so on pads the rule bounds conservatively",
+      "status": "SUPPORTED",
+      "notes": "pad-only (undefined, so false, elsewhere); existing pads carry their KiCad type/shape names",
       "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
@@ -68,14 +68,14 @@
       "feature": "A.isPlated()",
       "kind": "function",
       "status": "PARTIAL",
-      "notes": "vias true, tracks false (exact); pad and generic-hole plating not passed to queries: bounds conservatively",
+      "notes": "vias true, PTH pads true, other pads and tracks false (exact); a generic hole in hole-clearance queries has unknown plating and bounds conservatively",
       "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
       "feature": "A.existsOnLayer()",
       "kind": "function",
-      "status": "PARTIAL",
-      "notes": "exact for tracks and copper graphics; pads/vias/zones: layer set not passed, bounds conservatively",
+      "status": "SUPPORTED",
+      "notes": "layer set of tracks, graphics and existing pads; layer-name wildcards",
       "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
@@ -86,22 +86,25 @@
       "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
-      "feature": "A.insideCourtyard() / insideBackCourtyard() / intersectsCourtyard()",
+      "feature": "A.insideCourtyard() / intersectsCourtyard() / insideFrontCourtyard() / intersectsFrontCourtyard() / insideBackCourtyard() / intersectsBackCourtyard()",
       "kind": "function",
-      "status": "UNSUPPORTED",
-      "notes": "three-valued: decided false when other parts of the condition rule it out, else the rule bounds/refuses"
+      "status": "PARTIAL",
+      "notes": "KiCad: insideX = intersectsX (deprecated alias); exact for existing objects (pads, tracks, vias: copper touching the footprint's courtyard, boundary +-10 um unknown); the item being routed has no fixed position, so a rule needing its location bounds conservatively - relaxations still apply through the existing object of the pair",
+      "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
       "feature": "A.memberOfFootprint()",
       "kind": "function",
-      "status": "UNSUPPORTED",
-      "notes": "as above"
+      "status": "SUPPORTED",
+      "notes": "parent footprint by reference or lib-id selector; tracks and vias are never members",
+      "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
-      "feature": "A.insideArea() / intersectsArea() / enclosedByArea()",
+      "feature": "A.insideArea() / intersectsArea() / intersectsKeepout() / enclosedByArea()",
       "kind": "function",
-      "status": "UNSUPPORTED",
-      "notes": "as above"
+      "status": "PARTIAL",
+      "notes": "named zones (any kind) on a common layer, matched by name or uuid; exact for existing objects (boundary +-10 um unknown); the routed item's location is unknown and bounds conservatively",
+      "evidence": "tests/unit/test_rule_fidelity.py"
     },
     {
       "feature": "A.fromTo()",

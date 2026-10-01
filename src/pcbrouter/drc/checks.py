@@ -102,6 +102,7 @@ def check_copper_clearance(ctx: CheckContext) -> None:
 def _check_pair(
     ctx: CheckContext, resolver: RuleResolver, a: CopperItem, b: CopperItem, layer: str
 ) -> None:
+    use_ctx = resolver.ruleset.uses_context
     req = resolver.resolve_clearance(
         a.net,
         b.net,
@@ -112,6 +113,8 @@ def _check_pair(
         b.local_clearance,
         a.label,
         b.label,
+        ctx_a=ctx.geo.context(a) if use_ctx else None,
+        ctx_b=ctx.geo.context(b) if use_ctx else None,
     )
     acc = _approx(a, b)
     if req.value is None:

@@ -48,9 +48,26 @@ from pcbrouter.rules.model import ItemType
 SUPPORTED_PROPERTIES = frozenset(
     {"NetClass", "NetName", "Type", "Layer", "Net", "Pad_Type", "Pad_Shape"}
 )
-SUPPORTED_FUNCTIONS = frozenset({"hasNetclass", "isPlated", "existsOnLayer", "inDiffPair"})
+#: location functions (KiCad registers the "inside" names as deprecated aliases:
+#: insideCourtyard = intersectsCourtyard, insideArea = intersectsKeepout, which
+#: searches areas by name exactly like intersectsArea)
+_COURTYARD_FUNCS = {
+    "intersectsCourtyard": "any", "insideCourtyard": "any",
+    "intersectsFrontCourtyard": "front", "insideFrontCourtyard": "front",
+    "intersectsBackCourtyard": "back", "insideBackCourtyard": "back",
+}  # fmt: skip
+_AREA_FUNCS = frozenset({"intersectsArea", "insideArea", "intersectsKeepout"})
+SUPPORTED_FUNCTIONS = frozenset(
+    {"hasNetclass", "isPlated", "existsOnLayer", "inDiffPair", "memberOfFootprint",
+     "enclosedByArea", *_COURTYARD_FUNCS, *_AREA_FUNCS}
+)  # fmt: skip
 #: number of string arguments each supported function takes
-_ARITY = {"hasNetclass": 1, "isPlated": 0, "existsOnLayer": 1, "inDiffPair": 1}
+_ARITY = {f: 0 if f == "isPlated" else 1 for f in SUPPORTED_FUNCTIONS}
+#: features whose answer depends on per-object context (see ObjectContext)
+CONTEXT_FEATURES = frozenset(
+    {"memberOfFootprint", "enclosedByArea", *_COURTYARD_FUNCS, *_AREA_FUNCS,
+     "Pad_Type", "Pad_Shape", "isPlated", "existsOnLayer"}
+)  # fmt: skip
 #: properties KiCad registers under a second spelling ("Net_Class" -> "Net Class")
 _ALIASES = {"Net_Class": "NetClass"}
 #: properties only pads carry (KiCad: undefined, so every comparison false, elsewhere)
@@ -72,6 +89,26 @@ class ConditionError(Exception):
 class KiCadSyntaxError(ConditionError):
     """KiCad itself cannot compile this condition, so KiCad never applies the
     rule (e.g. ``=~``, which KiCad's expression tokenizer does not know)."""
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectContext:
+    """Facts about one *existing* board object, computed from its geometry
+    (:mod:`pcbrouter.geometry.context`). Footprints are ``(reference, lib_id)``.
+    Borderline geometry goes into the ``*_maybe`` sets (unknown), never guessed."""
+
+    footprint: tuple[str, str] | None = None  # parent footprint; None = board-level
+    plated: bool | None = None
+    pad_type: str | None = None  # KiCad "Pad Type" name
+    pad_shape: str | None = None  # KiCad "Pad Shape" name
+    layers: tuple[str, ...] | None = None
+    court_front: frozenset[tuple[str, str]] = frozenset()  # courtyards touched
+    court_back: frozenset[tuple[str, str]] = frozenset()
+    court_maybe: frozenset[tuple[str, str]] = frozenset()
+    areas: frozenset[str] = frozenset()  # names and uuids of zones it intersects
+    areas_maybe: frozenset[str] = frozenset()
+    enclosed: frozenset[str] = frozenset()  # names and uuids of zones enclosing it
+    enclosed_maybe: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +134,9 @@ class ItemFacts:
     #: Diff-pair base names of the net (see :func:`diff_pair_bases`); ``()`` = not
     #: in a pair, None = unknown (board net list not available).
     diff_pair: tuple[str, ...] | None = None
+    #: Location/membership facts of an existing object; None for the item being
+    #: routed (its position is not fixed), making location functions unknown.
+    context: ObjectContext | None = None
 
     def types(self) -> tuple[str, ...]:
         # KiCad spells item types lowercase in conditions (e.g. A.Type == 'track').
@@ -442,10 +482,73 @@ def _item_layers(item: ItemFacts) -> tuple[str, ...] | None:
     return None
 
 
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _fp_matches(selector: str, fp: tuple[str, str]) -> bool:
+    """KiCad ``testFootprintSelector``: reference ``.Matches(sel)``, or the library
+    id when the selector contains ':'."""
+    ref, lib = fp
+    return wild_compare(selector, ref, case_sensitive=True) or (
+        ":" in selector and wild_compare(selector, lib, case_sensitive=True)
+    )
+
+
+def _area_matches(selector: str, names: frozenset[str]) -> bool:
+    """KiCad ``searchAreas``: a zone uuid (exact) or zone names ``.Matches(sel)``."""
+    if _UUID_RE.match(selector):
+        return selector in names
+    return any(wild_compare(selector, n, case_sensitive=True) for n in names)
+
+
+def _location3(node: Call, item: ItemFacts) -> bool | None:
+    sel = node.args[0]
+    ctx = item.context
+    if node.name == "memberOfFootprint":  # memberOfFootprintFunc: parent footprint
+        if ctx is None:
+            return False if item.item_type in (ItemType.TRACK, ItemType.VIA) else None
+        return ctx.footprint is not None and _fp_matches(sel, ctx.footprint)
+    if ctx is None:
+        return None  # the routed item: its location is not fixed
+    if node.name in _COURTYARD_FUNCS:
+        if sel in ("A", "B"):
+            return False  # the other item of the pair would have to be a footprint
+        side = _COURTYARD_FUNCS[node.name]
+        sure = (ctx.court_front if side != "back" else frozenset()) | (
+            ctx.court_back if side != "front" else frozenset()
+        )
+        if sel.upper().startswith("${CLASS:"):  # component classes are not read
+            return None if sure or ctx.court_maybe else False
+        if any(_fp_matches(sel, fp) for fp in sure):
+            return True
+        return None if any(_fp_matches(sel, fp) for fp in ctx.court_maybe) else False
+    if sel in ("A", "B"):
+        return None  # "the other item is the area": zones as pair members
+    if node.name == "enclosedByArea":
+        if _area_matches(sel, ctx.enclosed):
+            return True
+        return None if _area_matches(sel, ctx.enclosed_maybe) else False
+    if _area_matches(sel, ctx.areas):
+        return True
+    return None if _area_matches(sel, ctx.areas_maybe) else False
+
+
 def _call3(node: Call, a: ItemFacts, b: ItemFacts | None) -> bool | None:
     item = a if node.who == "A" else b
     if item is None:
         return False
+    if (
+        node.name in _COURTYARD_FUNCS
+        or node.name in _AREA_FUNCS
+        or node.name
+        in (
+            "memberOfFootprint",
+            "enclosedByArea",
+        )
+    ):
+        return _location3(node, item)
     if node.name == "isPlated":  # isPlatedFunc: PTH pad or via
         if item.item_type is ItemType.VIA:
             return True

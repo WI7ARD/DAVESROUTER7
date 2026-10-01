@@ -34,6 +34,7 @@ from pcbrouter.domain.geometry import Point
 from pcbrouter.domain.track import Track
 from pcbrouter.geometry.clearance import gap_between
 from pcbrouter.geometry.shapes import capsule
+from pcbrouter.routing.collision import item_type_of
 from pcbrouter.routing.connectivity import NetStatus, net_connectivity
 from pcbrouter.routing.cost.model import DEFAULT_COST_MODEL, CostModel
 from pcbrouter.routing.path.simplify import _direction
@@ -124,8 +125,10 @@ def _margin(wb: WorkingBoard, tracks: list[Track]) -> float | None:
             if item.net == t.net_name:
                 continue
             req = engine.resolver.resolve_clearance(
-                t.net_name, item.net, ItemType.TRACK, ItemType.PAD, t.layer
-            ).value
+                t.net_name, item.net, ItemType.TRACK, item_type_of(item.kind), t.layer,
+                None, item.local_clearance, None, item.label,
+                ctx_b=geo.context(item) if engine.resolver.ruleset.uses_context else None,
+            ).value  # fmt: skip
             if req is None:
                 continue
             m = min(gap_between(shape, s) for s in item.shapes) - req

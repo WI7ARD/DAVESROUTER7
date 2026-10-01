@@ -64,7 +64,8 @@ def test_hv_rule_bound_only_reaches_pairs_it_may_apply_to(
         CustomRuleSpec(
             "HvUnderConformal",
             (ConstraintSpec("clearance", min=400_000),),
-            "A.NetClass == 'HV' && A.insideArea('Conformal*')",
+            # memberOfGroup() stays unsupported (insideArea is supported now)
+            "A.NetClass == 'HV' && A.memberOfGroup('Conformal*')",
         ),
         0,
         ("F.Cu", "B.Cu"),
@@ -82,13 +83,39 @@ def test_hv_rule_bound_only_reaches_pairs_it_may_apply_to(
     monkeypatch.setattr(
         resolver,
         "facts",
-        lambda net, t=ItemType.TRACK, layer=None: ItemFacts(
+        lambda net, t=ItemType.TRACK, layer=None, context=None: ItemFacts(
             net, ("HV",) if net == "A" else real(net, t, layer).net_classes, t, layer
         ),
     )
     resolver._cache.clear()
     hv = resolver.resolve_clearance("A", "B")
     assert hv.possibly_stricter == 400_000 and "HvUnderConformal" in hv.possibly_stricter_rules
+
+
+def test_location_rule_is_supported_and_bounds_only_when_location_is_unknown() -> None:
+    """insideArea() is evaluated now: for the item being routed (no fixed
+    position) it is unknown, so an HV pair keeps the 0.4 mm bound; a non-HV pair
+    is decided false by the NetClass part."""
+    from pcbrouter.kicad.rule_adapter import ConstraintSpec, CustomRuleSpec
+    from pcbrouter.rules.conditions import ItemFacts
+    from pcbrouter.rules.model import ItemType
+    from pcbrouter.rules.ruleset import CompiledRule, _compile
+
+    rule = _compile(
+        CustomRuleSpec(
+            "HvUnderConformal",
+            (ConstraintSpec("clearance", min=400_000),),
+            "A.NetClass == 'HV' && A.insideArea('Conformal*')",
+        ),
+        0,
+        ("F.Cu", "B.Cu"),
+        "test.kicad_dru",
+    )
+    assert isinstance(rule, CompiledRule) and rule.condition is not None
+    hv = ItemFacts("HVNET", ("HV",), ItemType.TRACK, "F.Cu")
+    sig = ItemFacts("SIG", ("Default",), ItemType.TRACK, "F.Cu")
+    assert rule.condition.evaluate(hv, sig) is None  # location of the routed item unknown
+    assert rule.condition.evaluate(sig, sig) is False
 
 
 def test_zone_only_property_is_definitely_false_for_tracks_vias_and_pads() -> None:

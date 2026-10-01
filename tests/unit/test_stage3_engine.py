@@ -55,16 +55,16 @@ def test_net_class_and_custom_rule_resolution(rules_engine: BoardEngine) -> None
     assert r.resolve_net_class("/CAN_L").classes  # pattern /CAN_*
 
 
-def test_unknown_rule_is_not_fabricated() -> None:
+def test_courtyard_rule_is_evaluated_exactly_through_the_existing_pad() -> None:
     engine = engine_for("stage3_unsupported.kicad_pcb")
-    assert engine.ruleset.critical_unsupported
-    # 0.4 mm from R1 pad 1: legal under the known 0.2 mm clearance, but the
-    # unsupported insideCourtyard rule may require 0.5 mm -> not provably legal.
+    # 'Courtyard keep' (A.insideCourtyard('R1'), 0.5 mm): R1's pad lies in R1's
+    # courtyard, so the rule definitely applies to a track next to it (KiCad tests
+    # both orders). 0.4 mm from R1 pad 1 is a definite violation, not "unknown".
     res = engine.validator.validate_segment("GND", "F.Cu", P(3, 8.5), P(5, 8.5), MM(0.25))
-    assert res.status is ValidationStatus.RULE_UNKNOWN, res
+    assert res.status is ValidationStatus.INVALID, res
     relaxed = engine_for("stage3_unsupported.kicad_pcb", config=EngineConfig(conservative=False))
     res2 = relaxed.validator.validate_segment("GND", "F.Cu", P(3, 8.5), P(5, 8.5), MM(0.25))
-    assert res2.status is not ValidationStatus.RULE_UNKNOWN
+    assert res2.status is ValidationStatus.INVALID
 
 
 def test_condition_parser_subset() -> None:

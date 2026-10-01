@@ -406,6 +406,7 @@ class CollisionEngine:
         req = self.resolver.resolve_clearance(
             net, item.net, item_type, item_type_of(item.kind), layer,
             None, item.local_clearance, None, item.label,
+            ctx_b=self.geometry.context(item) if self.resolver.ruleset.uses_context else None,
         )  # fmt: skip
         if is_zone and not self.zone_fills_are_obstacles:
             if any(overlaps(shape, s) for s in item.shapes) or (

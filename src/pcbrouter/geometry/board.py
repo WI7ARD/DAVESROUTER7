@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import Any
 
 from pcbrouter.domain.board import Board
 from pcbrouter.domain.geometry import BoundingBox, Point
@@ -181,6 +182,17 @@ class BoardGeometry:
     index_cell_size: int = 0
     #: uids of copper items by net, and pads by net (for connectivity).
     by_net: dict[str | None, list[str]] = field(default_factory=dict)
+    #: rule context per object (geometry/context.py), built on first use and
+    #: shared by copies (footprints and zones do not change while routing)
+    contexts: Any = field(default=None, repr=False, compare=False)
+
+    def context(self, item: CopperItem) -> Any:
+        """The :class:`~pcbrouter.rules.conditions.ObjectContext` of ``item``."""
+        if self.contexts is None:
+            from pcbrouter.geometry.context import ContextIndex
+
+            self.contexts = ContextIndex(self)
+        return self.contexts.get(item)
 
     # ------------------------------------------------------------ layers
     def is_copper_layer(self, layer: str) -> bool:

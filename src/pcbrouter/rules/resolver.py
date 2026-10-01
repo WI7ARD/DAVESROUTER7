@@ -28,7 +28,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from pcbrouter.domain.units import Nm, internal_to_mm
-from pcbrouter.rules.conditions import ItemFacts, diff_pair_bases, diff_pair_partner
+from pcbrouter.rules.conditions import (
+    ItemFacts,
+    ObjectContext,
+    diff_pair_bases,
+    diff_pair_partner,
+)
 from pcbrouter.rules.model import (
     UNBOUNDED,
     ItemType,
@@ -79,15 +84,29 @@ class RuleResolver:
 
     # ------------------------------------------------------------ helpers
     def facts(
-        self, net: str | None, item_type: ItemType = ItemType.TRACK, layer: str | None = None
+        self,
+        net: str | None,
+        item_type: ItemType = ItemType.TRACK,
+        layer: str | None = None,
+        context: ObjectContext | None = None,
     ) -> ItemFacts:
         names = self.ruleset.net_names
+        extra: dict[str, Any] = {}
+        if context is not None:
+            extra = {
+                "plated": context.plated,
+                "pad_type": context.pad_type,
+                "pad_shape": context.pad_shape,
+                "layers": context.layers,
+                "context": context,
+            }
         return ItemFacts(
             net,
             self.resolve_net_class(net).classes,
             item_type,
             layer,
             diff_pair=diff_pair_bases(net, names) if names else None,
+            **extra,
         )
 
     def _custom(
@@ -321,13 +340,19 @@ class RuleResolver:
         local_b: Nm | None = None,
         label_a: str | None = None,
         label_b: str | None = None,
+        ctx_a: ObjectContext | None = None,
+        ctx_b: ObjectContext | None = None,
     ) -> ResolvedValue:
-        key = ("clr", net_a, net_b, type_a, type_b, layer, local_a, local_b)
+        """``ctx_a`` / ``ctx_b``: rule context of existing objects (location
+        functions, pad properties); None for the item being routed."""
+        if not self.ruleset.uses_context:
+            ctx_a = ctx_b = None  # no rule can tell them apart: share cache entries
+        key = ("clr", net_a, net_b, type_a, type_b, layer, local_a, local_b, ctx_a, ctx_b)
         cached = self._cache.get(key)
         if cached is not None:
             return cached  # type: ignore[no-any-return]
-        a = self.facts(net_a, type_a, layer)
-        b = self.facts(net_b, type_b, layer)
+        a = self.facts(net_a, type_a, layer, ctx_a)
+        b = self.facts(net_b, type_b, layer, ctx_b)
         custom = self._custom("clearance", a, b, layer)
         value: ResolvedValue
         if custom and custom.min is not None:

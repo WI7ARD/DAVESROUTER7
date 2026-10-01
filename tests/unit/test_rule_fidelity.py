@@ -21,10 +21,14 @@ from tests.support import kicadgen as gen
 
 GOLDEN_KICAD = "8.0.8"
 
-# (id, condition, board options, KiCad 8.0.8 verdict[, our verdict])
-# Our verdict defaults to "flag" / "clear" (exact agreement). "bound" means the
-# engine cannot evaluate a fact at this call site (pad type, hole plating) and
-# routes with the stricter value instead: safe, possibly over-conservative.
+_COURT = {"item": gen.Item("smd"), "gap_mm": 0.15, "ref": "U1", "courtyard": "F.CrtYd"}
+_MEMBER = {"item": gen.Item("smd"), "ref": "U1"}
+_ENCL = "A.enclosedByArea('HV') && B.enclosedByArea('HV')"
+
+# (id, condition, board options, KiCad 8.0.8 verdict[, our verdict[, rule min mm]])
+# Our verdict defaults to "flag" / "clear" (exact agreement). "bound" would mean
+# the engine cannot evaluate a fact at that call site and routes with the
+# stricter value instead: safe, possibly over-conservative.
 CASES: list[tuple[Any, ...]] = [
     ("no_rule", None, {}, False),
     ("netname_exact", "A.NetName == '/SIG'", {}, True),
@@ -46,7 +50,7 @@ CASES: list[tuple[Any, ...]] = [
     # isPlated(): PTH pads and vias
     ("via_is_plated", "A.isPlated()", {"item": gen.Item("via")}, True),
     ("track_is_not_plated", "A.isPlated() && B.isPlated()", {"item": gen.Item("via")}, False),
-    ("smd_pad_plating_unknown", "A.isPlated()", {"item": gen.Item("smd")}, False, "bound"),
+    ("smd_pad_is_not_plated", "A.isPlated()", {"item": gen.Item("smd")}, False),
     # existsOnLayer(): wildcard over layer names, against the item's layer set
     ("exists_on_front", "A.existsOnLayer('F.Cu') && B.existsOnLayer('F.Cu')", {}, True),
     ("exists_on_back_is_false", "A.existsOnLayer('B.*')", {}, False),
@@ -66,10 +70,23 @@ CASES: list[tuple[Any, ...]] = [
     ),
     ("diff_pair_needs_partner", "A.inDiffPair('*')", {"net_a": "USBP"}, False),
     ("not_a_diff_pair", "A.inDiffPair('*')", {}, False),
+    # location functions (insideCourtyard = intersectsCourtyard, insideArea =
+    # intersectsKeepout in KiCad); the pad / tracks are existing objects here
+    ("courtyard_relaxes_pad_clearance", "A.insideCourtyard('U1')", _COURT, False, "clear", 0.1),
+    ("courtyard_wildcard", "A.intersectsCourtyard('U*')", _COURT, False, "clear", 0.1),
+    ("courtyard_other_footprint", "A.insideCourtyard('U2')", _COURT, True, "flag", 0.1),
+    ("courtyard_wrong_side", "A.insideBackCourtyard('U1')", _COURT, True, "flag", 0.1),
+    ("member_of_footprint", "A.memberOfFootprint('U1')", _MEMBER, True),
+    ("member_of_other_footprint", "A.memberOfFootprint('U2')", _MEMBER, False),
+    ("inside_area", "A.insideArea('HV')", {"area": ("HV", (4, 8, 26, 12))}, True),
+    ("intersects_area_wildcard", "A.intersectsArea('H*')", {"area": ("HV", (4, 8, 26, 12))}, True),
+    ("area_elsewhere", "A.insideArea('HV')", {"area": ("HV", (1, 1, 3, 3))}, False),
+    ("enclosed_by_area", _ENCL, {"area": ("HV", (4, 8, 26, 12))}, True),
+    ("partly_enclosed", _ENCL, {"area": ("HV", (10, 8, 26, 12))}, False),
     # Pad_Type: pad-only; undefined (so false) on tracks
     ("pad_type_on_tracks_is_false", "A.Pad_Type == 'SMD' || B.Pad_Type == 'SMD'", {}, False),
-    ("pad_type_smd", "A.Pad_Type == 'SMD'", {"item": gen.Item("smd")}, True, "bound"),
-    ("pad_type_other", "A.Pad_Type == 'Through-hole'", {"item": gen.Item("smd")}, False, "bound"),
+    ("pad_type_smd", "A.Pad_Type == 'SMD'", {"item": gen.Item("smd")}, True),
+    ("pad_type_other", "A.Pad_Type == 'Through-hole'", {"item": gen.Item("smd")}, False),
 ]
 
 
@@ -77,15 +94,22 @@ def _ours(case: tuple[Any, ...]) -> str:
     return str(case[4]) if len(case) > 4 else ("flag" if case[3] else "clear")
 
 
+def _dru(case: tuple[Any, ...]) -> str | None:
+    cond = case[1]
+    if cond is None:
+        return None
+    return gen.clearance_rule(cond, case[5]) if len(case) > 5 else gen.clearance_rule(cond)
+
+
 @pytest.mark.parametrize(
-    ("cond", "opts", "kicad", "ours"),
-    [(*c[1:4], _ours(c)) for c in CASES],
+    ("dru", "opts", "kicad", "ours"),
+    [(_dru(c), c[2], c[3], _ours(c)) for c in CASES],
     ids=[c[0] for c in CASES],
 )
 def test_engine_agrees_with_kicad(
-    tmp_path: Path, cond: str | None, opts: dict[str, Any], kicad: bool, ours: str
+    tmp_path: Path, dru: str | None, opts: dict[str, Any], kicad: bool, ours: str
 ) -> None:
-    board = gen.board(tmp_path, dru=gen.clearance_rule(cond) if cond else None, **opts)
+    board = gen.board(tmp_path, dru=dru, **opts)
     verdict = gen.ours_verdict(board)
     assert verdict == ours
     assert not (kicad and verdict == "clear"), "KiCad flags what the engine calls clean"
@@ -96,12 +120,12 @@ _TOOL = oracle.find_oracle()
 
 @pytest.mark.skipif(_TOOL is None, reason="KiCad 8+ kicad-cli not installed")
 @pytest.mark.parametrize(
-    ("cond", "opts", "kicad"), [c[1:4] for c in CASES], ids=[c[0] for c in CASES]
+    ("dru", "opts", "kicad"), [(_dru(c), c[2], c[3]) for c in CASES], ids=[c[0] for c in CASES]
 )
 def test_golden_still_matches_live_kicad(
-    tmp_path: Path, cond: str | None, opts: dict[str, Any], kicad: bool
+    tmp_path: Path, dru: str | None, opts: dict[str, Any], kicad: bool
 ) -> None:
-    board = gen.board(tmp_path, dru=gen.clearance_rule(cond) if cond else None, **opts)
+    board = gen.board(tmp_path, dru=dru, **opts)
     assert gen.kicad_flags(_TOOL, board) is kicad, f"KiCad {_TOOL.version if _TOOL else '?'}"
 
 
