@@ -28,9 +28,10 @@ def render() -> str:
         *[f"| {k} | {v} |" for k, v in data["states"].items()],
         "",
     ]
-    for kind in ("property", "function", "constraint", "board"):
+    for kind in ("property", "function", "syntax", "constraint", "board"):
         rows = [r for r in data["features"] if r["kind"] == kind]
-        out += [f"## {kind.capitalize()}{'s' if kind != 'board' else ' features'}", ""]
+        title = {"board": "Board features", "syntax": "Syntax"}.get(kind, f"{kind.capitalize()}s")
+        out += [f"## {title}", ""]
         out += ["| Feature | Status | Notes | Evidence |", "|---|---|---|---|"]
         out += [
             f"| `{r['feature']}` | **{r['status']}** | {r.get('notes', '')} | "

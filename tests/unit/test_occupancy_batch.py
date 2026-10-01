@@ -23,7 +23,8 @@ REAL100 = Path(__file__).parents[2] / "benchmarks" / "real100" / "work" / "prepa
 def _compare(path: Path, monkeypatch: pytest.MonkeyPatch, nets_per_layer: int = 3) -> int:
     wb = WorkingBoard(load_board(path).board, load_project_rules(path))
     geo, resolver = wb.engine.geometry, wb.engine.resolver
-    nets = sorted({i.net for i in geo.copper.values() if i.net})[:nets_per_layer] + [None]
+    named = sorted({i.net for i in geo.copper.values() if i.net})[:nets_per_layer]
+    nets: list[str | None] = [*named, None]
     checked = 0
     for layer in geo.copper_layers:
         for net in nets:

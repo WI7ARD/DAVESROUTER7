@@ -1,0 +1,101 @@
+{
+  "board": {},
+  "boards": [],
+  "cvpcb": {},
+  "erc": {},
+  "libraries": {},
+  "meta": {
+    "filename": "Router_Benchmark_RevA.kicad_pro",
+    "version": 1
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.2,
+        "track_width": 0.25,
+        "via_diameter": 0.8,
+        "via_drill": 0.4,
+        "uvia_diameter": 0.3,
+        "uvia_drill": 0.1,
+        "diff_pair_width": 0.25,
+        "diff_pair_gap": 0.25
+      },
+      {
+        "name": "BUS",
+        "clearance": 0.2,
+        "track_width": 0.3,
+        "via_diameter": 0.8,
+        "via_drill": 0.4,
+        "uvia_diameter": 0.3,
+        "uvia_drill": 0.1,
+        "diff_pair_width": 0.3,
+        "diff_pair_gap": 0.25
+      },
+      {
+        "name": "FAST",
+        "clearance": 0.25,
+        "track_width": 0.35,
+        "via_diameter": 0.8,
+        "via_drill": 0.4,
+        "uvia_diameter": 0.3,
+        "uvia_drill": 0.1,
+        "diff_pair_width": 0.35,
+        "diff_pair_gap": 0.25
+      },
+      {
+        "name": "POWER",
+        "clearance": 0.3,
+        "track_width": 0.8,
+        "via_diameter": 1.0,
+        "via_drill": 0.5,
+        "uvia_diameter": 0.3,
+        "uvia_drill": 0.1,
+        "diff_pair_width": 0.8,
+        "diff_pair_gap": 0.3
+      }
+    ],
+    "meta": {
+      "version": 3
+    },
+    "net_colors": null,
+    "netclass_assignments": {
+      "GND": "POWER",
+      "+5V": "POWER",
+      "CLK_A": "FAST",
+      "CLK_B": "FAST",
+      "BUS0": "BUS",
+      "BUS1": "BUS",
+      "BUS2": "BUS",
+      "BUS3": "BUS",
+      "BUS4": "BUS",
+      "BUS5": "BUS",
+      "BUS6": "BUS",
+      "BUS7": "BUS",
+      "SIG01": "Default",
+      "SIG02": "Default",
+      "SIG03": "Default",
+      "SIG04": "Default",
+      "SIG05": "Default",
+      "SIG06": "Default",
+      "SIG07": "Default",
+      "SIG08": "Default",
+      "SIG09": "Default",
+      "SIG10": "Default",
+      "SIG11": "Default",
+      "SIG12": "Default",
+      "SIG13": "Default",
+      "SIG14": "Default",
+      "SIG15": "Default",
+      "SIG16": "Default",
+      "SIG17": "Default",
+      "SIG18": "Default",
+      "SIG19": "Default",
+      "SIG20": "Default"
+    },
+    "netclass_patterns": []
+  },
+  "pcbnew": {},
+  "schematic": {},
+  "text_variables": {}
+}

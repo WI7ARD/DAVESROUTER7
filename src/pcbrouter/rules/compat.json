@@ -183,6 +183,13 @@
       "kind": "board",
       "status": "PARTIAL",
       "notes": "load: KiCad 5-10; export: 20211014-20261231 (KiCad 6-10); KiCad 5.99 dev formats are refused with a precise message"
+    },
+    {
+      "feature": "=~ (regex compare)",
+      "kind": "syntax",
+      "status": "SUPPORTED",
+      "notes": "not KiCad syntax: KiCad 8.0.8 and 9.0.3 cannot compile the condition and skip the rule; the rule is reported as ignored-by-KiCad and never applied (applying it could relax a clearance KiCad enforces)",
+      "evidence": "tests/unit/test_rule_fidelity.py"
     }
   ]
 }

@@ -36,6 +36,12 @@ Reference: KiCad source fec63a6 (rule semantics); KiCad 8.0.8 and 9.0.3 DRC (ora
 | `A.insideArea() / intersectsArea() / enclosedByArea()` | **UNSUPPORTED** | as above |  |
 | `A.fromTo()` | **UNSUPPORTED** | as above |  |
 
+## Syntax
+
+| Feature | Status | Notes | Evidence |
+|---|---|---|---|
+| `=~ (regex compare)` | **SUPPORTED** | not KiCad syntax: KiCad 8.0.8 and 9.0.3 cannot compile the condition and skip the rule; the rule is reported as ignored-by-KiCad and never applied (applying it could relax a clearance KiCad enforces) | tests/unit/test_rule_fidelity.py |
+
 ## Constraints
 
 | Feature | Status | Notes | Evidence |

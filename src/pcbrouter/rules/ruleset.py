@@ -22,7 +22,13 @@ from pcbrouter.domain.board import Board
 from pcbrouter.domain.layer import BACK_COPPER, FRONT_COPPER
 from pcbrouter.domain.rules import DesignRules
 from pcbrouter.kicad.rule_adapter import CustomRuleSpec, ProjectRuleData
-from pcbrouter.rules.conditions import Condition, ConditionError, parse_condition, parse_partial
+from pcbrouter.rules.conditions import (
+    Condition,
+    ConditionError,
+    KiCadSyntaxError,
+    parse_condition,
+    parse_partial,
+)
 from pcbrouter.rules.model import (
     CRITICAL_CONSTRAINTS,
     KNOWN_NONCRITICAL,
@@ -155,6 +161,11 @@ def _compile(
     if spec.condition:
         try:
             condition = parse_condition(spec.condition)
+        except KiCadSyntaxError as exc:
+            # KiCad cannot compile the condition and never applies the rule:
+            # applying it here (even "conservatively") could relax a clearance
+            # KiCad then enforces at its default
+            return f'"{spec.name}" (ignored by KiCad: {exc}) [{location}]'
         except ConditionError as exc:
             reasons.append(f"condition not supported ({exc})")
             partial = parse_partial(spec.condition)

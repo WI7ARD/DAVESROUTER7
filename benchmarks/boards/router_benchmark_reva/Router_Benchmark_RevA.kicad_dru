@@ -1,0 +1,40 @@
+(version 1)
+
+(rule "Global copper clearance"
+  (constraint clearance (min 0.20mm))
+)
+
+(rule "Board edge clearance"
+  (constraint edge_clearance (min 0.50mm))
+)
+
+(rule "Default signal width"
+  (condition "A.Type == 'track'")
+  (constraint track_width (min 0.25mm) (opt 0.25mm))
+)
+
+(rule "Bus width"
+  (condition "A.Type == 'track' && A.NetName =~ 'BUS.*'")
+  (constraint track_width (min 0.30mm) (opt 0.30mm))
+)
+
+(rule "Fast clock width"
+  (condition "A.Type == 'track' && (A.NetName == 'CLK_A' || A.NetName == 'CLK_B')")
+  (constraint track_width (min 0.35mm) (opt 0.35mm))
+)
+
+(rule "Power width"
+  (condition "A.Type == 'track' && (A.NetName == '+5V' || A.NetName == 'GND')")
+  (constraint track_width (min 0.80mm) (opt 0.80mm))
+)
+
+(rule "Power clearance"
+  (condition "A.NetName == '+5V' || A.NetName == 'GND' || B.NetName == '+5V' || B.NetName == 'GND'")
+  (constraint clearance (min 0.30mm))
+)
+
+(rule "Minimum via diameter"
+  (condition "A.Type == 'via'")
+  (constraint via_diameter (min 0.80mm))
+  (constraint hole_size (min 0.40mm))
+)

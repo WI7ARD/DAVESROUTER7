@@ -135,9 +135,7 @@ def polygon_near_mask(
         if cancel is not None and cancel():
             raise CancelledError()
         xs, ys = np.meshgrid(xc[c0[i] : c1[i]], yc[r0[i] : r1[i]])
-        d = _segment_distance(
-            xs, ys, float(ax[i]), float(ay[i]), float(bx[i]), float(by[i])
-        )
+        d = _segment_distance(xs, ys, float(ax[i]), float(ay[i]), float(bx[i]), float(by[i]))
         mask[r0[i] : r1[i], c0[i] : c1[i]] |= (d - radius) <= reach
     idx = np.flatnonzero(short)
     sizes = (nc * nr)[idx]

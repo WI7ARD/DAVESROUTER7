@@ -8,8 +8,9 @@ Supported (everything else is reported as *unsupported*, never guessed):
   only when it is a literal containing ``*`` or ``?`` (``[`` is literal, so bus
   nets such as ``/D[0]`` match themselves; ``'/S*' == A.NetName`` is a plain
   compare). Verified against KiCad 8.0.8 DRC (tests/unit/test_rule_fidelity.py);
-* ``A.NetName =~ 'BUS.*'``: regex *search* (substring) match, as in KiCad;
-  an invalid pattern is reported as unsupported, never guessed;
+* ``=~`` is **not** a KiCad operator: KiCad 8 and 9 cannot compile such a
+  condition and skip the rule (verified with their DRC), so the rule is
+  reported as ignored-by-KiCad (:class:`KiCadSyntaxError`), never applied;
 * ``A.hasNetclass('X')`` (KiCad 9);
 * ``&&``, ``||``, ``!`` and parentheses.
 
@@ -68,6 +69,11 @@ class ConditionError(Exception):
     """The condition uses syntax or features outside the supported subset."""
 
 
+class KiCadSyntaxError(ConditionError):
+    """KiCad itself cannot compile this condition, so KiCad never applies the
+    rule (e.g. ``=~``, which KiCad's expression tokenizer does not know)."""
+
+
 @dataclass(frozen=True, slots=True)
 class ItemFacts:
     """What a condition may ask about one item."""
@@ -114,7 +120,7 @@ class Literal:
 @dataclass(frozen=True, slots=True)
 class Compare:
     left: Prop | Literal
-    op: str  # "==" | "!=" | "=~" (regex search)
+    op: str  # "==" | "!="
     right: Prop | Literal
 
 
@@ -268,13 +274,18 @@ class _Parser:
             return node
         left = self.operand()
         tok = self.peek()
-        comparing = tok is not None and tok[1] in ("==", "!=", "=~")
+        if tok is not None and tok[1] == "=~":
+            raise KiCadSyntaxError(
+                "KiCad has no '=~' operator: KiCad 8/9 cannot compile this condition "
+                "and skip the rule"
+            )
+        comparing = tok is not None and tok[1] in ("==", "!=")
         if isinstance(left, ItemOnlyProp) and not comparing:
             return Unknown(f"{left.who}.{left.name}")
         if isinstance(left, (Call, Unknown)) and not comparing:
             return left
         if not comparing:
-            raise ConditionError("only ==, != and =~ comparisons are supported")
+            raise ConditionError("only == and != comparisons are supported")
         op = self.take()[1]
         right = self.operand()
         only = [x for x in (left, right) if isinstance(x, ItemOnlyProp)]
@@ -292,13 +303,6 @@ class _Parser:
         if nets and len(nets) != 2:
             # KiCad's Net is the numeric net code: only A.Net vs B.Net is meaningful here
             raise ConditionError("A.Net can only be compared with B.Net")
-        if op == "=~":
-            if not isinstance(right, Literal):
-                raise ConditionError("=~ needs a string-literal pattern")
-            try:
-                re.compile(right.value)
-            except re.error as exc:
-                raise ConditionError(f"invalid =~ pattern {right.value!r}: {exc}") from exc
         assert not isinstance(left, ItemOnlyProp) and not isinstance(right, ItemOnlyProp)
         return Compare(left, op, right)
 
@@ -511,8 +515,6 @@ def _compare3(node: Compare, a: ItemFacts, b: ItemFacts | None) -> bool | None:
         return False
     if left is None or right is None:
         return None
-    if node.op == "=~":
-        return any(re.search(pat, val) is not None for val in left for pat in right)
     names = {x.name for x in (node.left, node.right) if isinstance(x, Prop)}
     if "Net" in names:
         same = bool(set(left) & set(right))  # net codes: exact identity

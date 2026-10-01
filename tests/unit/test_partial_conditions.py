@@ -110,9 +110,8 @@ def test_zone_only_property_is_definitely_false_for_tracks_vias_and_pads() -> No
     assert eq.may_match(track, zone) and ne.may_match(zone, pad)  # zone names unknown
     neg = parse_partial("!(A.Name == 'outer_pour')")  # KiCad: !(undefined == x) is true
     assert neg is not None and neg.may_match(track, pad)
-    # other uses of the property stay unknown (never guessed)
-    rx = parse_partial("A.Name =~ 'out.*'")
-    assert rx is not None and rx.may_match(track, pad)
+    # '=~' is not KiCad syntax: no partial reading either (the rule is ignored)
+    assert parse_partial("A.Name =~ 'out.*'") is None
 
 
 def test_zone_only_rule_no_longer_constrains_track_to_pad_clearance() -> None:

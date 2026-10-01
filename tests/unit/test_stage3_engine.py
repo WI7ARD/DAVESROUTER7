@@ -72,21 +72,20 @@ def test_condition_parser_subset() -> None:
     assert cond is not None
 
 
-def test_condition_regex_match_and_lowercase_type() -> None:
-    from pcbrouter.rules.conditions import ConditionError, ItemFacts
+def test_regex_operator_is_a_kicad_syntax_error_and_type_compare() -> None:
+    from pcbrouter.rules.conditions import ConditionError, ItemFacts, KiCadSyntaxError
     from pcbrouter.rules.model import ItemType
 
     bus = ItemFacts("BUS3", ("Default",), ItemType.TRACK)
-    sig = ItemFacts("SIG16", ("Default",), ItemType.TRACK)
     via = ItemFacts("GND", ("Default",), ItemType.VIA)
-    cond = parse_condition("A.Type == 'track' && A.NetName =~ 'BUS.*'")
-    assert cond.matches(bus) and not cond.matches(sig)
+    # KiCad's expression language has no '=~': KiCad 8.0.8 and 9.0.3 DRC skip the
+    # rule (tests/unit/test_rule_fidelity.py), so it must never be applied here
+    with pytest.raises(KiCadSyntaxError):
+        parse_condition("A.Type == 'track' && A.NetName =~ 'BUS.*'")
     assert parse_condition("A.Type == 'via'").matches(via)
     # KiCad compares strings case-insensitively (libeval VALUE::EqualTo uses
     # IsSameAs(b, false)); confirmed by KiCad 8.0.8 DRC in test_rule_fidelity.py
     assert parse_condition("A.Type == 'Track'").matches(bus)
-    with pytest.raises(ConditionError):
-        parse_condition("A.NetName =~ '([broken'")
     with pytest.raises(ConditionError):
         parse_condition("A.NetName =~ B.NetName")
 

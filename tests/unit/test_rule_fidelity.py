@@ -38,6 +38,8 @@ CASES: list[tuple[Any, ...]] = [
     ("copper_text_too_close", None, {"item": gen.Item("text"), "gap_mm": 0.02}, True),
     ("copper_text_clear", None, {"item": gen.Item("text"), "gap_mm": 2.0}, False),
     ("text_on_other_layer", None, {"item": gen.Item("text", "B.Cu"), "gap_mm": 0.02}, False),
+    # '=~' is not KiCad syntax: KiCad 8/9 skip the whole rule, so must we
+    ("regex_operator_rule_is_skipped", "A.NetName =~ '/S.*'", {}, False),
     # A.Net / B.Net: the net code
     ("net_differs", "A.Net != B.Net", {}, True),
     ("net_same_is_false", "A.Net == B.Net", {}, False),
