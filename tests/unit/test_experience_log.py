@@ -151,3 +151,23 @@ def test_keep_per_stratum_caps_each_stratum(tmp_path: Path) -> None:
     rotated = [json.loads(x)["i"] for x in log.path.with_suffix(".jsonl.1").read_text().split()]
     # the newest of the dropped file: they end right where the rotated file begins
     assert sig == list(range(min(rotated) - 3, min(rotated)))
+
+
+def test_job_reports_fully_routed_and_endgame(routed: tuple) -> None:
+    import copy
+
+    result, settings = routed
+    m = result.metrics
+    job = records_from_result(result, settings, salt="s")[0]["job"]
+    assert {"fully_routed", "endgame"} <= set(job)
+    assert job["fully_routed"] is (m.nets_attempted > 0 and m.nets_completed == m.nets_attempted)
+    assert job["endgame"] == getattr(result, "endgame", None)
+    with_endgame = copy.copy(result)
+    with_endgame.endgame = {"stage": "repair", "nets_recovered": 1}
+    job = records_from_result(with_endgame, settings, salt="s")[0]["job"]
+    assert job["endgame"] == {"stage": "repair", "nets_recovered": 1}
+    json.dumps(job)  # stays serialisable
+    nothing = copy.copy(result)
+    nothing.metrics = copy.copy(m)
+    nothing.metrics.nets_attempted = nothing.metrics.nets_completed = 0
+    assert records_from_result(nothing, settings, salt="s")[0]["job"]["fully_routed"] is False

@@ -4,7 +4,8 @@ Field-by-field reference for the routing experience log (learning level 1, see
 `docs/LEARNING.md`). The writer is
 `pcbrouter.learning.experience.records_from_result`; the readers are
 `ExperienceLog.read`, the trainer (`pcbrouter.learning.trainer`) and
-`pcbrouter.learning.policy.attempts`.
+`pcbrouter.learning.policy.attempts`. The user-initiated export bundle is
+described in *Export bundle* below.
 
 ## Files
 
@@ -17,7 +18,7 @@ for Real100 runs.
 | `experience.jsonl` | the current log. One JSON object per line (UTF-8, keys sorted, no spaces). Appended after every finished board-routing job, one line per planned net. |
 | `experience.jsonl.1` | the previous log. When an append would take `experience.jsonl` past 50 MB (`MAX_BYTES`), the current file is renamed to `.1`, replacing the old `.1`. |
 | `experience.keep.jsonl` | stratified retention. Before an old `.1` is replaced, its records are merged with this file, keeping the newest 100 records (`KEEP_PER_STRATUM`) per stratum. A stratum is `settings.mode` + `net_f.bucket` (or `net_f.kind` when a record has no bucket). If the result is larger than half the cap (25 MB), the per-stratum count is halved until it fits (down to 1). Without this, rotation would drop rare kinds of nets (diff pairs, large power nets) first. |
-| `salt` | a random per-installation salt, 32 hex characters, created on first use. Used only to hash board fingerprints. |
+| `salt` | a random per-installation salt, 32 hex characters, created on first use. Used only to hash board fingerprints. Never exported. |
 
 The three log files together stay under about 125 MB. `ExperienceLog.read`
 yields records from `keep`, then `.1`, then the current file (oldest first). It
@@ -26,7 +27,9 @@ a crash).
 
 ## Privacy
 
-- Nothing is sent anywhere. The log is written only on the local disk.
+- Nothing is sent anywhere automatically. The log is written only on the local
+  disk: nothing leaves the computer unless you export it and send it yourself
+  (see *Export bundle*).
 - Net names, reference designators, coordinates and file paths are never
   stored. Net and board features are counts, lengths, ratios and settings.
 - The board is identified by `board`, the first 16 hex characters of
@@ -102,16 +105,18 @@ The definitions belong to `learning.features.PROFILE_VERSION` (currently 1).
 
 ### `job` (board-level results, schema 2)
 
-| Key | Type | Meaning |
-|---|---|---|
-| `completed` | int | nets completed |
-| `attempted` | int | nets attempted (planned) |
-| `ripups` | int | rip-ups in the job |
-| `runtime_s` | float, s, 2 dp | job runtime |
-| `new_vias` | int | vias the job added |
-| `policy_decision` | string | `NONE` (no policy configured: the fixed router), `POLICY` (a non-selective policy ran, e.g. `random:SEED`), `LEARNED` (the selector let a learned policy run), `FALLBACK_FIXED` (a policy was configured but the fixed router ran) |
-| `policy_reason` | string or null | why, for `FALLBACK_FIXED` (out of distribution, no A/B evidence, trained on another router, no policy for this mode, selection error) |
-| `policy_id` | string or null | content hash of the policy (`pol-…`), when known |
+| Key | Type | Introduced | Meaning |
+|---|---|---|---|
+| `completed` | int | 2 | nets completed |
+| `attempted` | int | 2 | nets attempted (planned) |
+| `fully_routed` | bool | 2 (later) | `attempted > 0` and `completed == attempted`. Records written before this field have no key; derive it from `completed`/`attempted`. |
+| `endgame` | object or null | 2 (later) | the router's end-game summary (`BoardRoutingResult.endgame`), a JSON object of counts and flags, never names or coordinates. Null when the router did not report one. |
+| `ripups` | int | 2 | rip-ups in the job |
+| `runtime_s` | float, s, 2 dp | 2 | job runtime |
+| `new_vias` | int | 2 | vias the job added |
+| `policy_decision` | string | 2 | `NONE` (no policy configured: the fixed router), `POLICY` (a non-selective policy ran, e.g. `random:SEED`), `LEARNED` (the selector let a learned policy run), `FALLBACK_FIXED` (a policy was configured but the fixed router ran) |
+| `policy_reason` | string or null | 2 | why, for `FALLBACK_FIXED` (out of distribution, no A/B evidence, trained on another router, no policy for this mode, selection error) |
+| `policy_id` | string or null | 2 | content hash of the policy (`pol-…`), when known |
 
 ### `net_f` (net features)
 
@@ -183,6 +188,44 @@ by `_apply_result` when its result comes back. Floats are rounded to 4 decimals.
 | `route_s` | float | s | seconds of this attempt (the arm's cost in training) |
 
 The last four keys are absent when no result was recorded for the attempt.
+
+## Export bundle (`pcbrouter-experience-export/1`)
+
+Users can choose to share their log: File ▸ Export Learning Data… in the app,
+or `pcbrouter --export-experience OUT.zip` (add `--overwrite` to replace an
+existing file). Nothing is ever sent automatically; the user decides whether to
+send the file. The writer is `learning.experience.export_bundle`, the reader
+`learning.experience.read_bundle` (the trainer accepts a bundle wherever it
+accepts an experience folder: `--log data.zip`).
+
+The bundle is a zip with two members:
+
+| Member | Contents |
+|---|---|
+| `records.jsonl` | every record `ExperienceLog.read` yields (keep file, `.1`, current file, in that order) whose `schema` is `pcbrouter-experience/1` or `/2`, one per line, re-serialized compactly with sorted keys. Torn lines and records of any other schema are skipped. Records are not otherwise changed: they keep their `source`, `board` hash and every field above. |
+| `manifest.json` | a JSON object (below) |
+
+The `salt` file is **never** included, so a board id in the bundle cannot be
+matched to a board, and file paths of the log are not recorded.
+
+`manifest.json`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `schema` | string | `"pcbrouter-experience-export/1"`; readers refuse any other value |
+| `created` | string | UTC time of the export, ISO 8601 (`2026-10-01T12:00:00+00:00`) |
+| `app` | string | `pcbrouter.__version__` of the exporting app |
+| `router` | object | `learning.policy.router_signature()` of the exporting app |
+| `records` | int | lines in `records.jsonl` (0 is valid: an empty log still gives a bundle) |
+| `skipped` | int | parsed lines left out because they were not a record of a known schema |
+| `by_schema`, `by_app`, `by_mode`, `by_source` | object | record counts per `schema`, `app`, `settings.mode` and `source` (`"unknown"` when absent) |
+| `boards` | int | distinct `board` values |
+| `contents` | string | "anonymised per-net routing records; no net names, references, coordinates, file paths; board ids are salted hashes; the salt is not included" |
+
+The export is written to a temporary file next to the destination and renamed
+into place, and it refuses to replace an existing file unless asked to. A
+partial or corrupt log never fails the export: unreadable lines and files are
+skipped (and reported). It fails only when the destination cannot be written.
 
 ## Compatibility rules
 

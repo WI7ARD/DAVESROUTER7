@@ -33,6 +33,7 @@ import json
 import math
 import statistics
 import sys
+import zipfile
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -42,7 +43,7 @@ from typing import Any
 
 import numpy as np
 
-from pcbrouter.learning.experience import ExperienceLog, default_dir
+from pcbrouter.learning.experience import ExperienceLog, default_dir, read_bundle
 from pcbrouter.learning.features import transform
 from pcbrouter.learning.policy import (
     PRESET,
@@ -88,10 +89,19 @@ class TrainConfig:
 
 # ------------------------------------------------------------------- data
 def load_records(folders: Iterable[Path]) -> list[dict[str, Any]]:
-    """All records of the logs in *folders* (rotated file first, torn lines skipped)."""
+    """All records of the logs in *folders* (rotated file first, torn lines skipped).
+
+    An entry may also be a ``.zip`` export bundle (``experience.export_bundle``,
+    shared by a user): its ``records.jsonl`` is read after checking the
+    manifest schema (``ValueError`` if it is not a bundle). Records keep their
+    ``source``."""
     out: list[dict[str, Any]] = []
     for folder in folders:
-        out.extend(ExperienceLog(folder).read())
+        path = Path(folder)
+        if path.is_file() and (path.suffix.lower() == ".zip" or zipfile.is_zipfile(path)):
+            out.extend(read_bundle(path))
+        else:
+            out.extend(ExperienceLog(path).read())
     return out
 
 
@@ -443,7 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         action="append",
         default=None,
-        help="experience folder (repeatable; default: the app's data folder)",
+        help="experience folder or exported .zip bundle (Export learning data / "
+        "pcbrouter --export-experience); repeatable, folders and bundles can be mixed "
+        "(default: the app's data folder)",
     )
     p.add_argument("--out", type=Path, default=Path("policy.json"))
     p.add_argument("--report", type=Path, default=None, help="also write a JSON report")

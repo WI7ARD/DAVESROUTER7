@@ -32,10 +32,11 @@ compatibility rules, is [`docs/EXPERIENCE_SCHEMA.md`](EXPERIENCE_SCHEMA.md).
 | `net_f` | kind (signal/power/diff pair/group), pads, airwire length, escape options, congestion, priority, routing order, context bucket |
 | `settings` | mode, grid, heuristic weight, coarse factor, passes, rip-up, budget, workers, strategy |
 | `outcome` | status, failure reason, vias, length, passes, attempts, expanded nodes, seconds, ripped up, arms, policy, and `trace`: **one entry per attempt** with the settings actually used (pass, arm, grid, heuristic weight, coarse factor, via cost, wrong-way factor, node limit, time slice) and its result (status, reason, expanded nodes, seconds) |
-| `job` | board-level results: nets completed/attempted, rip-ups, runtime, new vias, policy decision, reason and policy id |
+| `job` | board-level results: nets completed/attempted, fully routed, rip-ups, runtime, new vias, policy decision, reason and policy id, and the router's end-game summary when it reports one |
 
 **Privacy.** Net names, references, coordinates and file paths are never stored,
-and nothing leaves the computer. The log lives in the user data folder:
+and nothing leaves the computer unless you export it and send it yourself. The
+log lives in the user data folder:
 
 - Windows: `%LOCALAPPDATA%\AI PCB Router\experience\`
 - Linux: `~/.local/share/<app>/experience/`
@@ -54,6 +55,13 @@ kinds of nets (diff pairs, large power nets) first.
 
 Real100 runs write to `benchmarks/real100/work/experience/` (gitignored)
 unless `--no-experience` is given.
+
+**Sharing (optional).** File ▸ Export Learning Data… or
+`pcbrouter --export-experience OUT.zip` writes the log as a zip bundle
+(`records.jsonl` + `manifest.json`, never the salt) that the user may choose to
+send to the developer. The trainer reads bundles and folders together
+(`--log a.zip --log folder/`). Format: *Export bundle* in
+[`docs/EXPERIENCE_SCHEMA.md`](EXPERIENCE_SCHEMA.md).
 
 ## Level 2 — contextual bandit over search settings (implemented; EXPERIMENTAL)
 

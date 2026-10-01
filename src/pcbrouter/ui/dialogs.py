@@ -87,3 +87,39 @@ def show_compute_info(parent: QWidget | None, compute: ComputeManager) -> None:
     box.setIcon(QMessageBox.Icon.Information)
     box.setText(compute_info_text(compute))
     box.exec()
+
+
+def _size_text(n: int) -> str:
+    if n < 1024:
+        return f"{n} bytes"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
+def learning_export_text(info: dict[str, object]) -> str:
+    """Summary shown after Export learning data: what the file holds and what not."""
+    size = info.get("bytes")
+    lines = [
+        f"Saved: {info.get('path')}",
+        "",
+        f"{info.get('records', 0)} routing record(s) from {info.get('boards', 0)} board(s), "
+        f"{_size_text(size) if isinstance(size, int) else '?'}.",
+    ]
+    warnings = info.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines += [""] + [f"Note: {w}" for w in warnings]
+    lines += [
+        "",
+        "Included: anonymised per-net routing records (net and board features such as "
+        "pad counts, lengths and layer counts, the search settings, the outcome) and "
+        "the app version. Board ids are salted hashes.",
+        "",
+        "Not included: net names, reference designators, coordinates, file paths, "
+        "board files, or the salt that would link a board id to your board.",
+        "",
+        "Nothing was uploaded. The file is a zip of plain JSON lines (records.jsonl, "
+        "manifest.json) you can open and inspect. Sending it to the developer is up "
+        "to you: nothing leaves the computer unless you export it and send it yourself.",
+    ]
+    return "\n".join(lines)

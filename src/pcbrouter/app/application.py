@@ -92,6 +92,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "  pcbrouter board.kicad_pcb --route --mode speed --workers -1 --timeout 300 \\\n"
         "            --output out.kicad_pcb --report result.json\n"
         "  pcbrouter --gpu-check                         staged GPU diagnostic (JSON)\n"
+        "  pcbrouter --export-experience data.zip        export the local learning log\n"
         "\n--route exit codes: 0 fully routed · 3 partially routed (file written) ·\n"
         "1 error (nothing written) · 2 command-line usage error.",
     )
@@ -171,7 +172,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
                         "(--route; anonymised, never leaves this computer)")  # fmt: skip
     parser.add_argument("--overwrite", action="store_true",
                         help="allow --output to be the source board itself; a timestamped "
-                        "backup is written to pcbrouter-backups/ first (--route)")  # fmt: skip
+                        "backup is written to pcbrouter-backups/ first (--route); replace "
+                        "an existing OUT.zip (--export-experience)")  # fmt: skip
+    parser.add_argument("--export-experience", type=Path, metavar="OUT.zip",
+                        help="write the local routing experience log (anonymised, no salt) "
+                        "to OUT.zip so you can choose to send it to the developer; "
+                        "nothing is uploaded")  # fmt: skip
     parser.add_argument("--report", type=Path, metavar="JSON",
                         help="write a JSON result report (--route)")  # fmt: skip
     parser.add_argument("--kicad-drc", action="store_true",
@@ -284,6 +290,31 @@ def setup_ollama_cli(model: str) -> int:
     return 0
 
 
+def export_experience_cli(out: Path, overwrite: bool = False) -> int:
+    """``--export-experience OUT.zip``: bundle the local experience log for the
+    user to share. Nothing is uploaded. 0 written, 2 error."""
+    from pcbrouter.learning.experience import EXPORT_CONTENTS, export_bundle
+
+    try:
+        info = export_bundle(out, overwrite=overwrite)
+    except FileExistsError:
+        print(f"{out} already exists; choose another name or add --overwrite.")
+        return 2
+    except OSError as exc:
+        print(f"Could not write {out}: {exc}")
+        return 2
+    print(f"Learning data exported to {info['path']}")
+    print(f"  records: {info['records']}  boards: {info['boards']}  bytes: {info['bytes']}")
+    for w in info.get("warnings", []):
+        print(f"  note: {w}")
+    print(f"Contains: {EXPORT_CONTENTS}.")
+    print(
+        "Nothing was sent: nothing leaves the computer unless you export it and send it "
+        "yourself. The file is a zip of plain JSON lines (records.jsonl) you can inspect."
+    )
+    return 0
+
+
 _CRASH_LOG: Any = None
 
 
@@ -313,6 +344,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(f"{APP_NAME} {__version__}")
         return 0
+    if args.export_experience is not None:
+        return export_experience_cli(args.export_experience, overwrite=args.overwrite)
     if args.setup_ollama:
         return setup_ollama_cli(args.setup_ollama)
     if args.gpu_probe_child:

@@ -101,10 +101,46 @@ default), each board-routing job adds anonymised per-net records to a local file
 
 - features, search settings and the outcome for each net;
 - no net names, no coordinates;
-- nothing is sent anywhere.
+- nothing leaves the computer unless you export it and send it yourself.
 
 The router will use this log to choose search settings for your kinds of boards;
 the exact validator still checks every route. See `LEARNING.md`.
+
+## Sharing learning data (optional)
+More real boards make the router learn better. If you want to help, you can
+export your log and send the file to the developer. This is entirely optional,
+and the app never sends anything by itself.
+
+- In the app: **File ▸ Export Learning Data…**, choose where to save
+  (default name `pcbrouter-learning-data-<date>.zip`). A summary then shows how
+  many records and boards the file holds, its size, and what is and is not in it.
+- On the command line: `pcbrouter.exe --export-experience data.zip`
+  (`--overwrite` replaces an existing file).
+
+**What the file contains.** A zip with two plain-text files:
+
+- `records.jsonl`: one JSON object per line, one line per routed net: net and
+  board features (pad counts, lengths, layer counts, …), the search settings and
+  the outcome, plus the app version;
+- `manifest.json`: counts (records, boards, by mode and app version) and a note
+  on the contents.
+
+**What it does not contain.** No net names, reference designators,
+coordinates, file paths or board files. Boards are identified only by a salted
+hash, and the salt (kept in the `experience` folder) is **not** included, so the
+ids cannot be matched to your boards.
+
+**Check it yourself.** Unzip the file and open `records.jsonl` in any text
+editor, or read it with a few lines of Python:
+
+```python
+import json, zipfile
+with zipfile.ZipFile("pcbrouter-learning-data-2026-10-01.zip") as z:
+    for line in z.read("records.jsonl").splitlines()[:3]:
+        print(json.dumps(json.loads(line), indent=1))
+```
+
+Field reference: `EXPERIENCE_SCHEMA.md`.
 
 ## Files
 * Output: `<name>_routed.kicad_pcb` next to the source (a sidecar `.pcbrouter.json`

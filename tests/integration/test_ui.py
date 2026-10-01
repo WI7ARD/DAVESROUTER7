@@ -634,3 +634,49 @@ def test_window_starts_with_every_saved_backend(qtbot: QtBot, tmp_path: Path, ch
         Path(__file__).parents[1] / "fixtures" / "boards" / "router_basic.kicad_pcb"
     )
     w.close()
+
+
+def test_export_learning_data_action(
+    window: MainWindow, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QFileDialog
+
+    import pcbrouter.learning.experience as experience
+
+    assert window.act_export_learning in window.menu_file.actions()
+    assert "Export" in window.act_export_learning.text()
+    log = experience.ExperienceLog()  # the isolated app data folder (tests/conftest.py)
+    log.append([{"schema": experience.SCHEMA, "board": "b1", "settings": {"mode": "speed"}}])
+    dest = tmp_path / "share.zip"
+    starts: list[str] = []
+
+    def save_dialog(_parent: object, _title: str, start: str, _filter: str) -> tuple[str, str]:
+        starts.append(start)
+        return str(dest), ""
+
+    calls: list[Path] = []
+    real = experience.export_bundle
+
+    def spy(path: Path, *a: object, **k: object) -> dict:
+        calls.append(path)
+        return real(path, *a, **k)  # type: ignore[arg-type]
+
+    shown: list[tuple[str, str]] = []
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", save_dialog)
+    monkeypatch.setattr(experience, "export_bundle", spy)
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, t, text, *a: shown.append((t, text)))
+    monkeypatch.setattr(QMessageBox, "warning", lambda _p, t, text, *a: shown.append((t, text)))
+    window.act_export_learning.trigger()
+    assert Path(starts[0]).name.startswith("pcbrouter-learning-data-")
+    assert starts[0].endswith(".zip")
+    assert calls == [dest] and dest.exists()
+    title, text = shown[-1]
+    assert title == "Learning data exported"
+    assert "1 routing record(s) from 1 board(s)" in text
+    assert "salt" in text and "Nothing was uploaded" in text and "net names" in text
+    # an existing file the dialog did not confirm (".zip" appended), and a bad folder: warnings
+    (tmp_path / "again.zip").write_bytes(b"x")
+    assert not window.write_learning_export(tmp_path / "again")
+    assert shown[-1][0] == "Export failed"
+    assert not window.write_learning_export(tmp_path / "no" / "dir" / "x.zip")
+    assert shown[-1][0] == "Export failed" and (tmp_path / "again.zip").read_bytes() == b"x"

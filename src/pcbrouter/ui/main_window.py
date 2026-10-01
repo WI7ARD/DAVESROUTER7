@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QToolBar,
     QWidget,
 )
@@ -225,6 +226,12 @@ class MainWindow(QMainWindow):
         self.act_settings = self._action(
             "&Settings…", self.open_settings, "Ctrl+,", "Application settings"
         )
+        self.act_export_learning = self._action(
+            "Export &Learning Data…",
+            self.export_learning_data,
+            tip="Save the anonymised local routing log as a zip you can choose to send "
+            "to the developer (nothing is uploaded)",
+        )
         self.act_exit = self._action("E&xit", self.close, "Ctrl+Q", "Quit")
         self.act_fit = self._action(
             "Zoom to &Fit", self._zoom_fit_guarded, "F", "Fit the whole board in view"
@@ -279,6 +286,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_close)
         file_menu.addSeparator()
         file_menu.addAction(self.act_settings)
+        file_menu.addAction(self.act_export_learning)
         self.menu_file = file_menu
         file_menu.addSeparator()
         file_menu.addAction(self.act_exit)
@@ -930,6 +938,40 @@ class MainWindow(QMainWindow):
             dialogs.show_error(self, "Export failed", f"Could not write {path}.", str(exc))
             return False
         self.statusBar().showMessage(f"AI session exported to {path}", 6000)
+        return True
+
+    def export_learning_data(self) -> None:
+        """File ▸ Export Learning Data…: the user picks where; nothing is uploaded."""
+        from datetime import date
+
+        start = str(Path(self.settings.last_open_directory or Path.home())
+                    / f"pcbrouter-learning-data-{date.today():%Y-%m-%d}.zip")  # fmt: skip
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export learning data", start, "Zip archive (*.zip)"
+        )
+        if path:
+            self.write_learning_export(Path(path))
+
+    def write_learning_export(self, path: Path, *, confirmed: bool = True) -> bool:
+        """Export the experience log to *path* and show what it holds. *confirmed*:
+        the save dialog already asked before replacing an existing file."""
+        from pcbrouter.learning.experience import export_bundle
+
+        if path.suffix.lower() != ".zip":  # never write a board, settings, … by that name
+            path = path.with_name(path.name + ".zip")
+            confirmed = False  # the dialog did not ask about this name
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            info = export_bundle(path, overwrite=confirmed)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Export failed", f"Could not write the learning data to {path}:\n{exc}"
+            )
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"Learning data exported to {path}", 6000)
+        QMessageBox.information(self, "Learning data exported", dialogs.learning_export_text(info))
         return True
 
     def undo(self) -> None:
