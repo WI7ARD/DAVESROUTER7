@@ -384,15 +384,6 @@
   "domain": "breakout"
  },
  {
-  "repo": "scottbez1/splitflap",
-  "ref": "master",
-  "board": "electronics/sensor_smd/sensor_smd.kicad_pcb",
-  "domain": "breakout",
-  "tags": [
-   "sensor"
-  ]
- },
- {
   "repo": "VoronDesign/Voron-Hardware",
   "ref": "master",
   "board": "V0_Display_RP2040/KiCad/V0_Display_RP2040.kicad_pcb",

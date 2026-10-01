@@ -2,7 +2,7 @@
   "schema": "davesrouter-openboards/1",
   "suite_name": "DAVESROUTER OpenBoards — pinned open-source KiCad projects",
   "suite_version": "1.0.0",
-  "created_utc": "2026-10-01T01:01:27Z",
+  "created_utc": "2026-10-01T01:24:54Z",
   "board_count": 60,
   "notes": [
     "Open-source KiCad 6+ projects from many repositories, each pinned by commit and Git blob SHA-1 (board and sidecar .kicad_pro/.kicad_dru).",
@@ -28,9 +28,9 @@
           "size": 17647
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-W-2.0",
       "license_file": "LICENCE",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 weakly reciprocal",
       "attribution": "LibreSolar/bms-c1 @ 0ca09706f49906bdc73f6ccf99635de349d47474",
       "difficulty": "dense",
       "route_policy": "route",
@@ -605,9 +605,9 @@
           "size": 265
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "LICENSE",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "greatscottgadgets/cynthion-hardware @ 13aa71c2fb0be3837cd2ec580ee5d2c25fc1c678",
       "difficulty": "dense",
       "route_policy": "route",
@@ -1207,9 +1207,9 @@
           "size": 10084
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "hardware/hackrf-one/LICENSE",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "greatscottgadgets/hackrf @ 7f96cc8e3fa625c4263a71ba8dd44d1f6110e4fa",
       "difficulty": "dense",
       "route_policy": "route",
@@ -1300,9 +1300,9 @@
           "size": 10437
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "LICENSE-CERN-OHL",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "esp-rs/esp-rust-board @ efe1e8ad5c6dbc23b4365fef35af27545bc1381d",
       "difficulty": "small",
       "route_policy": "route",
@@ -1492,9 +1492,9 @@
           "size": 28023
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "LICENSE",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "badgeteam/mch2022-badge-hardware @ 9ca74d1f57c6973aa99dca3b2c3c9f96a1d95dab",
       "difficulty": "dense",
       "route_policy": "route",
@@ -1539,9 +1539,9 @@
           "size": 25787
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "tildagon-base/LICENSE.txt",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "emfcamp/badge-2024-hardware @ 89d5cd9d2970f099d458b65eb69febe8ea38deb6",
       "difficulty": "dense",
       "route_policy": "route",
@@ -1585,9 +1585,9 @@
           "size": 15316
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "hexpansion/LICENSE.txt",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "emfcamp/badge-2024-hardware @ 89d5cd9d2970f099d458b65eb69febe8ea38deb6",
       "difficulty": "small",
       "route_policy": "route",
@@ -1708,52 +1708,6 @@
     },
     {
       "id": "O037",
-      "name": "sensor_smd.kicad_pcb",
-      "family": "breakout",
-      "repository": "scottbez1/splitflap",
-      "commit": "87b17c531ca57b0bf10e86754e9d6b404b11a131",
-      "ref": "master",
-      "source_path": "electronics/sensor_smd/sensor_smd.kicad_pcb",
-      "source_size_bytes": 87588,
-      "git_blob_sha1": "931457b5ac421a0bba21cfca0e0cc10d4918d5e0",
-      "sidecars": [
-        {
-          "path": "electronics/sensor_smd/sensor_smd.kicad_pro",
-          "git_blob_sha1": "168b54ed05fead2596cc51fe559ae79909444e60",
-          "size": 9371
-        }
-      ],
-      "license": "Apache-2.0",
-      "license_file": "LICENSE.txt",
-      "license_note": "Apache 2.0",
-      "attribution": "scottbez1/splitflap @ 87b17c531ca57b0bf10e86754e9d6b404b11a131",
-      "difficulty": "small",
-      "route_policy": "route",
-      "tags": [
-        "sensor",
-        "breakout",
-        "2layer",
-        "planes",
-        "single_routable_layer"
-      ],
-      "reference_complete": true,
-      "copyright": null,
-      "stats": {
-        "copper_layers": 2.0,
-        "signal_layers": 1.0,
-        "plane_layers": 1.0,
-        "area_cm2": 8.0,
-        "pads": 14.0,
-        "nets_to_route": 4.0,
-        "pad_density_cm2": 1.75,
-        "long_net_frac": 0.5,
-        "demand": 0.0733,
-        "pitch_p10_mm": 1.3825,
-        "multi_pad_frac": 0.0
-      }
-    },
-    {
-      "id": "O038",
       "name": "V0_Display_RP2040.kicad_pcb",
       "family": "mcu",
       "repository": "VoronDesign/Voron-Hardware",
@@ -1799,7 +1753,7 @@
       }
     },
     {
-      "id": "O039",
+      "id": "O038",
       "name": "mobo.kicad_pcb",
       "family": "mcu",
       "repository": "opulo-inc/lumenpnp",
@@ -1815,9 +1769,9 @@
           "size": 17394
         }
       ],
-      "license": "CC-BY-SA-4.0",
+      "license": "CERN-OHL-W-2.0",
       "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
+      "license_note": "names CERN OHL v2; LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)",
       "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
       "difficulty": "dense",
       "route_policy": "route",
@@ -1846,7 +1800,7 @@
       }
     },
     {
-      "id": "O040",
+      "id": "O039",
       "name": "ringLight.kicad_pcb",
       "family": "led",
       "repository": "opulo-inc/lumenpnp",
@@ -1862,9 +1816,9 @@
           "size": 14566
         }
       ],
-      "license": "CC-BY-SA-4.0",
+      "license": "CERN-OHL-W-2.0",
       "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
+      "license_note": "names CERN OHL v2; LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)",
       "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
       "difficulty": "small",
       "route_policy": "route",
@@ -1891,7 +1845,7 @@
       }
     },
     {
-      "id": "O041",
+      "id": "O040",
       "name": "ftp.kicad_pcb",
       "family": "breakout",
       "repository": "opulo-inc/lumenpnp",
@@ -1907,9 +1861,9 @@
           "size": 11751
         }
       ],
-      "license": "CC-BY-SA-4.0",
+      "license": "CERN-OHL-W-2.0",
       "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
+      "license_note": "names CERN OHL v2; LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)",
       "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
       "difficulty": "small",
       "route_policy": "route",
@@ -1936,7 +1890,7 @@
       }
     },
     {
-      "id": "O042",
+      "id": "O041",
       "name": "orpheuspad_pcb.kicad_pcb",
       "family": "keyboard",
       "repository": "hackclub/hackpad",
@@ -1982,7 +1936,7 @@
       }
     },
     {
-      "id": "O043",
+      "id": "O042",
       "name": "sweep-bling-mx__pcb.kicad_pcb",
       "family": "keyboard",
       "repository": "davidphilipbarr/Sweep",
@@ -2029,7 +1983,7 @@
       }
     },
     {
-      "id": "O044",
+      "id": "O043",
       "name": "corne-cherry.kicad_pcb",
       "family": "keyboard",
       "repository": "foostan/crkbd",
@@ -2075,7 +2029,7 @@
       }
     },
     {
-      "id": "O045",
+      "id": "O044",
       "name": "Pro_V2.kicad_pcb",
       "family": "keyboard",
       "repository": "kata0510/Lily58",
@@ -2121,7 +2075,7 @@
       }
     },
     {
-      "id": "O046",
+      "id": "O045",
       "name": "Sofle_Pico.kicad_pcb",
       "family": "keyboard",
       "repository": "josefadamcik/SofleKeyboard",
@@ -2168,7 +2122,7 @@
       }
     },
     {
-      "id": "O047",
+      "id": "O046",
       "name": "totem_0_3.kicad_pcb",
       "family": "keyboard",
       "repository": "GEIGEIGEIST/TOTEM",
@@ -2184,9 +2138,9 @@
           "size": 9416
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "LICENSE.md",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "GEIGEIGEIST/TOTEM @ 410e566dd47466c0b69279f0d4b3646998c663d4",
       "difficulty": "normal",
       "route_policy": "route",
@@ -2214,7 +2168,7 @@
       }
     },
     {
-      "id": "O048",
+      "id": "O047",
       "name": "chocofi.kicad_pcb",
       "family": "keyboard",
       "repository": "pashutk/chocofi",
@@ -2230,9 +2184,9 @@
           "size": 6165
         }
       ],
-      "license": "CERN-OHL-S-2.0",
+      "license": "CERN-OHL-P-2.0",
       "license_file": "LICENSE.txt",
-      "license_note": "CERN OHL v2 strongly reciprocal",
+      "license_note": "CERN OHL v2 permissive",
       "attribution": "pashutk/chocofi @ 273676d11b06785fb5a1a94860a39fc36c38baba",
       "difficulty": "small",
       "route_policy": "route",
@@ -2260,7 +2214,7 @@
       }
     },
     {
-      "id": "O049",
+      "id": "O048",
       "name": "main.kicad_pcb",
       "family": "keyboard",
       "repository": "duckyb/urchin",
@@ -2306,7 +2260,7 @@
       }
     },
     {
-      "id": "O050",
+      "id": "O049",
       "name": "reviung46.kicad_pcb",
       "family": "keyboard",
       "repository": "gtips/reviung",
@@ -2351,7 +2305,7 @@
       }
     },
     {
-      "id": "O051",
+      "id": "O050",
       "name": "minze.kicad_pcb",
       "family": "mcu",
       "repository": "machdyne/minze",
@@ -2397,7 +2351,7 @@
       }
     },
     {
-      "id": "O052",
+      "id": "O051",
       "name": "flash-zif-rev3.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2443,7 +2397,7 @@
       }
     },
     {
-      "id": "O053",
+      "id": "O052",
       "name": "sim-rev3c.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2490,7 +2444,7 @@
       }
     },
     {
-      "id": "O054",
+      "id": "O053",
       "name": "bp5-ir-toy-v3-rev3.kicad_pcb",
       "family": "breakout",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2537,7 +2491,7 @@
       }
     },
     {
-      "id": "O055",
+      "id": "O054",
       "name": "adapter-ram-ddr5-1REV2.kicad_pcb",
       "family": "memory",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2584,7 +2538,7 @@
       }
     },
     {
-      "id": "O056",
+      "id": "O055",
       "name": "xy-limit.kicad_pcb",
       "family": "breakout",
       "repository": "opulo-inc/lumenpnp",
@@ -2600,9 +2554,9 @@
           "size": 14507
         }
       ],
-      "license": "CC-BY-SA-4.0",
+      "license": "CERN-OHL-W-2.0",
       "license_file": "LICENSE",
-      "license_note": "Creative Commons BY-SA 4.0",
+      "license_note": "names CERN OHL v2; LICENSE: hardware designs under ./pnp/pcb are CERN-OHL-W v2 (libraries CC BY-SA 4.0, branding reserved)",
       "attribution": "opulo-inc/lumenpnp @ 5ec657b34fbf1f4e2f1bc2ade36a16c438070b10",
       "difficulty": "small",
       "route_policy": "route",
@@ -2630,7 +2584,7 @@
       }
     },
     {
-      "id": "O057",
+      "id": "O056",
       "name": "5XL-REV0.kicad_pcb",
       "family": "mcu",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2677,7 +2631,7 @@
       }
     },
     {
-      "id": "O058",
+      "id": "O057",
       "name": "7-REV1B.kicad_pcb",
       "family": "mcu",
       "repository": "DangerousPrototypes/BusPirate5-hardware",
@@ -2724,7 +2678,7 @@
       }
     },
     {
-      "id": "O059",
+      "id": "O058",
       "name": "OtterPill.kicad_pcb",
       "family": "power",
       "repository": "Jana-Marie/OtterPill",
@@ -2771,7 +2725,7 @@
       }
     },
     {
-      "id": "O060",
+      "id": "O059",
       "name": "ligra_back.kicad_pcb",
       "family": "power",
       "repository": "Jana-Marie/ligra",
@@ -2814,6 +2768,54 @@
         "demand": 0.0717,
         "pitch_p10_mm": 1.0,
         "multi_pad_frac": 0.2121
+      }
+    },
+    {
+      "id": "O060",
+      "name": "mainboard.kicad_pcb",
+      "family": "mixed_signal",
+      "repository": "wntrblm/Castor_and_Pollux",
+      "commit": "652b28c950ed04ca41f0d8aa98d9b1be2f310f76",
+      "ref": "main",
+      "source_path": "hardware/mainboard/mainboard.kicad_pcb",
+      "source_size_bytes": 4325002,
+      "git_blob_sha1": "fa904cffaf18d4c3c5a086ed0e03858ee4042d70",
+      "sidecars": [
+        {
+          "path": "hardware/mainboard/mainboard.kicad_pro",
+          "git_blob_sha1": "38c18b1d4de5557f5643bbd3c34f0f602939d48d",
+          "size": 18046
+        }
+      ],
+      "license": "CERN-OHL-P-2.0",
+      "license_file": "hardware/mainboard/LICENSE",
+      "license_note": "names CERN OHL v2",
+      "attribution": "wntrblm/Castor_and_Pollux @ 652b28c950ed04ca41f0d8aa98d9b1be2f310f76",
+      "difficulty": "dense",
+      "route_policy": "route",
+      "tags": [
+        "eurorack",
+        "analog",
+        "mixed_signal",
+        "4layer",
+        "planes",
+        "single_routable_layer",
+        "dense_pads"
+      ],
+      "reference_complete": true,
+      "copyright": "Copyright (c) Winterbloom / Alethea Katherine Flowers 2020.",
+      "stats": {
+        "copper_layers": 4.0,
+        "signal_layers": 1.0,
+        "plane_layers": 4.0,
+        "area_cm2": 76.464,
+        "pads": 621.0,
+        "nets_to_route": 126.0,
+        "pad_density_cm2": 8.1215,
+        "long_net_frac": 0.1984,
+        "demand": 0.4082,
+        "pitch_p10_mm": 0.5,
+        "multi_pad_frac": 0.381
       }
     }
   ]
